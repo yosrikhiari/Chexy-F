@@ -1,4 +1,4 @@
-import { BoardEffect, RPGBoardModifier } from "@/Interfaces/types/rpgChess";
+import { BoardEffect } from "@/Interfaces/types/rpgChess";
 import { TeleportPortal, DynamicBoardModifier } from "@/Interfaces/types/enhancedRpgChess";
 import { BoardPosition } from "@/Interfaces/types/chess";
 import {rpgGameService} from '@/services/RPGGameService.ts';
