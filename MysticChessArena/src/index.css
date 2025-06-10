@@ -1,0 +1,127 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 250 30% 12%;
+    --foreground: 0 0% 95%;
+
+    --card: 250 25% 16%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 250 25% 16%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 252 87% 75%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 250 20% 20%;
+    --secondary-foreground: 252 87% 75%;
+
+    --muted: 250 20% 20%;
+    --muted-foreground: 0 0% 70%;
+
+    --accent: 280 60% 52%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 250 20% 30%;
+    --input: 250 20% 30%;
+    --ring: 252 87% 75%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 250 25% 16%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 252 87% 75%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 250 20% 20%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 250 20% 30%;
+    --sidebar-ring: 252 87% 75%;
+
+    /* Chess colors */
+    --chess-light: 40 70% 80%;
+    --chess-dark: 30 60% 45%;
+    --chess-highlight: 120 100% 75% / 0.5;
+    --chess-valid-move: 200 100% 75% / 0.5;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  .chess-piece {
+    @apply transition-transform duration-200 ease-in-out;
+  }
+
+  .chess-piece:hover {
+    @apply scale-105 cursor-pointer;
+  }
+}
+
+.bg-chess-light {
+  background-color: hsl(var(--chess-light));
+}
+
+.bg-chess-dark {
+  background-color: hsl(var(--chess-dark));
+}
+
+.bg-chess-highlight {
+  background-color: hsl(var(--chess-highlight));
+}
+
+.bg-chess-valid-move {
+  background-color: hsl(var(--chess-valid-move));
+}
+
+.bg-mystical-gradient {
+  background: linear-gradient(135deg, hsl(var(--background)), hsl(260 30% 15%));
+}
+
+/* RPG-style enhancements */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=MedievalSharp&display=swap');
+
+.font-medieval {
+  font-family: 'MedievalSharp', cursive;
+}
+
+.font-serif {
+  font-family: 'Cinzel', serif;
+}
+
+/* Sparkle animation */
+@keyframes sparkle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+.animate-sparkle {
+  animation: sparkle 2s ease-in-out infinite;
+}
+
+/* Mystical glow effect */
+.mystical-glow {
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.4), 0 0 40px rgba(168, 85, 247, 0.2);
+}
+
+/* RPG card hover effects */
+.rpg-card-hover {
+  transition: all 0.3s ease;
+}
+
+.rpg-card-hover:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+}
