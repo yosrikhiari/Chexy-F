@@ -93,7 +93,10 @@ const ChessBoard = ({
   // Fetch and sync game state from server
   useEffect(() => {
     const fetchGameState = async () => {
-      if (!propGameState?.gameSessionId) return;
+      if (!propGameState?.gameSessionId) {
+        console.error("Missing gameSessionId");
+        return;
+      }
 
       try {
         const gameSession: GameSession = await gameSessionService.getGameSession(propGameState.gameSessionId);

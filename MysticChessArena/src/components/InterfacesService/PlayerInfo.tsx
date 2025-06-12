@@ -4,8 +4,8 @@ import { PieceColor } from "@/Interfaces/types/chess.ts";
 import { User } from "@/Interfaces/user/User.ts";
 import { GameSession } from "@/Interfaces/types/GameSession.ts";
 import { PlayerInfoProps } from "@/Interfaces/PlayerInfoProps.ts";
-import {userService} from "@/services/UserService.ts";
-import {gameSessionService} from "@/services/GameSessionService.ts";
+import { userService } from "@/services/UserService.ts";
+import { gameSessionService } from "@/services/GameSessionService.ts";
 
 const PlayerInfo: React.FC<PlayerInfoProps> = ({
                                                  name,
@@ -24,7 +24,7 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({
   );
   const [playerPoints, setPlayerPoints] = useState<number>(points || 0);
   const [isActive, setIsActive] = useState<boolean>(
-    isCurrentPlayer || (currentPlayer === color) || false
+    isCurrentPlayer || currentPlayer === color || false
   );
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,26 +37,44 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({
         // Fetch user data if userId is provided
         if (userId) {
           const user: User = await userService.getByUserId(userId);
-          setDisplayName(user.username || "Unknown");
-          setPlayerPoints(user.points || 0);
+          if (user) {
+            setDisplayName(user.username || "Unknown");
+            setPlayerPoints(user.points || 0);
+          } else {
+            setDisplayName("Unknown");
+            setPlayerPoints(0);
+          }
         }
 
         // Fetch game session data if gameId is provided
         if (gameId) {
           const gameSession: GameSession = await gameSessionService.getGameSession(gameId);
           const player = color === "white" ? gameSession.whitePlayer : gameSession.blackPlayer;
-          // Prioritize name prop, then player session displayName, then fallback
-          setDisplayName(
-            name || player?.displayName || (color === "white" ? player1Name : player2Name) || "Unknown"
-          );
-          // Prioritize points prop, then player stats, then user points
-          setPlayerPoints(points || player?.currentStats.points || 0);
-          // Determine if current player based on game state
-          setIsActive(isCurrentPlayer || gameSession.gameState.currentTurn === color);
+
+          if (player) {
+            // Set display name with fallback chain
+            setDisplayName(
+              name || player.displayName || (color === "white" ? player1Name : player2Name) || "Unknown"
+            );
+            // Safely access points with fallback
+            setPlayerPoints(points || (player.currentStats?.points ?? 0));
+            // Determine if the player is active
+            setIsActive(isCurrentPlayer || gameSession.gameState?.currentTurn === color);
+          } else {
+            // Handle case where player is not found
+            setDisplayName(
+              name || (color === "white" ? player1Name : player2Name) || "Unknown"
+            );
+            setPlayerPoints(points || 0);
+            setIsActive(isCurrentPlayer || false);
+          }
         }
       } catch (err) {
         setError("Failed to load player data");
-        console.error(err);
+        setDisplayName("Unknown");
+        setPlayerPoints(0);
+        setIsActive(false);
+        console.error("Error fetching player info:", err);
       } finally {
         setLoading(false);
       }

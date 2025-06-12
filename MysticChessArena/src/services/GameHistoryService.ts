@@ -3,7 +3,7 @@ import { GameResult } from "@/Interfaces/types/chess";
 import { JwtService } from "./JwtService";
 
 export class GameHistoryService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
 
   async createGameHistory(gameSessionId: string): Promise<GameHistory> {
     const response = await fetch(`${this.baseUrl}/game-history?gameSessionId=${gameSessionId}`, {

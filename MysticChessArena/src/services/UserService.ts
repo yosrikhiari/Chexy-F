@@ -2,7 +2,7 @@ import { User } from "@/Interfaces/user/User";
 import { JwtService } from "./JwtService";
 
 export class UserService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
 
   async getCurrentUser(keycloakId: string): Promise<User> {
     const response = await fetch(`${this.baseUrl}/user/current?keycloakId=${keycloakId}`, {
@@ -42,7 +42,7 @@ export class UserService {
   }
 
   async getByUserId(Id: string): Promise<User> {
-    const response = await fetch(`${this.baseUrl}/user/id/{id}`, {
+    const response = await fetch(`${this.baseUrl}/user/id/${Id}`, {
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
     if (!response.ok) throw new Error("Failed to get user");

@@ -1,22 +1,14 @@
-// src/components/ProtectedRoute.tsx
 import { Navigate, Outlet } from "react-router-dom";
-
-const getCookie = (name: string): string | null => {
-  if (typeof document !== "undefined") {
-    const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
-    return match ? match[2] : null;
-  }
-  return null;
-};
+import { JwtService } from "@/services/JwtService.ts";
 
 const ProtectedRoute = () => {
-  // For server-side rendering, assume authenticated (similar to Angular's isPlatformBrowser check)
+  // Handle server-side rendering
   if (typeof window === "undefined") {
     return <Outlet />;
   }
 
-  const token = getCookie("authToken");
-  const isAuthenticated = !!token; // True if token exists
+  const token = JwtService.getToken();
+  const isAuthenticated = !!token && !JwtService.isTokenExpired(token);
 
   return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
 };

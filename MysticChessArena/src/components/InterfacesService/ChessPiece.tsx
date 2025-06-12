@@ -58,7 +58,9 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
   };
 
   // Handle click event with backend validation
-  const handleClick = async () => {
+  const handleClick = async (e: React.MouseEvent) => {
+    console.log('Event received:', e);
+    e.stopPropagation(); // Prevent event bubbling if necessary
     if (!gameId || !playerId) {
       setError('Game ID or Player ID missing');
       console.error('Game ID or Player ID missing');

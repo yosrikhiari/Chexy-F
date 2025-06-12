@@ -2,7 +2,7 @@ import { Friendship } from "@/Interfaces/types/Friendship";
 import { JwtService } from "./JwtService";
 
 export class FriendshipService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
 
   async sendFriendRequest(requesterId: string, recipientId: string): Promise<Friendship> {
     const response = await fetch(`${this.baseUrl}/friendship/request?requesterId=${requesterId}&recipientId=${recipientId}`, {

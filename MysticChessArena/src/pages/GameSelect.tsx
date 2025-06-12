@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Gamepad, Sword, Trophy, Check,
-  User as UserIcon,
-  Users } from "lucide-react";
+import { Gamepad, Sword, Trophy, Check, User as UserIcon, Users } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { User } from "@/Interfaces/user/User";
-import {JwtService} from "@/services/JwtService.ts";
-import {userService} from "@/services/UserService.ts";
-import {authService} from "@/services/AuthService.ts";
+import { JwtService } from "@/services/JwtService.ts";
+import { userService } from "@/services/UserService.ts";
+import { authService } from "@/services/AuthService.ts";
+import { gameSessionService } from "@/services/GameSessionService.ts";
+import { GameMode } from "@/Interfaces/enums/GameMode.ts";
+import { GameType } from "@/Interfaces/GameType.ts";
 
 const GameSelect = () => {
   const navigate = useNavigate();
@@ -35,18 +36,11 @@ const GameSelect = () => {
         }
       } catch (error) {
         console.error("Failed to fetch user data:", error);
-        try {
-          const storedUser = JSON.parse(localStorage.getItem("user") || '{"username": "Guest", "points": 0}');
-          setUser({ ...storedUser, id: "", keycloakId: "", emailAddress: "", role: "USER", isActive: true } as User);
-        } catch (parseError) {
-          console.error("Failed to parse localStorage user:", parseError);
-          setUser({ username: "Guest", points: 0, id: "", keycloakId: "", emailAddress: "", role: "USER", isActive: true } as User);
-        }
+        setUser({ username: "Guest", points: 0, id: "", keycloakId: "", emailAddress: "", role: "USER", isActive: true } as User);
       } finally {
         setLoading(false);
       }
     };
-
     fetchUserData();
   }, [navigate]);
 
@@ -54,7 +48,7 @@ const GameSelect = () => {
     return <div className="text-center p-4">Loading...</div>;
   }
 
-  const gameTypes = [
+  const gameTypes: GameType[] = [
     {
       title: "RPG Adventure",
       description: "Embark on a cooperative roguelike chess journey",
@@ -62,14 +56,16 @@ const GameSelect = () => {
       comingSoon: false,
       path: "/rpg",
       isRanked: false,
+      mode: "SINGLE_PLAYER_RPG",
     },
     {
       title: "Normal Match",
-      description: "Play a standard game of chess",
+      description: "Play a standard game of chess against a bot",
       icon: <Sword className="h-8 w-8" />,
       comingSoon: false,
-      path: "/",
+      path: "/bot-select",
       isRanked: false,
+      mode: "CLASSIC_SINGLE_PLAYER",
     },
     {
       title: "Ranked Match",
@@ -78,18 +74,31 @@ const GameSelect = () => {
       comingSoon: false,
       path: "/",
       isRanked: true,
+      mode: "CLASSIC_MULTIPLAYER",
     },
   ];
 
-  const handleSelectGame = (path: string, comingSoon: boolean, isRanked: boolean) => {
-    if (comingSoon) {
-      toast({
-        title: "Coming Soon",
-        description: "This game mode is not yet available",
-      });
+  const handleSelectGame = async (path: string, comingSoon: boolean, isRanked: boolean, mode: GameMode) => {
+    if (comingSoon) return;
+
+    if (!user || !authService.isLoggedIn()) {
+      toast({ title: "Error", description: "Please log in to start a game.", variant: "destructive" });
+      navigate("/login");
       return;
     }
-    navigate(path, { state: { isRankedMatch: isRanked } });
+
+    if (path === "/bot-select") {
+      // Navigate to bot selection with user and game details
+      navigate(path, { state: { user, isRanked, mode } });
+    } else {
+      try {
+        const session = await gameSessionService.createGameSession(user.id, mode, isRanked);
+        navigate(path, { state: { isRankedMatch: isRanked, gameId: session.gameId, playerId: user.id } });
+      } catch (error) {
+        toast({ title: "Error", description: "Failed to create game session.", variant: "destructive" });
+        console.error("Game session creation failed:", error);
+      }
+    }
   };
 
   const handleLogout = () => {
@@ -114,7 +123,7 @@ const GameSelect = () => {
             <Card
               key={index}
               className={`cursor-pointer hover:border-primary/50 transition-all ${game.comingSoon ? "opacity-70" : ""}`}
-              onClick={() => handleSelectGame(game.path, game.comingSoon, game.isRanked)}
+              onClick={() => handleSelectGame(game.path, game.comingSoon, game.isRanked, game.mode)}
             >
               <CardHeader>
                 <div className="flex justify-between items-start">
@@ -145,34 +154,14 @@ const GameSelect = () => {
           <p className="text-muted-foreground">
             Your rank points: <span className="text-primary font-bold">{user?.points || 0}</span>
           </p>
-
           <div className="flex gap-4 mt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate("/profile")}
-              className="flex items-center gap-1"
-              aria-label="Go to profile"
-            >
+            <Button variant="outline" size="sm" onClick={() => navigate("/profile")}>
               <UserIcon className="h-4 w-4" /> Profile
             </Button>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate("/leaderboard")}
-              className="flex items-center gap-1"
-              aria-label="Go to leaderboard"
-            >
+            <Button variant="outline" size="sm" onClick={() => navigate("/leaderboard")}>
               <Users className="h-4 w-4" /> Leaderboard
             </Button>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              aria-label="Logout"
-            >
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
               Logout
             </Button>
           </div>

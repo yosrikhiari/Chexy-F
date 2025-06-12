@@ -1,7 +1,7 @@
 import { JwtService } from "./JwtService";
 
 export class TournamentService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
 
   async createTournament(tournament: any): Promise<any> {
     const response = await fetch(`${this.baseUrl}/tournament`, {

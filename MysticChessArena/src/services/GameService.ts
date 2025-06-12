@@ -2,7 +2,7 @@ import { GameStateData } from "@/Interfaces/services/GameStateData";
 import { JwtService } from "./JwtService";
 
 export class GameService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
 
   async executeMove(gameId: string, move: { from: { row: number; col: number }; to: { row: number; col: number } }): Promise<GameStateData> {
     const response = await fetch(`${this.baseUrl}/games/${gameId}/moves`, {

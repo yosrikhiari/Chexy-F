@@ -1,7 +1,7 @@
 import { JwtService } from "./JwtService";
 
 export class EnhancedRPGService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
 
   async resolveCombat(attacker: any, defender: any, gameId: string, playerId: string): Promise<any> {
     const response = await fetch(`${this.baseUrl}/enhanced-rpg/combat`, {

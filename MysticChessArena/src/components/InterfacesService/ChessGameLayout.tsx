@@ -17,13 +17,15 @@ import {gameHistoryService} from "@/services/GameHistoryService.ts";
 
 
 const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
-  className = "",
-  isRankedMatch = false,
-}) => {
+                                                                   className = "",
+                                                                   isRankedMatch = false,
+                                                                   gameId: propGameId,
+                                                                   playerId: propPlayerId,
+                                                                 }) => {
   const [currentPlayer, setCurrentPlayer] = useState<PieceColor>("white");
   const [gameState, setGameState] = useState<GameState>({
-    gameSessionId: "",
-    userId1: "",
+    gameSessionId: propGameId || "",
+    userId1: propPlayerId || "",
     userId2: "",
     isCheck: false,
     isCheckmate: false,
@@ -47,54 +49,38 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     white: PlayerStats;
     black: PlayerStats;
   }>({
-    white: { playerId: "", name: "Guest", points: 0 },
+    white: { playerId: propPlayerId || "", name: "Guest", points: 0 },
     black: { playerId: "", name: "Opponent", points: 0 },
   });
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch current user and create game session on mount
   useEffect(() => {
     const initializeGame = async () => {
       try {
-        // Check if user is logged in
         if (!authService.isLoggedIn()) {
-          toast({
-            title: "Error",
-            description: "Please log in to start a game.",
-            variant: "destructive",
-          });
+          toast({ title: "Error", description: "Please log in to start a game.", variant: "destructive" });
           return;
         }
 
-        // Fetch current user
         const keycloakId = JwtService.getKeycloakId();
         if (!keycloakId) {
-          toast({
-            title: "Error",
-            description: "No Keycloak ID found. Please log in again.",
-            variant: "destructive",
-          });
+          toast({ title: "Error", description: "No Keycloak ID found.", variant: "destructive" });
           return;
         }
 
         const user = await userService.getCurrentUser(keycloakId);
         setCurrentUser(user);
-        setPlayerStats((prev) => ({
-          ...prev,
-          white: {
-            playerId: user.id,
-            name: user.username,
-            points: user.points,
-          },
-        }));
 
-        // Create game session
-        const session = await gameSessionService.createGameSession(
-          user.id,
-          "CLASSIC_MULTIPLAYER",
-          false
-        );
+        let session: GameSession;
+        if (propGameId && propPlayerId) {
+          session = await gameSessionService.getGameSession(propGameId);
+        } else {
+          session = await gameSessionService.createGameSession(user.id, "CLASSIC_MULTIPLAYER", isRankedMatch);
+        }
+
         setGameSession(session);
         setGameState({
           ...session.gameState,
@@ -103,27 +89,28 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
           userId2: session.blackPlayer?.userId || "",
         });
         setCurrentPlayer(session.gameState.currentTurn);
-        setPlayerStats((prev) => ({
-          ...prev,
+        setPlayerStats({
+          white: {
+            playerId: session.whitePlayer.userId,
+            name: session.whitePlayer.username,
+            points: session.whitePlayer.currentStats.points,
+          },
           black: {
             playerId: session.blackPlayer?.userId || "",
             name: session.blackPlayer?.username || "Opponent",
             points: session.blackPlayer?.currentStats.points || 0,
           },
-        }));
+        });
 
-        // Start the game
         await gameSessionService.startGame(session.gameId);
       } catch (error) {
-        toast({
-          title: "Error",
-          description: "Failed to initialize game session.",
-          variant: "destructive",
-        });
+        toast({ title: "Error", description: "Failed to initialize game.", variant: "destructive" });
+      } finally {
+        setIsLoading(false);
       }
     };
     initializeGame();
-  }, []);
+  }, [propGameId, propPlayerId, isRankedMatch]);
 
   // Monitor for black player joining
   useEffect(() => {
@@ -249,6 +236,8 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
       black: { ...prev.black, active: color === "black" },
     }));
   };
+
+
 
   return (
     <div className={`${className}`}>

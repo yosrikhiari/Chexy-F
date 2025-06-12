@@ -3,16 +3,16 @@ import { JwtService } from "./JwtService";
 import {GameState} from '@/Interfaces/types/chess.ts';
 
 export class GameSessionService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
 
-  async createGameSession(playerId: string, gameMode: string, isPrivate: boolean = false, inviteCode?: string): Promise<GameSession> {
-    const response = await fetch(
-      `${this.baseUrl}/game-session?playerId=${playerId}&gameMode=${gameMode}&isPrivate=${isPrivate}${inviteCode ? `&inviteCode=${inviteCode}` : ""}`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${JwtService.getToken()}` },
-      }
-    );
+  async createGameSession(playerId: string, gameMode: string, isPrivate: boolean = false, inviteCode?: string, botId?: string): Promise<GameSession> {
+    let url = `${this.baseUrl}/game-session?playerId=${playerId}&gameMode=${gameMode}&isPrivate=${isPrivate}`;
+    if (inviteCode) url += `&inviteCode=${inviteCode}`;
+    if (botId) url += `&botId=${botId}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
     if (!response.ok) throw new Error("Failed to create game session");
     return await response.json();
   }
