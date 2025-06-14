@@ -9,10 +9,10 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog.tsx";
 import { GameEndModalProps } from "@/Interfaces/GameEndModalProps.ts";
-import {authService} from "@/services/AuthService.ts";
-import {JwtService} from "@/services/JwtService.ts";
-import {userService} from "@/services/UserService.ts";
-import {gameHistoryService} from "@/services/GameHistoryService.ts";
+import { authService } from "@/services/AuthService.ts";
+import { JwtService } from "@/services/JwtService.ts";
+import { userService } from "@/services/UserService.ts";
+import { gameHistoryService } from "@/services/GameHistoryService.ts";
 
 const GameEndModal: React.FC<GameEndModalProps> = ({
                                                      open,
@@ -23,9 +23,15 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
                                                    }) => {
   const [error, setError] = useState<string | null>(null);
 
-  if (!gameResult) return null;
-
-  const { winner, winnerName, pointsAwarded, gameEndReason, gameid, winnerid } = gameResult;
+  // Extract properties safely with default values
+  const {
+    winner = "",
+    winnerName = "",
+    pointsAwarded = 0,
+    gameEndReason = "checkmate",
+    gameid = "",
+    winnerid = ""
+  } = gameResult || {};
 
   const reasonText = {
     checkmate: "by checkmate",
@@ -35,6 +41,8 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
 
   // Update user points and game history on the backend
   useEffect(() => {
+    if (!gameResult) return;
+
     const updateBackend = async () => {
       try {
         // Check if user is logged in
@@ -67,10 +75,10 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
       }
     };
 
-    if (gameResult) {
-      updateBackend();
-    }
+    updateBackend();
   }, [gameResult, isRankedMatch, winnerName, pointsAwarded, gameid]);
+
+  if (!gameResult) return null;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
