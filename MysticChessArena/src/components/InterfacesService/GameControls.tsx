@@ -158,58 +158,45 @@ const GameControls: React.FC<GameControlsProps> = ({
     if (!gameState?.gameSessionId || !gameSession || !currentPlayer) {
       toast({
         title: "Error",
-        description: "Game session or player not loaded.",
+        description: "Game session not loaded",
         variant: "destructive",
       });
       return;
     }
 
     try {
-      const keycloakId = JwtService.getKeycloakId();
-      if (!keycloakId) throw new Error("User not authenticated");
+      const winnerColor = currentPlayer === "white" ? "black" : "white";
+      const winnerId = winnerColor === "white" ? gameState.userId1 : gameState.userId2;
 
-      // Determine winner (opponent)
-      const winnerColor: PieceColor = currentPlayer === "white" ? "black" : "white";
-      const winnerId =
-        winnerColor === "white"
-          ? gameSession.whitePlayer.userId
-          : gameSession.blackPlayer.userId;
-
-      // End game with winner
+      // End the game session
       await gameSessionService.endGame(gameState.gameSessionId, winnerId);
 
-      // Update game history
+      // Create game result
       const gameResult: GameResult = {
         winner: winnerColor,
         winnerName: winnerColor === "white" ? player1Name : player2Name,
-        pointsAwarded: gameSession.isRankedMatch ? 100 : 50, // Example points
+        pointsAwarded: 0, // No points for resignation
         gameEndReason: "resignation",
         gameid: gameState.gameSessionId,
         winnerid: winnerId,
       };
 
-      await gameHistoryService.completeGameHistory(
-        gameSession.gameHistoryId,
-        gameResult
-      );
-
-      // Notify parent component
-      if (onResign) {
-        onResign();
+      // Complete game history
+      if (gameSession.gameHistoryId) {
+        await gameHistoryService.completeGameHistory(gameSession.gameHistoryId, gameResult);
       }
 
+      // Notify parent
+      onResign?.();
+
       toast({
-        title: "Game Ended",
-        description: `${
-          currentPlayer === "white" ? player1Name : player2Name
-        } resigned. ${
-          winnerColor === "white" ? player1Name : player2Name
-        } wins!`,
+        title: "Game Resigned",
+        description: `${currentPlayer === "white" ? player1Name : player2Name} has resigned.`,
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to process resignation.",
+        description: "Failed to process resignation",
         variant: "destructive",
       });
     }

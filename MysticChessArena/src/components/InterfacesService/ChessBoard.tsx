@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "@/components/ui/use-toast.tsx";
-import { PieceColor, BoardPosition, GameTimers, GameState, GameResult, Piece } from "@/Interfaces/types/chess.ts";
+import {
+  PieceColor,
+  BoardPosition,
+  GameTimers,
+  GameState,
+  GameResult,
+  Piece,
+  PieceType
+} from "@/Interfaces/types/chess.ts";
 import ChessSquare from "./ChessSquare.tsx";
 import GameEndModal from "./GameEndModal.tsx";
 import { initialBoard } from "@/utils/chessConstants.ts";
@@ -11,7 +19,8 @@ import { gameSessionService } from "@/services/GameSessionService.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameService } from "@/services/GameService.ts";
-import { realtimeService } from "@/services/RealtimeService.ts";
+import {realtimeService} from "@/services/RealtimeService.ts";
+import {GameMode} from "@/Interfaces/enums/GameMode.ts";
 
 // Utility to deep clone the board to prevent direct mutations
 const cloneBoard = (board: Piece[][]): Piece[][] =>
@@ -19,16 +28,49 @@ const cloneBoard = (board: Piece[][]): Piece[][] =>
 
 // Ensure board is always a valid Piece[][] for classic chess
 const ensureClassicBoard = (board: any): Piece[][] => {
-  if (Array.isArray(board) && board.length === 8 && Array.isArray(board[0]) && board[0].length === 8) {
-    return board.map((row: any[]) =>
-      row.map(cell =>
-        cell && "type" in cell && "color" in cell
-          ? { ...cell, hasMoved: cell.hasMoved ?? false, enPassantTarget: cell.enPassantTarget ?? false }
-          : null
-      )
-    );
+  console.log('Raw board from backend:', JSON.stringify(board, null, 2));
+
+  if (!Array.isArray(board) || board.length !== 8 || !board.every((row: any) => Array.isArray(row) && row.length === 8)) {
+    console.warn('Invalid board structure, using initialBoard:', board);
+    return initialBoard;
   }
-  return initialBoard;
+
+  const normalizedBoard = board.map((row: any[], rowIndex: number) =>
+    row.map((cell: any, colIndex: number) => {
+      if ([0, 1, 6, 7].includes(rowIndex) && !cell) {
+        console.warn(`Unexpected null at [${rowIndex}][${colIndex}] in piece row`);
+      }
+      if (cell && typeof cell.type === 'string' && typeof cell.color === 'string') {
+        // Normalize both type and color to lowercase
+        const normalizedType = cell.type.toLowerCase() as PieceType;
+        const normalizedColor = cell.color.toLowerCase() as PieceColor;
+
+        if (
+          ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'].includes(normalizedType) &&
+          ['white', 'black'].includes(normalizedColor)
+        ) {
+          const normalizedPiece = {
+            ...cell,
+            type: normalizedType,
+            color: normalizedColor,
+            hasMoved: cell.hasMoved ?? false,
+            enPassantTarget: cell.enPassantTarget ?? false,
+          };
+          console.log(`Normalized piece at [${rowIndex}][${colIndex}]:`, normalizedPiece);
+          return normalizedPiece;
+        }
+        console.warn(`Invalid piece type or color at [${rowIndex}][${colIndex}]:`, cell);
+      } else if (rowIndex >= 2 && rowIndex <= 5) {
+        return null;
+      } else {
+        console.warn(`Missing or invalid type/color at [${rowIndex}][${colIndex}]:`, cell);
+      }
+      return null;
+    })
+  );
+
+  console.log('Normalized board:', JSON.stringify(normalizedBoard, null, 2));
+  return normalizedBoard;
 };
 
 const ChessBoard = ({
@@ -67,6 +109,7 @@ const ChessBoard = ({
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [showGameEndModal, setShowGameEndModal] = useState(false);
   const [isLoadingMove, setIsLoadingMove] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>("CLASSIC_MULTIPLAYER");
 
   const currentPlayer = propCurrentPlayer || internalCurrentPlayer;
   const gameState = propGameState || internalGameState;
@@ -100,10 +143,11 @@ const ChessBoard = ({
 
       try {
         const gameSession: GameSession = await gameSessionService.getGameSession(propGameState.gameSessionId);
-        if (gameSession.gameMode !== "CLASSIC_MULTIPLAYER") {
+        setGameMode(gameSession.gameMode);
+        if (gameSession.gameMode !== "CLASSIC_MULTIPLAYER" && gameSession.gameMode !== "CLASSIC_SINGLE_PLAYER") {
           toast({
             title: "Error",
-            description: `This component supports only CLASSIC_MULTIPLAYER mode. Current mode: ${gameSession.gameMode}`,
+            description: `This component supports only CLASSIC_MULTIPLAYER or CLASSIC_SINGLE_PLAYER mode. Current mode: ${gameSession.gameMode}`,
             variant: "destructive",
           });
           setBoard(initialBoard);
@@ -203,7 +247,7 @@ const ChessBoard = ({
 
   // Timer management
   useEffect(() => {
-    if (!timers) return;
+    if (!timers || gameMode === "SINGLE_PLAYER_RPG") return;
 
     const timerInterval = setInterval(() => {
       if (timers[currentPlayer]?.active && timers[currentPlayer]?.timeLeft > 0) {
@@ -252,7 +296,7 @@ const ChessBoard = ({
     }, 1000);
 
     return () => clearInterval(timerInterval);
-  }, [timers, currentPlayer, onTimeUpdate, onTimeout, gameState.gameSessionId]);
+  }, [timers, currentPlayer, onTimeUpdate, onTimeout, gameState.gameSessionId, gameMode]);
 
   // Sync current player with parent
   useEffect(() => {
@@ -273,98 +317,89 @@ const ChessBoard = ({
     validMoves.some(move => move.row === row && move.col === col);
 
   const handleSquareClick = async (row: number, col: number) => {
-    if (gameState.isCheckmate) {
-      toast({
-        title: "Game Over",
-        description: "The game has ended in checkmate.",
-        variant: "destructive",
-      });
+    if (!gameState.gameSessionId) {
+      toast({ title: "Error", description: "Game session not initialized", variant: "destructive" });
       return;
     }
+    if (gameState.isCheckmate || isLoadingMove) return;
 
-    if (isLoadingMove) {
-      toast({
-        title: "Processing",
-        description: "Please wait while the move is being processed.",
-        variant: "default",
-      });
-      return;
-    }
-
-    if (selectedPiece) {
-      const { row: selectedRow, col: selectedCol } = selectedPiece;
-
-      try {
-        setIsLoadingMove(true);
-        const move = { from: { row: selectedRow, col: selectedCol }, to: { row, col } };
-        const isValid = await chessGameService.validateMove(gameState.gameSessionId, move);
-        if (!isValid) {
-          toast({
-            title: "Invalid Move",
-            description: "The selected move is not valid.",
-            variant: "destructive",
-          });
-          resetSelection();
-          return;
-        }
-
-        const newBoard = cloneBoard(board);
-        const movingPiece = newBoard[selectedRow][selectedCol];
-        if (movingPiece) {
-          movingPiece.hasMoved = true;
-          newBoard[row][col] = movingPiece;
-          newBoard[selectedRow][selectedCol] = null;
-
-          if (board[row][col]) {
-            toast({
-              title: "Piece Captured!",
-              description: `${currentPlayer} captured a ${board[row][col]?.color} ${board[row][col]?.type}`,
-            });
-          }
-        }
-
-        await gameService.executeMove(gameState.gameSessionId, move);
-        setBoard(newBoard);
-
-        const nextPlayer = currentPlayer === "white" ? "black" : "white";
-        setCurrentPlayerValue(nextPlayer);
-
-        if (onTimeUpdate && timers) {
-          const updatedTimers = {
-            ...timers,
-            [currentPlayer]: { ...timers[currentPlayer], active: false },
-            [nextPlayer]: { ...timers[nextPlayer], active: true },
-          };
-          onTimeUpdate(updatedTimers);
-        }
-
-        await realtimeService.broadcastGameState(gameState.gameSessionId);
-        resetSelection();
-      } catch (error) {
-        toast({
-          title: "Error",
-          description: "Failed to execute move. Please try again.",
-          variant: "destructive",
-        });
-        resetSelection();
-      } finally {
-        setIsLoadingMove(false);
-      }
-    } else {
+    // If no piece selected and clicked on own piece, select it
+    if (!selectedPiece) {
       const clickedPiece = board[row][col];
       if (clickedPiece && clickedPiece.color === currentPlayer) {
         setSelectedPiece({ row, col });
-        setValidMoves(await calculateValidMoves(
+        const moves = await calculateValidMoves(
           { row, col },
           board,
           currentPlayer,
           gameState.gameSessionId,
-          "CLASSIC_MULTIPLAYER",
+          gameMode,
           8,
           true,
           gameState.enPassantTarget
-        ));
+        );
+        setValidMoves(moves);
       }
+      return;
+    }
+
+    // If piece is selected, try to move it
+    setIsLoadingMove(true);
+    try {
+      const move = {
+        from: { row: selectedPiece.row, col: selectedPiece.col },
+        to: { row, col }
+      };
+
+      // Validate move
+      const isValid = await chessGameService.validateMove(
+        gameState.gameSessionId,
+        {
+          row: selectedPiece.row,
+          col: selectedPiece.col,
+          torow: row,
+          tocol: col
+        }
+      );
+
+      if (!isValid) {
+        toast({ title: "Invalid Move", variant: "destructive" });
+        resetSelection();
+        return;
+      }
+
+      // Execute move
+      await gameService.executeMove(gameState.gameSessionId, move);
+
+      // Update local state
+      const newBoard = cloneBoard(board);
+      const movingPiece = newBoard[selectedPiece.row][selectedPiece.col];
+      if (movingPiece) {
+        movingPiece.hasMoved = true;
+        newBoard[row][col] = movingPiece;
+        newBoard[selectedPiece.row][selectedPiece.col] = null;
+      }
+      setBoard(newBoard);
+
+      // Switch turns
+      const nextPlayer = currentPlayer === "white" ? "black" : "white";
+      setCurrentPlayerValue(nextPlayer);
+
+      // Update timers
+      if (onTimeUpdate && timers) {
+        onTimeUpdate({
+          ...timers,
+          [currentPlayer]: { ...timers[currentPlayer], active: false },
+          [nextPlayer]: { ...timers[nextPlayer], active: true },
+        });
+      }
+
+      resetSelection();
+    } catch (error) {
+      toast({ title: "Move Failed", variant: "destructive" });
+      resetSelection();
+    } finally {
+      setIsLoadingMove(false);
     }
   };
 
@@ -396,7 +431,7 @@ const ChessBoard = ({
                 actualColIndex={actualColIndex}
                 onClick={handleSquareClick}
                 gameId={gameState.gameSessionId}
-                gameMode="CLASSIC_MULTIPLAYER"
+                gameMode={gameMode}
               />
             );
           })}

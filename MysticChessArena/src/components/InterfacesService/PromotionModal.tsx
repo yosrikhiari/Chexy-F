@@ -37,7 +37,7 @@ const PromotionModal: React.FC<ExtendedPromotionModalProps> = ({
     setError(null);
     try {
       // Validate the move
-      const isValid = await chessGameService.validateMove(gameId, { from, to });
+      const isValid = await chessGameService.validateMove(gameId, { col:from.col,row:from.row,torow:to.row,tocol:to.col });
       if (!isValid) {
         throw new Error("Invalid move for promotion");
       }

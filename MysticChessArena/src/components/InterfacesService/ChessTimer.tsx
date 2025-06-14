@@ -3,10 +3,8 @@ import { GameResult, GameTimers, PieceColor } from '@/Interfaces/types/chess.ts'
 import { ChessTimerProps } from '@/Interfaces/ChessTimerProps.ts';
 import { cn } from '@/lib/utils.ts';
 import { Timer } from 'lucide-react';
-import {gameSessionService} from "@/services/GameSessionService.ts";
-import {realtimeService} from "@/services/RealtimeService.ts";
-import {gameHistoryService} from "@/services/GameHistoryService.ts";
-
+import { gameSessionService } from "@/services/GameSessionService.ts";
+import { gameHistoryService } from "@/services/GameHistoryService.ts";
 
 const ChessTimer: React.FC<ChessTimerProps> = ({
                                                  timers,
@@ -30,7 +28,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
     return `${minutes.toString().padStart(2, '0')}:${secondsRemaining.toString().padStart(2, '0')}`;
   };
 
-  // Fetch initial game session data to get timers, game mode, and player names
+  // Fetch initial game session data
   useEffect(() => {
     if (!gameId || isGameOver) return;
 
@@ -38,19 +36,35 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
       try {
         const session = await gameSessionService.getGameSession(gameId);
         setGameMode(session.gameMode);
-        setWhitePlayerName(session.whitePlayer.username);
-        setBlackPlayerName(session.blackPlayer.username);
+        setWhitePlayerName(session.whitePlayer?.username || 'White');
+        setBlackPlayerName(session.blackPlayer?.username || 'Bot');
 
-        // Only update timers if not provided via props
-        if (!timers.white.timeLeft || !timers.black.timeLeft) {
+        // Validate session.timers before updating
+        if (
+          session.timers?.white?.timeLeft != null &&
+          session.timers?.black?.timeLeft != null &&
+          session.timers?.defaultTime != null &&
+          (!timers?.white?.timeLeft || !timers?.black?.timeLeft)
+        ) {
           setTimers({
-            white: { timeLeft: session.timers.white.timeLeft, active: session.timers.white.active },
-            black: { timeLeft: session.timers.black.timeLeft, active: session.timers.black.active },
+            white: {
+              timeLeft: session.timers.white.timeLeft,
+              active: session.timers.white.active ?? false,
+            },
+            black: {
+              timeLeft: session.timers.black.timeLeft,
+              active: session.timers.black.active ?? false,
+            },
             defaultTime: session.timers.defaultTime,
           });
+        } else if (!session.timers) {
+          const errorMsg = 'Invalid timer data received from game session';
+          setLocalError(errorMsg);
+          onError?.(errorMsg);
+          console.error(errorMsg);
         }
       } catch (err) {
-        const errorMsg = `Failed to fetch game session: ${err.message}`;
+        const errorMsg = `Failed to fetch game session: ${(err as Error).message}`;
         setLocalError(errorMsg);
         onError?.(errorMsg);
         console.error(errorMsg);
@@ -58,15 +72,15 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
     };
 
     fetchGameSession();
-  }, [gameId, isGameOver, setTimers, onError]);
+  }, [gameId, isGameOver, setTimers, onError, timers]);
 
   // Timer countdown logic
   useEffect(() => {
-    if (isGameOver || !gameId || gameMode === 'SINGLE_PLAYER_RPG') return;
+    if (isGameOver || !gameId || gameMode === 'SINGLE_PLAYER_RPG' || !timers) return;
 
     const timerInterval = setInterval(() => {
       setTimers((prev: GameTimers) => {
-        if (prev[currentPlayer].active && prev[currentPlayer].timeLeft > 0) {
+        if (prev && prev[currentPlayer]?.active && prev[currentPlayer]?.timeLeft > 0) {
           const updatedTimers = {
             ...prev,
             [currentPlayer]: {
@@ -75,7 +89,6 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
             },
           };
 
-          // Handle timeout
           if (updatedTimers[currentPlayer].timeLeft === 0) {
             handleTimeout(currentPlayer);
           }
@@ -87,66 +100,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
     }, 1000);
 
     return () => clearInterval(timerInterval);
-  }, [currentPlayer, isGameOver, setTimers, gameId, gameMode]);
-
-  // WebSocket for real-time timer updates
-  useEffect(() => {
-    if (!gameId || isGameOver || gameMode === 'SINGLE_PLAYER_RPG') return;
-
-    const ws = new WebSocket(`ws://${import.meta.env.VITE_API_BASE_URL}/realtime/${gameId}`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'TIMER_UPDATE') {
-          setTimers(data.timers);
-          console.log('Received timer update via WebSocket');
-        }
-      } catch (err) {
-        console.error('WebSocket message error:', err);
-      }
-    };
-    ws.onerror = () => {
-      const errorMsg = 'WebSocket connection failed';
-      setLocalError(errorMsg);
-      onError?.(errorMsg);
-      console.error(errorMsg);
-    };
-
-    return () => ws.close();
-  }, [gameId, isGameOver, gameMode, setTimers, onError]);
-
-  // Send timer updates to opponent via RealtimeService
-  const sendTimerUpdate = async () => {
-    try {
-      const opponentId = await getOpponentId();
-      if (opponentId) {
-        await realtimeService.sendToPlayer(opponentId, {
-          type: 'TIMER_UPDATE',
-          timers,
-          gameId,
-        });
-        console.log('Timer synced with opponent');
-      }
-    } catch (err) {
-      const errorMsg = `Failed to send timer update: ${err.message}`;
-      setLocalError(errorMsg);
-      onError?.(errorMsg);
-      console.error(errorMsg);
-    }
-  };
-
-  // Get opponent player ID from game session
-  const getOpponentId = async (): Promise<string | null> => {
-    try {
-      const session = await gameSessionService.getGameSession(gameId!);
-      return session.whitePlayer.userId === playerId
-        ? session.blackPlayer.userId
-        : session.whitePlayer.userId;
-    } catch (err) {
-      console.error('Failed to get opponent ID:', err);
-      return null;
-    }
-  };
+  }, [currentPlayer, isGameOver, setTimers, gameId, gameMode, timers]);
 
   // Handle timeout event
   const handleTimeout = async (color: PieceColor) => {
@@ -159,44 +113,55 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
     }
 
     try {
-      // Determine winner (opponent of the timed-out player)
       const session = await gameSessionService.getGameSession(gameId);
       const winnerId =
-        color === 'white' ? session.blackPlayer.userId : session.whitePlayer.userId;
+        color === 'white' ? session.blackPlayer?.userId : session.whitePlayer?.userId;
 
-      // End the game
-      await gameSessionService.endGame(gameId, winnerId);
+      if (winnerId) {
+        await gameSessionService.endGame(gameId, winnerId);
 
-      // Record game history
-      const gameResult: GameResult = {
-        winner: color === 'white' ? 'black' : 'white',
-        winnerName: winnerId === session.whitePlayer.userId ? session.whitePlayer.username : session.blackPlayer.username,
-        pointsAwarded: session.isRankedMatch ? 100 : 50,
-        gameEndReason: 'timeout',
-        gameid: gameId,
-        winnerid: winnerId,
-      };
+        const gameResult: GameResult = {
+          winner: color === 'white' ? 'black' : 'white',
+          winnerName:
+            winnerId === session.whitePlayer?.userId
+              ? session.whitePlayer.username
+              : (session.blackPlayer?.username || 'Bot'),
+          pointsAwarded: session.isRankedMatch ? 100 : 50,
+          gameEndReason: 'timeout',
+          gameid: gameId,
+          winnerid: winnerId,
+        };
 
-      if (session.gameHistoryId) {
-        await gameHistoryService.completeGameHistory(session.gameHistoryId, gameResult);
+        if (session.gameHistoryId) {
+          await gameHistoryService.completeGameHistory(session.gameHistoryId, gameResult);
+        }
+
+        onTimeout(color);
+      } else {
+        const errorMsg = 'Winner ID not found';
+        setLocalError(errorMsg);
+        onError?.(errorMsg);
+        console.error(errorMsg);
       }
-
-      // Broadcast timeout event
-      await realtimeService.broadcastGameState(gameId);
-
-      // Trigger onTimeout callback
-      onTimeout(color);
     } catch (err) {
-      const errorMsg = `Failed to handle timeout: ${err.message}`;
+      const errorMsg = `Failed to handle timeout: ${(err as Error).message}`;
       setLocalError(errorMsg);
       onError?.(errorMsg);
       console.error(errorMsg);
     }
   };
 
+  // Defensive check for timers
+  if (!timers || !timers.white || !timers.black) {
+    return (
+      <div className="text-red-500 text-center p-2">
+        Error: Timer data is not available.
+      </div>
+    );
+  }
+
   return (
     <div className={cn('grid grid-cols-2 gap-2', localError && 'border-2 border-red-500 rounded-md')}>
-      {/* White timer */}
       <div
         className={cn(
           'flex items-center gap-2 rounded-md p-2',
@@ -209,7 +174,6 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
         <div className="text-xs text-muted-foreground">{whitePlayerName} (white)</div>
       </div>
 
-      {/* Black timer */}
       <div
         className={cn(
           'flex items-center gap-2 rounded-md p-2',
@@ -222,7 +186,6 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
         <div className="text-xs text-muted-foreground">{blackPlayerName} (black)</div>
       </div>
 
-      {/* Error indicator */}
       {localError && (
         <div className="col-span-2 text-xs bg-red-500 text-white px-2 py-1 rounded mt-2 text-center">
           {localError}

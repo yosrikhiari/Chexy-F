@@ -15,7 +15,7 @@ const Index = () => {
   const [gameId, setGameId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const isRankedMatch = location.state?.isRankedMatch || false;
+  const { isRankedMatch, mode } = location.state || { isRankedMatch: false, mode: "CLASSIC_MULTIPLAYER" };
 
   useEffect(() => {
     const initializeGame = async () => {
@@ -28,40 +28,52 @@ const Index = () => {
 
         const keycloakId = JwtService.getKeycloakId();
         if (!keycloakId) {
-          setUser({ username: "Guest", points: 0 } as User);
-          setGameId(null);
-        } else {
-          const userData = await userService.getCurrentUser(keycloakId);
-          setUser(userData);
-
-          const { gameId: stateGameId } = location.state || {};
-          if (stateGameId) {
-            // Use the gameId from BotSelect
-            setGameId(stateGameId);
-          } else {
-            // Create a new session only if no gameId is provided (e.g., for Ranked Match)
-            const session = await gameSessionService.createGameSession(
-              userData.id,
-              "CLASSIC_MULTIPLAYER",
-              isRankedMatch
-            );
-            setGameId(session.gameId);
-          }
+          throw new Error("No Keycloak ID found");
         }
+
+        const userData = await userService.getCurrentUser(keycloakId);
+        setUser(userData);
+
+        const { gameId: stateGameId } = location.state || {};
+        let newGameId: string;
+        if (stateGameId) {
+          newGameId = stateGameId;
+        } else {
+          const session = await gameSessionService.createGameSession(
+            userData.id,
+            mode,
+            isRankedMatch
+          );
+          newGameId = session.gameId;
+        }
+        setGameId(newGameId);
       } catch (error) {
         console.error("Failed to initialize game:", error);
-        setUser({ username: "Guest", points: 0 } as User);
-        setGameId(null);
+        navigate("/error", { state: { message: "Failed to start game. Please try again." } });
       } finally {
         setLoading(false);
       }
     };
 
     initializeGame();
-  }, [navigate, location.state, isRankedMatch]);
+  }, [navigate, location.state, isRankedMatch, mode]);
+
+  useEffect(() => {
+    if (!loading) {
+      console.log("Rendering with:", { gameId, playerId: user?.id, mode });
+    }
+  }, [loading, gameId, user, mode]);
 
   if (loading) {
-    return <div>Loading...</div>;
+    return <div>Loading game...</div>;
+  }
+
+  if (!gameId || !user?.id) {
+    return (
+      <div className="text-center p-4 text-red-500">
+        Error: Failed to start game. Please try again or contact support.
+      </div>
+    );
   }
 
   return (
@@ -109,7 +121,8 @@ const Index = () => {
           className="pt-4 md:pt-8"
           isRankedMatch={isRankedMatch}
           gameId={gameId}
-          playerId={user?.id}
+          playerId={user.id}
+          mode={mode}
         />
       </div>
     </div>

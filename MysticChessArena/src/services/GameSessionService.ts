@@ -50,7 +50,11 @@ export class GameSessionService {
       method: "POST",
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
-    if (!response.ok) throw new Error("Failed to start game");
+    if (!response.ok) {
+      const errorText = await response.text(); // Log the full response
+      console.error("Start game failed:", response.status, errorText);
+      throw new Error(`Failed to start game: ${errorText}`);
+    }
     return await response.json();
   }
 

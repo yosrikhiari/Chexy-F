@@ -21,7 +21,7 @@ import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
 import { realtimeService } from "@/services/RealtimeService.ts";
 import { enhancedRPGService } from "@/services/EnhancedRPGService.ts";
-import {AIService} from "@/services/aiService.ts";
+import {aiserervice} from "@/services/aiService.ts";
 
 const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
                                                                        gameState,
@@ -142,7 +142,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         // Place enemy pieces
         const enemyArmy = gameState.enemyArmy.length
           ? gameState.enemyArmy
-          : await AIService.generateEnemyArmy(gameState.currentRound, size);
+          : await aiserervice.generateEnemyArmy(gameState.currentRound, size);
         let enemyIndex = 0;
         for (let row = 0; row < 2 && enemyIndex < enemyArmy.length; row++) {
           for (let col = 0; col < size && enemyIndex < enemyArmy.length; col++) {
@@ -485,7 +485,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
     try {
       const enemyPieces = currentBoard.flat().filter((piece) => piece && piece.color === "black") as EnhancedRPGPiece[];
       const playerPieces = currentBoard.flat().filter((piece) => piece && piece.color === "white") as EnhancedRPGPiece[];
-      const aiMove = await AIService.calculateAIMove(
+      const aiMove = await aiserervice.calculateAIMove(
         currentBoard,
         enemyPieces,
         playerPieces,

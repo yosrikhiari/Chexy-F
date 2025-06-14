@@ -9,6 +9,12 @@ export interface Piece {
   enPassantTarget?: boolean;
   Position?: BoardPosition;
 }
+export interface Move {
+  row: number;
+  col: number;
+  torow: number;
+  tocol: number;
+}
 
 export interface BoardPosition {
   row: number;

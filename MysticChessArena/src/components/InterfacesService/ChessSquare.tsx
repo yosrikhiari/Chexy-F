@@ -1,29 +1,30 @@
-
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils.ts';
 import ChessPiece from './ChessPiece.tsx';
 import { ChessSquareProps } from '@/Interfaces/ChessSquareProps.ts';
 import { BoardEffect } from '@/Interfaces/types/rpgChess.ts';
-import {enhancedRPGService} from "@/services/EnhancedRPGService.ts";
-import {rpgGameService} from "@/services/RPGGameService.ts";
+import { enhancedRPGService } from '@/services/EnhancedRPGService.ts';
+import { rpgGameService } from '@/services/RPGGameService.ts';
+import {Piece} from "@/Interfaces/types/chess.ts";
 
 const ChessSquare: React.FC<ChessSquareProps> = ({
-  row,
-  col,
-  piece,
-  isLight,
-  isSelected,
-  isValidMove,
-  isCheck = false,
-  actualRowIndex,
-  actualColIndex,
-  onClick,
-  specialEffect,
-  gameId,
-  playerId,
-  gameMode,
-  onError,
-}) => {
+                                                   row,
+                                                   col,
+                                                   piece,
+                                                   isLight,
+                                                   isSelected,
+                                                   isValidMove,
+                                                   isCheck = false,
+                                                   actualRowIndex,
+                                                   actualColIndex,
+                                                   onClick,
+                                                   specialEffect,
+                                                   gameId,
+                                                   playerId,
+                                                   gameMode,
+                                                   onError,
+                                                   onPieceClick,
+                                                 }) => {
   const [localError, setLocalError] = useState<string | null>(null);
 
   // Map special effect to styles and icons based on BoardEffect
@@ -58,13 +59,20 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
   };
 
   // Handle click with potential backend interaction for special effects
+
+
+
   const handleClick = async () => {
-    if (!gameId || !playerId) {
-      const errorMsg = 'Game ID or Player ID missing';
+    try {
+      setLocalError(null);
+      if (specialEffect && (gameMode === 'SINGLE_PLAYER_RPG' || gameMode === 'MULTIPLAYER_RPG' || gameMode === 'ENHANCED_RPG')) {
+      }
+      onClick(row, col);
+    } catch (err) {
+      const errorMsg = `Failed to process ${specialEffect || 'click'}: ${(err as Error).message}`;
       setLocalError(errorMsg);
       onError?.(errorMsg);
       console.error(errorMsg);
-      return;
     }
 
     try {
@@ -83,10 +91,10 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
         };
 
         if (gameMode === 'ENHANCED_RPG') {
-          await enhancedRPGService.applyBoardEffect(gameId, effect, playerId);
+          await enhancedRPGService.applyBoardEffect(gameId!, effect, playerId!);
           console.log(`Applied ${specialEffect} effect at (${row}, ${col})`);
         } else {
-          await rpgGameService.addBoardEffect(gameId, effect, playerId);
+          await rpgGameService.addBoardEffect(gameId!, effect, playerId!);
           console.log(`Added ${specialEffect} effect at (${row}, ${col})`);
         }
       }
@@ -94,7 +102,7 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
       // Call parent onClick handler
       onClick(row, col);
     } catch (err) {
-      const errorMsg = `Failed to process ${specialEffect || 'click'}: ${err.message}`;
+      const errorMsg = `Failed to process ${specialEffect || 'click'}: ${(err as Error).message}`;
       setLocalError(errorMsg);
       onError?.(errorMsg);
       console.error(errorMsg);
@@ -122,6 +130,7 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
           gameId={gameId}
           playerId={playerId}
           isSelected={isSelected}
+          onClick={(p) => onPieceClick?.(p as Piece, { row: actualRowIndex, col: actualColIndex })}
         />
       )}
 

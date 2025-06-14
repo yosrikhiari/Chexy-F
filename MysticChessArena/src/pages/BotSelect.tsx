@@ -18,25 +18,34 @@ const BotSelect = () => {
     try {
       const session = await gameSessionService.createGameSession(
         user.id,
-        mode,  // Now "CLASSIC_SINGLE_PLAYER" from GameSelect
+        mode,
         true,
         null,
-        bot.id  // Pass the selected bot's ID
+        bot.id
       );
+      if (!session || !session.gameId) {
+        throw new Error("Invalid game session");
+      }
       toast({
         title: "Game Started",
         description: `You're playing against ${bot.name} (${bot.points} points)!`,
       });
       navigate("/", {
-        state: { isRankedMatch: isRanked, gameId: session.gameId, playerId: user.id },
+        state: {
+          isRankedMatch: isRanked,
+          gameId: session.gameId,
+          playerId: user.id,
+          mode: "CLASSIC_SINGLE_PLAYER"
+        }
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to start game with bot.",
+        description: "Failed to start game with bot. Please try again.",
         variant: "destructive",
       });
       console.error("Bot game session creation failed:", error);
+      // Do not navigate; stay on BotSelect
     }
   };
 

@@ -17,4 +17,5 @@ export interface ChessSquareProps {
   playerId?: string; // For backend calls
   gameMode?: GameMode; // To determine service usage
   onError?: (error: string) => void; // To propagate errors to parent
+  onPieceClick?: (piece: Piece, position: { row: number; col: number }) => void;
 }

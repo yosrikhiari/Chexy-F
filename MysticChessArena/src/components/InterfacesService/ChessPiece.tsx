@@ -4,11 +4,10 @@ import { ChessPieceProps } from '@/Interfaces/ChessPieceProps.ts';
 import { Piece, PieceColor, PieceType } from '@/Interfaces/types/chess.ts';
 import { RPGPiece } from '@/Interfaces/types/rpgChess.ts';
 import { EnhancedRPGPiece } from '@/Interfaces/types/enhancedRpgChess.ts';
-import {chessGameService} from "@/services/ChessGameService.ts";
-import {gameService} from "@/services/GameService.ts";
-import {rpgGameService} from "@/services/RPGGameService.ts";
-import {enhancedRPGService} from "@/services/EnhancedRPGService.ts";
-
+import { chessGameService } from "@/services/ChessGameService.ts";
+import { gameService } from "@/services/GameService.ts";
+import { rpgGameService } from "@/services/RPGGameService.ts";
+import { enhancedRPGService } from "@/services/EnhancedRPGService.ts";
 
 const ChessPiece: React.FC<ChessPieceProps> = ({
                                                  piece,
@@ -18,88 +17,66 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
                                                  gameId,
                                                  playerId,
                                                }) => {
-  // State for error handling
   const [error, setError] = useState<string | null>(null);
 
-  // Determine piece type
-  const isClassicPiece = (p: Piece | RPGPiece | EnhancedRPGPiece): p is Piece =>
-    'type' in p && 'color' in p && !('hp' in p);
-  const isRPGPiece = (p: Piece | RPGPiece | EnhancedRPGPiece): p is RPGPiece =>
-    'hp' in p && !('pluscurrentHp' in p);
-  const isEnhancedRPGPiece = (p: Piece | RPGPiece | EnhancedRPGPiece): p is EnhancedRPGPiece =>
-    'pluscurrentHp' in p;
+  const isClassicPiece = (p: Piece | RPGPiece | EnhancedRPGPiece | null): p is Piece =>
+    !!p && 'type' in p && 'color' in p && !('hp' in p) &&
+    typeof p.type === 'string' && typeof p.color === 'string' &&
+    ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'].includes(p.type.toLowerCase()) &&
+    ['white', 'black'].includes(p.color.toLowerCase());
 
-  // Unicode symbols for classic chess pieces
+  const isRPGPiece = (p: Piece | RPGPiece | EnhancedRPGPiece | null): p is RPGPiece =>
+    !!p && 'hp' in p && !('pluscurrentHp' in p);
+
+  const isEnhancedRPGPiece = (p: Piece | RPGPiece | EnhancedRPGPiece | null): p is EnhancedRPGPiece =>
+    !!p && 'pluscurrentHp' in p;
+
   const classicPieces = {
-    white: {
-      king: '♔',
-      queen: '♕',
-      rook: '♖',
-      bishop: '♗',
-      knight: '♘',
-      pawn: '♙',
-    },
-    black: {
-      king: '♚',
-      queen: '♛',
-      rook: '♜',
-      bishop: '♝',
-      knight: '♞',
-      pawn: '♟',
-    },
+    white: { king: '♔', queen: '♕', rook: '♖', bishop: '♗', knight: '♘', pawn: '♙' },
+    black: { king: '♚', queen: '♛', rook: '♜', bishop: '♝', knight: '♞', pawn: '♟' },
   };
 
-  // Dynamic RPG piece icons (replace with backend-fetched assets or local map)
   const rpgPieceIcons: Record<string, string> = {
-    common: '🛡️',
-    rare: '⚔️',
-    epic: '🔥',
-    legendary: '✨',
+    common: '🛡️', rare: '⚔️', epic: '🔥', legendary: '✨',
   };
 
-  // Handle click event with backend validation
-  const handleClick = async (e: React.MouseEvent) => {
-    console.log('Event received:', e);
-    e.stopPropagation(); // Prevent event bubbling if necessary
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!gameId || !playerId) {
-      setError('Game ID or Player ID missing');
-      console.error('Game ID or Player ID missing');
+      console.warn('Click ignored: Missing gameId or playerId', { gameId, playerId });
       return;
+    }
+    if (!piece) {
+      console.warn('Click ignored: No piece provided');
+      return;
+    }
+    // For classic chess modes
+    if (isClassicPiece(piece) &&
+      (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
+      onClick(piece, piece.Position || { row: -1, col: -1 });
     }
 
     try {
       setError(null);
-
-      if (isClassicPiece(piece) && gameMode === 'CLASSIC_MULTIPLAYER') {
-        // Example move validation (assumes target position is handled by parent)
-        if (piece.Position) {
-          const move = {
-            from: { row: piece.Position.row, col: piece.Position.col },
-            to: { row: piece.Position.row, col: piece.Position.col }, // Placeholder target
-          };
-          const isValid = await chessGameService.validateMove(gameId, move);
-          if (isValid) {
-            const updatedState = await gameService.executeMove(gameId, move);
-            console.log('Move executed:', updatedState);
-          } else {
-            setError('Invalid move');
-            console.error('Invalid move');
-          }
+      if (isClassicPiece(piece) && (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
+        // Trigger onClick to select the piece in ChessBoard
+        if (onClick) {
+          onClick(piece, { row: piece.Position?.row ?? -1, col: piece.Position?.col ?? -1 });
         }
       } else if (isRPGPiece(piece) && (gameMode === 'SINGLE_PLAYER_RPG' || gameMode === 'MULTIPLAYER_RPG')) {
-        // Example: Add piece to army or trigger ability
-        await rpgGameService.addPieceToArmy(gameId, piece, playerId);
-        console.log('Piece added to army');
+        rpgGameService.addPieceToArmy(gameId, piece, playerId)
+          .then(() => console.log('Piece added to army'))
+          .catch(err => {
+            setError('Failed to add piece to army');
+            console.error('Failed to add piece:', err);
+          });
       } else if (isEnhancedRPGPiece(piece) && gameMode === 'ENHANCED_RPG') {
-        // Example: Resolve combat (assumes target piece is handled by parent)
-        const targetPiece: EnhancedRPGPiece = piece; // Placeholder target
-        const combatResult = await enhancedRPGService.resolveCombat(piece, targetPiece, gameId, playerId);
-        console.log('Combat resolved:', combatResult);
-      }
-
-      // Trigger onClick callback if provided
-      if (onClick) {
-        onClick(piece);
+        enhancedRPGService.resolveCombat(piece, piece, gameId, playerId)
+          .then(combatResult => console.log('Combat resolved:', combatResult))
+          .catch(err => {
+            setError('Combat failed');
+            console.error('Combat failed:', err);
+          });
       }
     } catch (err) {
       setError('Action failed');
@@ -107,26 +84,26 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
     }
   };
 
-  // Render classic chess piece
   const renderClassicPiece = (p: Piece) => {
     const { type, color } = p;
+    if (!classicPieces[color] || !classicPieces[color][type]) {
+      console.error('Invalid piece data:', { color, type });
+      return <div className="text-red-500">?</div>;
+    }
     return (
       <div
         className={cn(
           'chess-piece text-3xl sm:text-4xl cursor-pointer',
-          color === 'white'
-            ? 'text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]'
-            : 'text-[#222222] drop-shadow-[0_1px_1px_rgba(255,255,255,0.3)]',
+          color === 'white' ? 'text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]' : 'text-[#222222] drop-shadow-[0_1px_1px_rgba(255,255,255,0.3)]',
           isSelected && 'ring-2 ring-blue-500'
         )}
-        onClick={handleClick}
+        onClick={gameId && playerId ? handleClick : undefined}
       >
         {classicPieces[color][type]}
       </div>
     );
   };
 
-  // Render RPG piece
   const renderRPGPiece = (p: RPGPiece | EnhancedRPGPiece) => {
     const { name, rarity, hp, maxHp, specialAbility } = p;
     const isEnhanced = isEnhancedRPGPiece(p);
@@ -144,7 +121,7 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
           rarity === 'rare' && 'bg-blue-200',
           rarity === 'common' && 'bg-gray-200'
         )}
-        onClick={handleClick}
+        onClick={gameId && playerId ? handleClick : undefined}
         title={`${name}: ${specialAbility}\nHP: ${currentHp}/${maxHpValue}`}
       >
         <span className="text-center">{icon}</span>
@@ -165,13 +142,19 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
     );
   };
 
-  // Render based on piece type and game mode
-  if (isClassicPiece(piece) && gameMode === 'CLASSIC_MULTIPLAYER') {
+  if (!piece) {
+    console.warn('Received null piece prop');
+    return null;
+  }
+
+  if (isClassicPiece(piece) && (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
     return renderClassicPiece(piece);
   } else if (isRPGPiece(piece) || isEnhancedRPGPiece(piece)) {
+    console.log('ChessPiece props:', { gameId, playerId });
     return renderRPGPiece(piece);
   } else {
-    return null; // Handle invalid piece type
+    console.warn('Invalid piece type for rendering:', piece);
+    return null;
   }
 };
 

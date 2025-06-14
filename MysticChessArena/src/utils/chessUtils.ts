@@ -16,7 +16,11 @@ const fetchBoardAndSize = async (
   gameMode: GameMode
 ): Promise<{ board: (Piece | RPGPiece | EnhancedRPGPiece | null)[][]; boardSize: number }> => {
   try {
-    if (gameMode === "CLASSIC_MULTIPLAYER" || gameMode === "TOURNAMENT") {
+    if (
+      gameMode === "CLASSIC_MULTIPLAYER" ||
+      gameMode === "CLASSIC_SINGLE_PLAYER" ||
+      gameMode === "TOURNAMENT"
+    ) {
       const session: GameSession = await gameSessionService.getGameSession(gameId);
       return {
         board: (session.board as (Piece | null)[][]) || createEmptyBoard(8),
@@ -74,14 +78,25 @@ const placePiecesOnBoard = (
   return newBoard;
 };
 
-// Validate move with backend
 const validateMoveWithBackend = async (
   gameId: string,
   from: BoardPosition,
   to: BoardPosition
 ): Promise<boolean> => {
   try {
-    return await chessGameService.validateMove(gameId, { from, to });
+    if (!gameId) {
+      console.error("Game ID is required for validation");
+      return false;
+    }
+
+    const movever2 = {
+      row: from.row,
+      col: from.col,
+      torow: to.row,
+      tocol: to.col
+    };
+
+    return await chessGameService.validateMove(gameId, movever2);
   } catch (error) {
     console.error("Failed to validate move:", error);
     return false;
@@ -120,17 +135,33 @@ export const isPositionUnderAttack = async (
     for (let col = 0; col < boardSize; col++) {
       const piece = board[row][col];
       if (piece && piece.color === attackingColor) {
-        const moves = await calculateValidMovesForPiece(
-          { row, col },
-          board,
-          attackingColor,
-          gameId,
-          gameMode,
-          boardSize,
-          false
-        );
-        if (moves.some(move => move.row === pos.row && move.col === pos.col)) {
-          return true;
+        // If we don't have a game ID, use local validation
+        if (!gameId) {
+          const moves = await calculateValidMovesForPiece(
+            {row, col},
+            board,
+            attackingColor,
+            "", // Empty game ID
+            gameMode,
+            boardSize,
+            false
+          );
+          if (moves.some(move => move.row === pos.row && move.col === pos.col)) {
+            return true;
+          }
+        } else {
+          const moves = await calculateValidMovesForPiece(
+            { row, col },
+            board,
+            attackingColor,
+            gameId,
+            gameMode,
+            boardSize,
+            false
+          );
+          if (moves.some(move => move.row === pos.row && move.col === pos.col)) {
+            return true;
+          }
         }
       }
     }
@@ -179,17 +210,22 @@ export const wouldBeInCheckAfterMove = async (
   to: BoardPosition,
   board: (Piece | RPGPiece | null)[][],
   movingColor: PieceColor,
+  gameId: string, // Make gameId required
   boardSize: number = 8
 ): Promise<boolean> => {
   const testBoard = board.map(row => [...row]);
   testBoard[to.row][to.col] = testBoard[from.row][from.col];
   testBoard[from.row][from.col] = null;
   const opponentColor = movingColor === "white" ? "black" : "white";
+
+  const kingPos = findKingPosition(testBoard, movingColor, boardSize);
+  if (!kingPos) return false;
+
   return await isPositionUnderAttack(
-    findKingPosition(testBoard, movingColor, boardSize) || {row: 0, col: 0},
+    kingPos,
     testBoard,
     opponentColor,
-    "", // Provide empty gameId as fallback
+    gameId, // Use the provided gameId
     "CLASSIC_MULTIPLAYER",
     boardSize
   );
@@ -418,6 +454,7 @@ export const calculateValidMovesForPiece = async (
   // Filter moves with backend validation for critical modes
   if (
     gameMode === "CLASSIC_MULTIPLAYER" ||
+    gameMode === "CLASSIC_SINGLE_PLAYER" ||
     gameMode === "MULTIPLAYER_RPG" ||
     gameMode === "TOURNAMENT" ||
     gameMode === "ENHANCED_RPG"
@@ -442,9 +479,20 @@ export const calculateValidMovesForPiece = async (
 
   // Filter moves that would put the player in check
   if (checkForCheck) {
-    moves = moves.filter(
-      move => !wouldBeInCheckAfterMove(pos, move, board, piece.color, boardSize)
+    moves = await Promise.all(
+      moves.map(async move => {
+        const wouldBeCheck = await wouldBeInCheckAfterMove(
+          pos,
+          move,
+          board,
+          piece.color,
+          gameId,
+          boardSize
+        );
+        return wouldBeCheck ? null : move;
+      })
     );
+    moves = moves.filter((move): move is BoardPosition => move !== null);
   }
 
   return moves;

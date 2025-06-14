@@ -14,8 +14,13 @@ export interface GameSession {
   isRankedMatch: boolean;
   isPrivate: boolean;
   inviteCode: string;
-  board?: Piece[][] | EnhancedRPGPiece[][] | RPGPiece[];
+
+  board?: Piece[][] | EnhancedRPGPiece[][] | RPGPiece[][];
+
   gameState: GameState;
+  rpgGameStateId: string;
+  enhancedGameStateId: string;
+
   timers: GameTimers;
   createdAt: string;
   startedAt: string;
@@ -27,9 +32,6 @@ export interface GameSession {
   incrementSeconds: number;
   allowSpectators: boolean;
   spectatorIds: string[];
-  rpgGameStateId: string;
-  enhancedGameStateId: string;
   gameHistoryId: string;
   moveHistoryIds: string[];
-  playerIds: string[];
 }

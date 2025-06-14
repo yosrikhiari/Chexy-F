@@ -3,4 +3,5 @@ export type GameMode =
   'CLASSIC_MULTIPLAYER' |
   'SINGLE_PLAYER_RPG' |
   'MULTIPLAYER_RPG' |
+  'ENHANCED_RPG' |
   'TOURNAMENT';

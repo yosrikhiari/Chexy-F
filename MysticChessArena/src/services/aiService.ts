@@ -1,7 +1,10 @@
 import { EnhancedRPGPiece, EnemyArmyConfig } from '@/Interfaces/types/enhancedRpgChess';
-import { BoardPosition } from '@/Interfaces/types/chess';
+import {BoardPosition, Piece, PieceColor, PieceType} from '@/Interfaces/types/chess';
 import { AIStrategy } from '@/Interfaces/enums/AIStrategy';
-import { RPGModifier, CapacityModifier } from '@/Interfaces/types/rpgChess';
+import {RPGModifier, CapacityModifier, RPGPiece} from '@/Interfaces/types/rpgChess';
+import {calculateValidMoves} from '@/utils/chessUtils.ts';
+import {gameSessionService} from '@/services/GameSessionService.ts';
+import {UserService} from '@/services/UserService.ts';
 
 export class AIService {
   private static baseUrl = 'http://localhost:5000/api';
@@ -106,4 +109,117 @@ export class AIService {
       throw new Error('Failed to update AI');
     }
   }
+
+
+
+
+
+  async calculateValidMovesForColor(board: Piece[][], color: PieceColor, gameId: string) {
+    const moves: { from: BoardPosition, to: BoardPosition }[] = [];
+
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const piece = board[row][col];
+        if (piece && piece.color === color) {
+          try {
+            const validMoves = await calculateValidMoves(
+              { row, col },
+              board,
+              color,
+              gameId,
+              "CLASSIC_SINGLE_PLAYER",
+              8,
+              true,
+              null
+            );
+
+            validMoves.forEach(move => {
+              moves.push({
+                from: { row, col },
+                to: move
+              });
+            });
+          } catch (error) {
+            console.error(`Error calculating moves for piece at ${row},${col}:`, error);
+          }
+        }
+      }
+    }
+
+    return moves;
+  }
+
+
+  async getBotMove(gameId: string, color: PieceColor): Promise<{ from: BoardPosition, to: BoardPosition } | null> {
+    try {
+      const session = await gameSessionService.getGameSession(gameId);
+      if (!session || !session.board) {
+        throw new Error("Invalid game session or missing board");
+      }
+
+      console.log(`Calculating moves for ${color} at turn ${session.gameState?.currentTurn}`);
+
+      // Ensure board is properly typed
+      const board = session.board as Piece[][];
+      const validMoves = await this.calculateValidMovesForColor(board, color, gameId);
+
+      console.log(`Found ${validMoves.length} valid moves for bot`);
+      if (validMoves.length === 0) {
+        console.log("No valid moves available for bot");
+        return null;
+      }
+
+      // Prioritize moves
+      const prioritizedMoves = this.prioritizeMoves(board, validMoves, color);
+      const selectedMove = prioritizedMoves[0];
+
+      console.log("Bot selected move:", selectedMove);
+      return selectedMove;
+    } catch (error) {
+      console.error("Failed to get bot move:", error);
+      throw error;
+    }
+  }
+
+  private prioritizeMoves(board: Piece[][], moves: { from: BoardPosition, to: BoardPosition }[], color: PieceColor) {
+    const pieceValues: Record<PieceType, number> = {
+      queen: 9,
+      rook: 5,
+      bishop: 3,
+      knight: 3,
+      pawn: 1,
+      king: 0 // Don't prioritize capturing king (handled separately)
+    };
+
+    return moves.sort((a, b) => {
+      const targetA = board[a.to.row][a.to.col];
+      const targetB = board[b.to.row][b.to.col];
+
+      // 1. Checkmate moves first
+      if (targetA?.type === 'king') return -1;
+      if (targetB?.type === 'king') return 1;
+
+      // 2. Capture high-value pieces
+      const valueA = targetA ? pieceValues[targetA.type] || 0 : 0;
+      const valueB = targetB ? pieceValues[targetB.type] || 0 : 0;
+
+      if (valueA !== valueB) return valueB - valueA;
+
+      // 3. Prefer center control
+      const centerScoreA = this.getCenterScore(a.to);
+      const centerScoreB = this.getCenterScore(b.to);
+
+      return centerScoreB - centerScoreA;
+    });
+  }
+  private getCenterScore(pos: BoardPosition): number {
+    // Center is more valuable (scores based on distance from center)
+    const centerX = 3.5, centerY = 3.5;
+    const dx = Math.abs(pos.col - centerX);
+    const dy = Math.abs(pos.row - centerY);
+    return 1 - (dx + dy) / 7; // Normalized score 0-1
+  }
 }
+
+
+export const aiserervice = new AIService();
