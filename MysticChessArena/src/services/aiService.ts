@@ -1,10 +1,12 @@
-import { EnhancedRPGPiece, EnemyArmyConfig } from '@/Interfaces/types/enhancedRpgChess';
+import { EnhancedRPGPiece } from '@/Interfaces/types/enhancedRpgChess';
 import {BoardPosition, Piece, PieceColor, PieceType} from '@/Interfaces/types/chess';
 import { AIStrategy } from '@/Interfaces/enums/AIStrategy';
-import {RPGModifier, CapacityModifier, RPGPiece} from '@/Interfaces/types/rpgChess';
-import {calculateValidMoves} from '@/utils/chessUtils.ts';
+import {RPGModifier, CapacityModifier} from '@/Interfaces/types/rpgChess';
+import {calculateValidMoves, normalizeBoard, printBoard} from '@/utils/chessUtils.ts';
 import {gameSessionService} from '@/services/GameSessionService.ts';
-import {UserService} from '@/services/UserService.ts';
+import {bots} from '@/Interfaces/Bot.ts';
+import {gameService} from '@/services/GameService.ts';
+import {chessGameService} from '@/services/ChessGameService.ts';
 
 export class AIService {
   private static baseUrl = 'http://localhost:5000/api';
@@ -111,10 +113,14 @@ export class AIService {
   }
 
 
-
+//////////////////////////
 
 
   async calculateValidMovesForColor(board: Piece[][], color: PieceColor, gameId: string) {
+    console.log("Calculating moves for color:", color);
+    console.log("Current board state:");
+    printBoard(board); // Use the existing printBoard function
+
     const moves: { from: BoardPosition, to: BoardPosition }[] = [];
 
     for (let row = 0; row < 8; row++) {
@@ -122,7 +128,7 @@ export class AIService {
         const piece = board[row][col];
         if (piece && piece.color === color) {
           try {
-            const validMoves = await calculateValidMoves(
+            const possibleMoves = await calculateValidMoves(
               { row, col },
               board,
               color,
@@ -132,53 +138,177 @@ export class AIService {
               true,
               null
             );
-
-            validMoves.forEach(move => {
+            possibleMoves.forEach(move => {
               moves.push({
                 from: { row, col },
                 to: move
               });
             });
           } catch (error) {
-            console.error(`Error calculating moves for piece at ${row},${col}:`, error);
+            console.error(`Error calculating moves for ${piece.type} at ${row},${col}:`, error);
           }
         }
       }
     }
 
+    console.log(`Total valid moves found for ${color}:`, moves.length);
     return moves;
   }
 
-
   async getBotMove(gameId: string, color: PieceColor): Promise<{ from: BoardPosition, to: BoardPosition } | null> {
     try {
+      console.log(`[Bot] Starting bot move calculation for ${color}`);
       const session = await gameSessionService.getGameSession(gameId);
-      if (!session || !session.board) {
-        throw new Error("Invalid game session or missing board");
+
+      if (!session?.board) {
+        console.error("[AI] Invalid game session - no board found");
+        throw new Error("Invalid game session");
       }
 
-      console.log(`Calculating moves for ${color} at turn ${session.gameState?.currentTurn}`);
-
-      // Ensure board is properly typed
-      const board = session.board as Piece[][];
-      const validMoves = await this.calculateValidMovesForColor(board, color, gameId);
-
-      console.log(`Found ${validMoves.length} valid moves for bot`);
-      if (validMoves.length === 0) {
-        console.log("No valid moves available for bot");
+      // Check game state first
+      if (session.gameState.isCheckmate || session.gameState.isDraw) {
+        console.log("[Bot] Game is already over");
         return null;
       }
 
-      // Prioritize moves
-      const prioritizedMoves = this.prioritizeMoves(board, validMoves, color);
-      const selectedMove = prioritizedMoves[0];
+      if (session.gameState.currentTurn !== color) {
+        console.log(`[Bot] Not ${color}'s turn: ${session.gameState.currentTurn}`);
+        return null;
+      }
 
-      console.log("Bot selected move:", selectedMove);
-      return selectedMove;
+      console.log("[Bot] Current board state from server:");
+      printBoard(session.board);
+
+      const normalizedBoard = normalizeBoard(session.board);
+      const validMoves = await this.calculateValidMovesForColor(normalizedBoard, color, gameId);
+
+      if (validMoves.length === 0) {
+        console.log("[Bot] No valid moves available - checking game state");
+
+        // Check if this is checkmate or stalemate
+        const isCheck = await chessGameService.isCheck(gameId, color);
+        if (isCheck) {
+          console.log("[Bot] Checkmate detected");
+          await gameSessionService.endGame(gameId, color === "white" ? session.blackPlayer?.userId : session.whitePlayer.userId);
+        } else {
+          console.log("[Bot] Stalemate detected");
+          await gameSessionService.endGame(gameId, undefined, true);
+        }
+        return null;
+      }
+
+      const capturingMoves = validMoves.filter(move => normalizedBoard[move.to.row][move.to.col] !== null);
+      const move = capturingMoves.length > 0
+        ? capturingMoves[Math.floor(Math.random() * capturingMoves.length)]
+        : validMoves[Math.floor(Math.random() * validMoves.length)];
+
+      console.log("[Bot] Selected move:", move);
+      return move;
     } catch (error) {
-      console.error("Failed to get bot move:", error);
-      throw error;
+      console.error("[AI] Error in getBotMove:", error);
+      return null;
     }
+  }
+
+  private async getSimpleBotMove(gameId: string, color: PieceColor): Promise<{ from: BoardPosition, to: BoardPosition } | null> {
+    // Standard opening moves for black
+    const openingMoves = [
+      { from: { row: 1, col: 4 }, to: { row: 3, col: 4 } },  // e5
+      { from: { row: 1, col: 3 }, to: { row: 3, col: 3 } },  // d5
+      { from: { row: 0, col: 6 }, to: { row: 2, col: 5 } },  // Nf6
+      { from: { row: 0, col: 1 }, to: { row: 2, col: 2 } }   // Nc6
+    ];
+
+    // Return a random opening move
+    return openingMoves[Math.floor(Math.random() * openingMoves.length)];
+  }
+
+  private getBotPointsFromSession(session: any): number {
+    const botId = session.botId;
+    const bot = bots.find(b => b.id === botId);
+    return bot?.points || 800; // Default to 800 if not found
+  }
+
+  private convertBoardToFEN(board: (Piece | null)[][], turn: 'w' | 'b'): string {
+    // Validate board structure
+    if (!board || board.length !== 8 || board.some(row => !row || row.length !== 8)) {
+      // Return starting position if board is invalid
+      return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    }
+
+    let fen = '';
+    let emptySquares = 0;
+
+    for (let row = 0; row < 8; row++) {
+      emptySquares = 0;
+
+      for (let col = 0; col < 8; col++) {
+        const piece = board[row][col];
+
+        if (!piece) {
+          emptySquares++;
+          continue;
+        }
+
+        if (emptySquares > 0) {
+          fen += emptySquares.toString();
+          emptySquares = 0;
+        }
+
+        const pieceChar = this.pieceToChar(piece);
+        if (pieceChar) {
+          fen += pieceChar;
+        }
+      }
+
+      if (emptySquares > 0) {
+        fen += emptySquares.toString();
+      }
+
+      if (row < 7) {
+        fen += '/';
+      }
+    }
+
+    // Ensure we have exactly 8 rows
+    const rowCount = fen.split('/').length;
+    if (rowCount !== 8) {
+      return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    }
+
+    // Add turn, castling, en passant, etc.
+    fen += ` ${turn} KQkq - 0 1`;
+    return fen;
+  }
+
+  private pieceToChar(piece: Piece | null | undefined): string {
+    if (!piece) return ''; // Handle null/undefined
+
+    // Validate piece has required properties
+    if (!piece.type || !piece.color) {
+      console.warn('Invalid piece object:', piece);
+      return '';
+    }
+
+    const map: Record<PieceType, string> = {
+      king: 'k',
+      queen: 'q',
+      rook: 'r',
+      bishop: 'b',
+      knight: 'n',
+      pawn: 'p'
+    };
+
+    // Safely get the character, default to empty string if type is invalid
+    const c = map[piece.type] || '';
+
+    // Ensure we have a string before calling toUpperCase
+    if (typeof c !== 'string') {
+      console.warn('Invalid piece type mapping:', piece.type);
+      return '';
+    }
+
+    return piece.color === 'white' ? c.toUpperCase() : c;
   }
 
   private prioritizeMoves(board: Piece[][], moves: { from: BoardPosition, to: BoardPosition }[], color: PieceColor) {
@@ -188,36 +318,33 @@ export class AIService {
       bishop: 3,
       knight: 3,
       pawn: 1,
-      king: 0 // Don't prioritize capturing king (handled separately)
+      king: 0
     };
 
     return moves.sort((a, b) => {
       const targetA = board[a.to.row][a.to.col];
       const targetB = board[b.to.row][b.to.col];
 
-      // 1. Checkmate moves first
       if (targetA?.type === 'king') return -1;
       if (targetB?.type === 'king') return 1;
 
-      // 2. Capture high-value pieces
       const valueA = targetA ? pieceValues[targetA.type] || 0 : 0;
       const valueB = targetB ? pieceValues[targetB.type] || 0 : 0;
 
       if (valueA !== valueB) return valueB - valueA;
 
-      // 3. Prefer center control
       const centerScoreA = this.getCenterScore(a.to);
       const centerScoreB = this.getCenterScore(b.to);
 
       return centerScoreB - centerScoreA;
     });
   }
+
   private getCenterScore(pos: BoardPosition): number {
-    // Center is more valuable (scores based on distance from center)
     const centerX = 3.5, centerY = 3.5;
     const dx = Math.abs(pos.col - centerX);
     const dy = Math.abs(pos.row - centerY);
-    return 1 - (dx + dy) / 7; // Normalized score 0-1
+    return 1 - (dx + dy) / 7;
   }
 }
 

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { Trophy } from "lucide-react";
-import { GameResult } from "@/Interfaces/types/chess.ts";
 import {
   Dialog,
   DialogContent,
@@ -67,8 +66,14 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
           localStorage.setItem("user", JSON.stringify(updatedUser));
         }
 
-        // Complete game history
-        await gameHistoryService.completeGameHistory(gameid, gameResult);
+        // Complete game
+
+        const history = await gameHistoryService.getGameHistoriesBySession(gameid);
+        if (!history || !history.id) {
+          throw new Error("Game history not found");
+        }
+        const historyId = history.id; // Assuming `id` is the field
+        await gameHistoryService.completeGameHistory(historyId, gameResult);
       } catch (err) {
         console.error("Error updating backend:", err);
         setError("Failed to update points or game history. Please try again.");
@@ -81,6 +86,7 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
   if (!gameResult) return null;
 
   return (
+
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>

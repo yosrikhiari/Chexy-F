@@ -48,15 +48,27 @@ export class ChessGameService {
 
   async isCheckmate(gameId: string, color: PieceColor): Promise<boolean> {
     try {
-      // Convert color to lowercase before sending
       const lowercaseColor = color.toLowerCase();
-      const response = await fetch(`${this.baseUrl}/games/chess/${gameId}/checkmate?color=${lowercaseColor}`, {
+      const response = await fetch(`${this.baseUrl}/api/games/chess/${gameId}/checkmate-status?color=${lowercaseColor}`, {
         headers: { Authorization: `Bearer ${JwtService.getToken()}` },
       });
       if (!response.ok) throw new Error("Failed to check checkmate");
       return await response.json();
     } catch (error) {
       console.error(`Error in isCheckmate: gameId=${gameId}, color=${color}`, error);
+      throw error;
+    }
+  }
+  async isDraw(gameId: string, color: PieceColor): Promise<boolean> {
+    try {
+      const lowercaseColor = color.toLowerCase();
+      const response = await fetch(`${this.baseUrl}/api/games/chess/${gameId}/draw-status?color=${lowercaseColor}`, {
+        headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+      });
+      if (!response.ok) throw new Error("Failed to check draw status");
+      return await response.json();
+    } catch (error) {
+      console.error(`Error in isDraw: gameId=${gameId}, color=${color}`, error);
       throw error;
     }
   }

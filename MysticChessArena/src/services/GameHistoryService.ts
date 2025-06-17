@@ -54,6 +54,9 @@ export class GameHistoryService {
     const response = await fetch(`${this.baseUrl}/game-history/session/${gameSessionId}`, {
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
+    if (response.status === 404) {
+      throw new Error("Game history not found for this session");
+    }
     if (!response.ok) throw new Error("Failed to get game histories by session");
     return await response.json();
   }

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { cn } from "@/lib/utils.ts";
-import { PieceColor } from "@/Interfaces/types/chess.ts";
 import { User } from "@/Interfaces/user/User.ts";
 import { GameSession } from "@/Interfaces/types/GameSession.ts";
 import { PlayerInfoProps } from "@/Interfaces/PlayerInfoProps.ts";

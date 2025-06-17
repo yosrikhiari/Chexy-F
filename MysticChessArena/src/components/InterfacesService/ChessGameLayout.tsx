@@ -14,9 +14,7 @@ import { userService } from "@/services/UserService.ts";
 import { JwtService } from "@/services/JwtService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
-import { chessGameService } from "@/services/ChessGameService.ts";
 import { gameService } from "@/services/GameService.ts";
-import {GameStatus} from "@/Interfaces/enums/GameStatus.ts";
 import {aiserervice} from "@/services/aiService.ts";
 
 // Error Boundary Component
@@ -55,6 +53,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                                                                  }) => {
   const [currentPlayer, setCurrentPlayer] = useState<PieceColor>("white");
   const [gameState, setGameState] = useState<GameState>({
+    isDraw: false,
     gameSessionId: propGameId || "",
     userId1: propPlayerId || "",
     userId2: "",
@@ -67,7 +66,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     canWhiteCastleKingSide: true,
     canWhiteCastleQueenSide: true,
     canBlackCastleKingSide: true,
-    canBlackCastleQueenSide: true,
+    canBlackCastleQueenSide: true
   });
   const [timers, setTimers] = useState<GameTimers | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -85,7 +84,6 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
 
   useEffect(() => {
     const initializeGame = async () => {
-      console.log("Initializing game with props:", { propGameId, propPlayerId, mode, isRankedMatch });
       try {
         if (!authService.isLoggedIn()) {
           console.log("User not logged in");
@@ -107,15 +105,10 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
 
         let session: GameSession;
         if (propGameId && propPlayerId) {
-          console.log("Fetching existing game session with gameId:", propGameId);
           session = await gameSessionService.getGameSession(propGameId);
-          console.log("Fetched session status:", session.status);
         } else {
-          console.log("Creating new game session with mode:", mode, "isRankedMatch:", isRankedMatch);
           session = await gameSessionService.createGameSession(user.id, mode || "CLASSIC_SINGLE_PLAYER", isRankedMatch);
         }
-        console.log("Fetched/created session:", session);
-
         setGameSession(session);
         setGameState({
           ...session.gameState,
@@ -125,7 +118,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
         });
         setCurrentPlayer(session.gameState.currentTurn);
 
-        // Force start the game if it's single player
+// In the initializeGame function:
         if (mode === "CLASSIC_SINGLE_PLAYER" && session.status !== 'ACTIVE') {
           await gameSessionService.startGame(session.gameId);
           const updatedSession = await gameSessionService.getGameSession(session.gameId);
@@ -157,54 +150,6 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     };
     initializeGame();
   }, [propGameId, propPlayerId, isRankedMatch, mode]);
-
-  // Update the bot move useEffect
-  useEffect(() => {
-    if (mode !== "CLASSIC_SINGLE_PLAYER" || currentPlayer !== "black" || gameResult) return;
-
-    const handleBotMove = async () => {
-      try {
-        console.log("Calculating bot move...");
-        const botMove = await aiserervice.getBotMove(gameState.gameSessionId, "black");
-        if (botMove) {
-          console.log("Executing bot move:", botMove);
-          await gameService.executeMove(gameState.gameSessionId, botMove);
-
-          // Update local state
-          setGameState(prev => ({
-            ...prev,
-            currentTurn: "white"
-          }));
-          setCurrentPlayer("white");
-
-          // Update timers
-          setTimers(prev => ({
-            ...prev,
-            white: { ...prev.white, active: true },
-            black: { ...prev.black, active: false },
-          }));
-
-          // Refresh game state
-          const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
-          setGameState(updatedSession.gameState);
-        } else {
-          console.log("No valid moves for bot");
-        }
-      } catch (error) {
-        console.error("Bot move error:", error);
-        toast({
-          title: "Error",
-          description: "Bot move failed",
-          variant: "destructive",
-        });
-        // Fallback - switch to white player if bot fails
-        setCurrentPlayer("white");
-      }
-    };
-
-    const timer = setTimeout(handleBotMove, 1000);
-    return () => clearTimeout(timer);
-  }, [currentPlayer, gameState.gameSessionId, mode, gameResult]);
 
   // Monitor for black player joining (skip for single-player)
   useEffect(() => {
@@ -396,18 +341,17 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
               <ChessBoard
                 currentPlayer={currentPlayer}
                 onMove={handlePlayerChange}
+                onGameEnd={handleGameEnd}
                 gameState={gameState}
                 onGameStateChange={setGameState}
                 timers={timers}
                 onTimeUpdate={setTimers}
                 onTimeout={(color) => {
                   const winner = color === "white" ? "black" : "white";
-                  const winnerName =
-                    winner === "white"
-                      ? playerStats.white.name
-                      : playerStats.black.name;
-                  const winnerId =
-                    winner === "white" ? gameState.userId1 : gameState.userId2;
+                  const winnerName = winner === "white"
+                    ? playerStats.white.name
+                    : playerStats.black.name;
+                  const winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
 
                   handleGameEnd({
                     winner,
@@ -420,8 +364,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                 }}
                 player1Name={playerStats.white.name}
                 player2Name={playerStats.black.name}
-                onResetGame={resetGame}
-              />
+                onResetGame={resetGame} board={[]}              />
 
               <GameControls
                 onResign={() => {

@@ -391,7 +391,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
       const movingPiece = board[from.row][from.col];
       if (!movingPiece || movingPiece.color !== currentPlayer) return;
 
-      const isValid = await chessGameService.validateMove(gameState.gameid, { from, to });
+      const isValid = await chessGameService.validateMove(gameState.gameid, { row: from.row,col: from.col, torow:to.row,tocol:to.col });
       if (!isValid) {
         toast({ title: "Invalid Move", description: "This move is not allowed.", variant: "destructive" });
         return;

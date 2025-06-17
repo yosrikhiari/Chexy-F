@@ -1,5 +1,5 @@
 export type PieceType = 'king' | 'queen' | 'rook' | 'bishop' | 'knight' | 'pawn';
-export type PieceColor = 'white' | 'black';
+export type PieceColor = 'white' | 'black' | 'null';
 
 export interface Piece {
   id?: string;
@@ -38,6 +38,7 @@ export interface GameState {
   userId2: string;
   isCheck: boolean;
   isCheckmate: boolean;
+  isDraw: boolean;
   checkedPlayer: PieceColor | null;
   enPassantTarget: BoardPosition | null;
   currentTurn: PieceColor;
@@ -46,6 +47,7 @@ export interface GameState {
   canWhiteCastleQueenSide: boolean;
   canBlackCastleKingSide: boolean;
   canBlackCastleQueenSide: boolean;
+  gameHistoryId?: string;
 }
 
 export interface PlayerStats {
@@ -54,7 +56,7 @@ export interface PlayerStats {
   points: number;
 }
 
-export type GameEndReason = 'checkmate' | 'timeout' | 'resignation';
+export type GameEndReason = 'checkmate' | 'timeout' | 'resignation' | 'draw' | 'tie_resolved';
 
 export interface GameResult {
   winner: PieceColor;

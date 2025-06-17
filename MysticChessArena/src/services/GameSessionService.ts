@@ -57,13 +57,23 @@ export class GameSessionService {
     }
     return await response.json();
   }
+  async endGame(gameId: string, winnerId?: string, isDraw: boolean = false, tieOption?: string): Promise<GameSession> {
+    let url = `${this.baseUrl}/game-session/end/${gameId}`;
+    const params = new URLSearchParams();
+    if (winnerId) params.append("winnerId", winnerId);
+    if (isDraw) params.append("isDraw", "true");
+    if (tieOption) params.append("tieOption", tieOption);
+    url += `?${params.toString()}`;
 
-  async endGame(gameId: string, winnerId?: string): Promise<GameSession> {
-    const response = await fetch(`${this.baseUrl}/game-session/end/${gameId}${winnerId ? `?winnerId=${winnerId}` : ""}`, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
-    if (!response.ok) throw new Error("Failed to end game");
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to end game: ${response.status} - ${errorText}`);
+    }
     return await response.json();
   }
 

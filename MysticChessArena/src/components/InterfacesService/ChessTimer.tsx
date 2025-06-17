@@ -105,29 +105,23 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
   // Handle timeout event
   const handleTimeout = async (color: PieceColor) => {
     if (!gameId || !playerId) {
-      const errorMsg = 'Game ID or Player ID missing';
+      const errorMsg = "Game ID or Player ID missing";
       setLocalError(errorMsg);
       onError?.(errorMsg);
-      console.error(errorMsg);
       return;
     }
 
     try {
       const session = await gameSessionService.getGameSession(gameId);
-      const winnerId =
-        color === 'white' ? session.blackPlayer?.userId : session.whitePlayer?.userId;
+      const winnerId = color === "white" ? session.blackPlayer?.userId : session.whitePlayer?.userId;
 
       if (winnerId) {
-        await gameSessionService.endGame(gameId, winnerId);
-
+        await gameSessionService.endGame(gameId, winnerId, false); // Timeout is a win, not a draw
         const gameResult: GameResult = {
-          winner: color === 'white' ? 'black' : 'white',
-          winnerName:
-            winnerId === session.whitePlayer?.userId
-              ? session.whitePlayer.username
-              : (session.blackPlayer?.username || 'Bot'),
+          winner: color === "white" ? "black" : "white",
+          winnerName: winnerId === session.whitePlayer?.userId ? session.whitePlayer.username : (session.blackPlayer?.username || "Bot"),
           pointsAwarded: session.isRankedMatch ? 100 : 50,
-          gameEndReason: 'timeout',
+          gameEndReason: "timeout",
           gameid: gameId,
           winnerid: winnerId,
         };
@@ -135,13 +129,9 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
         if (session.gameHistoryId) {
           await gameHistoryService.completeGameHistory(session.gameHistoryId, gameResult);
         }
-
         onTimeout(color);
       } else {
-        const errorMsg = 'Winner ID not found';
-        setLocalError(errorMsg);
-        onError?.(errorMsg);
-        console.error(errorMsg);
+        throw new Error("Winner ID not found");
       }
     } catch (err) {
       const errorMsg = `Failed to handle timeout: ${(err as Error).message}`;

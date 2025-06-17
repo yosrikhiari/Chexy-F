@@ -11,7 +11,7 @@ import {
 import { GameControlsProps } from "@/Interfaces/GameControlsProps.ts";
 import { toast } from "@/components/ui/use-toast.tsx";
 import { GameSession } from "@/Interfaces/types/GameSession.ts";
-import { GameResult, PieceColor } from "@/Interfaces/types/chess.ts";
+import { GameResult } from "@/Interfaces/types/chess.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import {JwtService} from "@/services/JwtService.ts";
 import {userService} from "@/services/UserService.ts";
@@ -175,8 +175,8 @@ const GameControls: React.FC<GameControlsProps> = ({
       const gameResult: GameResult = {
         winner: winnerColor,
         winnerName: winnerColor === "white" ? player1Name : player2Name,
-        pointsAwarded: 0, // No points for resignation
-        gameEndReason: "resignation",
+        pointsAwarded: 0,
+        gameEndReason: "resignation", // Lowercase
         gameid: gameState.gameSessionId,
         winnerid: winnerId,
       };

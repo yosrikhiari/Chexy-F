@@ -1,4 +1,4 @@
-import { Piece, BoardPosition, PieceColor, PieceType } from "@/Interfaces/types/chess";
+import {Piece, BoardPosition, PieceColor, PieceType} from "@/Interfaces/types/chess";
 import { RPGPiece } from "@/Interfaces/types/rpgChess";
 import { EnhancedRPGPiece } from "@/Interfaces/types/enhancedRpgChess";
 import { GameSession } from "@/Interfaces/types/GameSession";
@@ -210,22 +210,27 @@ export const wouldBeInCheckAfterMove = async (
   to: BoardPosition,
   board: (Piece | RPGPiece | null)[][],
   movingColor: PieceColor,
-  gameId: string, // Make gameId required
+  gameId: string,
   boardSize: number = 8
 ): Promise<boolean> => {
-  const testBoard = board.map(row => [...row]);
+  // Create a deep copy of the board
+  const testBoard = JSON.parse(JSON.stringify(board));
+
+  // Make the move on the test board
   testBoard[to.row][to.col] = testBoard[from.row][from.col];
   testBoard[from.row][from.col] = null;
-  const opponentColor = movingColor === "white" ? "black" : "white";
 
+  // Find the king's new position (it might be the moving piece)
   const kingPos = findKingPosition(testBoard, movingColor, boardSize);
   if (!kingPos) return false;
 
+  // Check if the king is under attack
+  const opponentColor = movingColor === "white" ? "black" : "white";
   return await isPositionUnderAttack(
     kingPos,
     testBoard,
     opponentColor,
-    gameId, // Use the provided gameId
+    gameId,
     "CLASSIC_MULTIPLAYER",
     boardSize
   );
@@ -277,7 +282,82 @@ export const calculateValidMoves = async (
   checkForCheck: boolean = true,
   enPassantTarget: BoardPosition | null = null
 ): Promise<BoardPosition[]> => {
+  const serverBoard = await verifyBoardState(gameId);
   return calculateValidMovesForPiece(pos, board, currentPlayer, gameId, gameMode, boardSize, checkForCheck, enPassantTarget);
+};
+const verifyBoardState = async (gameId: string) => {
+  try {
+    const session = await gameSessionService.getGameSession(gameId);
+    console.log("Server board state:");
+    printBoard(session.board);
+    return session.board;
+  } catch (error) {
+    console.error("Failed to verify board state:", error);
+    return null;
+  }
+};
+export const printBoard = (board: (Piece | null)[][]) => {
+  console.log("   a b c d e f g h");
+  for (let row = 0; row < 8; row++) {
+    let rowStr = `${8 - row} `;
+    for (let col = 0; col < 8; col++) {
+      const piece = board[row][col];
+      if (!piece) {
+        rowStr += ". ";
+      } else {
+        const color = piece.color === "white" ? "w" : "b";
+        let typeChar;
+        switch (piece.type) {
+          case "king": typeChar = "K"; break;
+          case "queen": typeChar = "Q"; break;
+          case "rook": typeChar = "R"; break;
+          case "bishop": typeChar = "B"; break;
+          case "knight": typeChar = "N"; break;
+          case "pawn": typeChar = "P"; break;
+          default: typeChar = "?"; break;
+        }
+        rowStr += `${color}${typeChar} `;
+      }
+    }
+    console.log(rowStr + ` ${8 - row}`);
+  }
+  console.log("   a b c d e f g h");
+};
+
+export const logMoveCalculation = (
+  pos: BoardPosition,
+  piece: Piece,
+  moves: BoardPosition[]
+) => {
+  console.log(
+    `Calculating moves for ${piece.color} ${piece.type} at [${pos.row},${pos.col}]:`,
+    moves.map(m => `[${m.row},${m.col}]`)
+  );
+};
+
+export const normalizeBoard = (board: any[][]): Piece[][] => {
+  return board.map(row =>
+    row.map(cell => {
+      if (!cell || typeof cell.type !== 'string' || typeof cell.color !== 'string') {
+        return null;
+      }
+      const normalizedType = cell.type.toLowerCase() as PieceType;
+      const normalizedColor = cell.color.toLowerCase() as PieceColor;
+      if (
+        ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'].includes(normalizedType) &&
+        ['white', 'black'].includes(normalizedColor)
+      ) {
+        return {
+          ...cell,
+          type: normalizedType,
+          color: normalizedColor,
+          hasMoved: cell.hasMoved ?? false,
+          enPassantTarget: cell.enPassantTarget ?? false,
+        };
+      }
+      return null;
+    })
+  );
 };
 
 export const calculateValidMovesForPiece = async (
@@ -291,45 +371,62 @@ export const calculateValidMovesForPiece = async (
   enPassantTarget: BoardPosition | null = null
 ): Promise<BoardPosition[]> => {
   const piece = board[pos.row][pos.col];
-  if (!piece || piece.color !== currentPlayer) return [];
+  if (!piece || piece.color !== currentPlayer) {
+    return [];
+  }
 
   let moves: BoardPosition[] = [];
 
   // Local move calculation
   switch (piece.type) {
     case "pawn": {
-      const direction = piece.color === "white" ? -1 : 1;
+      const direction = piece.color === "white" ? -1 : 1; // White moves up, black moves down
       const startRow = piece.color === "white" ? boardSize - 2 : 1;
+      const isInitialPosition = pos.row === startRow;
 
-      // Forward move
+      // DEBUG: Log pawn movement parameters
+      console.log(`Pawn at [${pos.row},${pos.col}]:`, {
+        direction,
+        startRow,
+        isInitialPosition,
+        hasMoved: piece.hasMoved
+      });
+
+      // Single move forward
       const singleMove = { row: pos.row + direction, col: pos.col };
       if (isValidPosition(singleMove, boardSize) && !board[singleMove.row][singleMove.col]) {
         moves.push(singleMove);
 
-        // Double move from start
-        if (pos.row === startRow) {
+        // Double move from initial position
+        if (isInitialPosition && !piece.hasMoved) {
           const doubleMove = { row: pos.row + 2 * direction, col: pos.col };
-          if (
-            isValidPosition(doubleMove, boardSize) &&
-            !board[doubleMove.row][doubleMove.col]
-          ) {
+          const intermediatePos = { row: pos.row + direction, col: pos.col };
+          if (isValidPosition(doubleMove, boardSize) &&
+            !board[doubleMove.row][doubleMove.col] &&
+            !board[intermediatePos.row][intermediatePos.col]) {
             moves.push(doubleMove);
           }
         }
       }
 
-      // Captures
+      // Capture moves
       for (const offsetCol of [-1, 1]) {
-        const capturePos = { row: pos.row + direction, col: pos.col + offsetCol };
+        const capturePos = {
+          row: pos.row + direction,
+          col: pos.col + offsetCol
+        };
+
         if (isValidPosition(capturePos, boardSize)) {
           const targetPiece = board[capturePos.row][capturePos.col];
+
+          // Regular capture
           if (targetPiece && targetPiece.color !== piece.color) {
             moves.push(capturePos);
-          } else if (
-            enPassantTarget &&
+          }
+          // En passant capture
+          else if (enPassantTarget &&
             capturePos.row === enPassantTarget.row &&
-            capturePos.col === enPassantTarget.col
-          ) {
+            capturePos.col === enPassantTarget.col) {
             moves.push(capturePos);
           }
         }
@@ -337,18 +434,19 @@ export const calculateValidMovesForPiece = async (
       break;
     }
     case "knight": {
-      const knightOffsets = [
-        [-2, -1],
-        [-2, 1],
-        [-1, -2],
-        [-1, 2],
-        [1, -2],
-        [1, 2],
-        [2, -1],
-        [2, 1],
+      const knightMoves = [
+        [-2, -1], [-2, 1],
+        [-1, -2], [-1, 2],
+        [1, -2], [1, 2],
+        [2, -1], [2, 1]
       ];
-      for (const [rowOffset, colOffset] of knightOffsets) {
-        const move = { row: pos.row + rowOffset, col: pos.col + colOffset };
+
+      for (const [rowOffset, colOffset] of knightMoves) {
+        const move = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+
         if (isValidPosition(move, boardSize)) {
           const targetPiece = board[move.row][move.col];
           if (!targetPiece || targetPiece.color !== piece.color) {
@@ -362,7 +460,12 @@ export const calculateValidMovesForPiece = async (
       for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
         for (let colOffset = -1; colOffset <= 1; colOffset++) {
           if (rowOffset === 0 && colOffset === 0) continue;
-          const move = { row: pos.row + rowOffset, col: pos.col + colOffset };
+
+          const move = {
+            row: pos.row + rowOffset,
+            col: pos.col + colOffset
+          };
+
           if (isValidPosition(move, boardSize)) {
             const targetPiece = board[move.row][move.col];
             if (!targetPiece || targetPiece.color !== piece.color) {
@@ -373,114 +476,55 @@ export const calculateValidMovesForPiece = async (
       }
       break;
     }
-    case "rook": {
-      const directions = [
-        [-1, 0],
-        [1, 0],
-        [0, -1],
-        [0, 1],
-      ];
-      for (const [rowDir, colDir] of directions) {
-        let currPos = { row: pos.row + rowDir, col: pos.col + colDir };
-        while (isValidPosition(currPos, boardSize)) {
-          const targetPiece = board[currPos.row][currPos.col];
-          if (!targetPiece) {
-            moves.push({ ...currPos });
-          } else if (targetPiece.color !== piece.color) {
-            moves.push({ ...currPos });
-            break;
-          } else {
-            break;
-          }
-          currPos = { row: currPos.row + rowDir, col: currPos.col + colDir };
-        }
-      }
-      break;
-    }
-    case "bishop": {
-      const directions = [
-        [-1, -1],
-        [-1, 1],
-        [1, -1],
-        [1, 1],
-      ];
-      for (const [rowDir, colDir] of directions) {
-        let currPos = { row: pos.row + rowDir, col: pos.col + colDir };
-        while (isValidPosition(currPos, boardSize)) {
-          const targetPiece = board[currPos.row][currPos.col];
-          if (!targetPiece) {
-            moves.push({ ...currPos });
-          } else if (targetPiece.color !== piece.color) {
-            moves.push({ ...currPos });
-            break;
-          } else {
-            break;
-          }
-          currPos = { row: currPos.row + rowDir, col: currPos.col + colDir };
-        }
-      }
-      break;
-    }
+    case "rook":
+    case "bishop":
     case "queen": {
-      const directions = [
-        [-1, 0],
-        [1, 0],
-        [0, -1],
-        [0, 1],
-        [-1, -1],
-        [-1, 1],
-        [1, -1],
-        [1, 1],
-      ];
+      const directions = [];
+
+      // Rook and queen can move horizontally/vertically
+      if (piece.type === "rook" || piece.type === "queen") {
+        directions.push([-1, 0], [1, 0], [0, -1], [0, 1]);
+      }
+
+      // Bishop and queen can move diagonally
+      if (piece.type === "bishop" || piece.type === "queen") {
+        directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
+      }
+
       for (const [rowDir, colDir] of directions) {
-        let currPos = { row: pos.row + rowDir, col: pos.col + colDir };
+        let currPos = {
+          row: pos.row + rowDir,
+          col: pos.col + colDir
+        };
+
         while (isValidPosition(currPos, boardSize)) {
           const targetPiece = board[currPos.row][currPos.col];
+
           if (!targetPiece) {
             moves.push({ ...currPos });
-          } else if (targetPiece.color !== piece.color) {
-            moves.push({ ...currPos });
-            break;
           } else {
-            break;
+            if (targetPiece.color !== piece.color) {
+              moves.push({ ...currPos }); // Capture
+            }
+            break; // Blocked by any piece
           }
-          currPos = { row: currPos.row + rowDir, col: currPos.col + colDir };
+
+          currPos = {
+            row: currPos.row + rowDir,
+            col: currPos.col + colDir
+          };
         }
       }
       break;
     }
   }
 
-  // Filter moves with backend validation for critical modes
-  if (
-    gameMode === "CLASSIC_MULTIPLAYER" ||
-    gameMode === "CLASSIC_SINGLE_PLAYER" ||
-    gameMode === "MULTIPLAYER_RPG" ||
-    gameMode === "TOURNAMENT" ||
-    gameMode === "ENHANCED_RPG"
-  ) {
-    const validMoves = await Promise.all(
-      moves.map(async move => {
-        const isValid = await validateMoveWithBackend(gameId, pos, move);
-        return isValid ? move : null;
-      })
-    );
-    moves = validMoves.filter((move): move is BoardPosition => move !== null);
 
-    // Broadcast state for multiplayer modes
-    if (gameMode === "CLASSIC_MULTIPLAYER" || gameMode === "MULTIPLAYER_RPG") {
-      try {
-        await realtimeService.broadcastGameState(gameId);
-      } catch (error) {
-        console.error("Failed to broadcast game state:", error);
-      }
-    }
-  }
-
-  // Filter moves that would put the player in check
+  // Filter moves that would put the player in check if needed
   if (checkForCheck) {
-    moves = await Promise.all(
-      moves.map(async move => {
+    const validMoves = [];
+    for (const move of moves) {
+      try {
         const wouldBeCheck = await wouldBeInCheckAfterMove(
           pos,
           move,
@@ -489,11 +533,14 @@ export const calculateValidMovesForPiece = async (
           gameId,
           boardSize
         );
-        return wouldBeCheck ? null : move;
-      })
-    );
-    moves = moves.filter((move): move is BoardPosition => move !== null);
+        if (!wouldBeCheck) {
+          validMoves.push(move);
+        }
+      } catch (error) {
+        console.error(`Error checking move [${move.row},${move.col}]:`, error);
+      }
+    }
+    moves = validMoves;
   }
-
   return moves;
 };

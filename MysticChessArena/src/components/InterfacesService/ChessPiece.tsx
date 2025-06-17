@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils.ts';
 import { ChessPieceProps } from '@/Interfaces/ChessPieceProps.ts';
-import { Piece, PieceColor, PieceType } from '@/Interfaces/types/chess.ts';
+import { Piece } from '@/Interfaces/types/chess.ts';
 import { RPGPiece } from '@/Interfaces/types/rpgChess.ts';
 import { EnhancedRPGPiece } from '@/Interfaces/types/enhancedRpgChess.ts';
-import { chessGameService } from "@/services/ChessGameService.ts";
-import { gameService } from "@/services/GameService.ts";
+
 import { rpgGameService } from "@/services/RPGGameService.ts";
 import { enhancedRPGService } from "@/services/EnhancedRPGService.ts";
 

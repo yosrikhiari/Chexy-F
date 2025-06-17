@@ -1,4 +1,4 @@
-import {GameState, GameTimers, PieceColor} from '@/Interfaces/types/chess.ts';
+import {GameResult, GameState, GameTimers, Piece, PieceColor} from '@/Interfaces/types/chess.ts';
 import React from 'react';
 
 export interface ChessBoardProps {
@@ -14,4 +14,6 @@ export interface ChessBoardProps {
   onMove?: (color: PieceColor) => void;
   gameState?: GameState;
   onGameStateChange?: React.Dispatch<React.SetStateAction<GameState>>;
+  board: (Piece | null)[][];
+  onGameEnd?: (result: GameResult) => void;
 }

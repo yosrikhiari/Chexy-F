@@ -3,7 +3,6 @@ import { toast } from "@/components/ui/use-toast.tsx";
 import {
   PieceColor,
   BoardPosition,
-  GameTimers,
   GameState,
   GameResult,
   Piece,
@@ -19,8 +18,8 @@ import { gameSessionService } from "@/services/GameSessionService.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameService } from "@/services/GameService.ts";
-import {realtimeService} from "@/services/RealtimeService.ts";
 import {GameMode} from "@/Interfaces/enums/GameMode.ts";
+import { aiserervice } from "@/services/aiService.ts";
 
 // Utility to deep clone the board to prevent direct mutations
 const cloneBoard = (board: Piece[][]): Piece[][] =>
@@ -28,49 +27,24 @@ const cloneBoard = (board: Piece[][]): Piece[][] =>
 
 // Ensure board is always a valid Piece[][] for classic chess
 const ensureClassicBoard = (board: any): Piece[][] => {
-  console.log('Raw board from backend:', JSON.stringify(board, null, 2));
-
   if (!Array.isArray(board) || board.length !== 8 || !board.every((row: any) => Array.isArray(row) && row.length === 8)) {
-    console.warn('Invalid board structure, using initialBoard:', board);
+    console.warn('Invalid board structure, using initialBoard');
     return initialBoard;
   }
-
-  const normalizedBoard = board.map((row: any[], rowIndex: number) =>
+  const normalized = board.map((row: any[], rowIndex: number) =>
     row.map((cell: any, colIndex: number) => {
-      if ([0, 1, 6, 7].includes(rowIndex) && !cell) {
-        console.warn(`Unexpected null at [${rowIndex}][${colIndex}] in piece row`);
-      }
-      if (cell && typeof cell.type === 'string' && typeof cell.color === 'string') {
-        // Normalize both type and color to lowercase
-        const normalizedType = cell.type.toLowerCase() as PieceType;
-        const normalizedColor = cell.color.toLowerCase() as PieceColor;
-
-        if (
-          ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'].includes(normalizedType) &&
-          ['white', 'black'].includes(normalizedColor)
-        ) {
-          const normalizedPiece = {
-            ...cell,
-            type: normalizedType,
-            color: normalizedColor,
-            hasMoved: cell.hasMoved ?? false,
-            enPassantTarget: cell.enPassantTarget ?? false,
-          };
-          console.log(`Normalized piece at [${rowIndex}][${colIndex}]:`, normalizedPiece);
-          return normalizedPiece;
-        }
-        console.warn(`Invalid piece type or color at [${rowIndex}][${colIndex}]:`, cell);
-      } else if (rowIndex >= 2 && rowIndex <= 5) {
+      if (!cell || (typeof cell.type !== 'string' || typeof cell.color !== 'string')) {
         return null;
-      } else {
-        console.warn(`Missing or invalid type/color at [${rowIndex}][${colIndex}]:`, cell);
+      }
+      const normalizedType = cell.type.toLowerCase() as PieceType;
+      const normalizedColor = cell.color.toLowerCase() as PieceColor;
+      if (['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'].includes(normalizedType) && ['white', 'black'].includes(normalizedColor)) {
+        return { type: normalizedType, color: normalizedColor, hasMoved: cell.hasMoved ?? false };
       }
       return null;
     })
   );
-
-  console.log('Normalized board:', JSON.stringify(normalizedBoard, null, 2));
-  return normalizedBoard;
+  return normalized;
 };
 
 const ChessBoard = ({
@@ -84,6 +58,7 @@ const ChessBoard = ({
                       onResetGame,
                       currentPlayer: propCurrentPlayer,
                       onMove,
+                      onGameEnd,
                       gameState: propGameState,
                       onGameStateChange,
                     }: ChessBoardProps) => {
@@ -92,6 +67,7 @@ const ChessBoard = ({
   const [validMoves, setValidMoves] = useState<BoardPosition[]>([]);
   const [internalCurrentPlayer, setInternalCurrentPlayer] = useState<PieceColor>("white");
   const [internalGameState, setInternalGameState] = useState<GameState>({
+    isDraw: false,
     gameSessionId: "",
     userId1: "",
     userId2: "",
@@ -104,7 +80,7 @@ const ChessBoard = ({
     canWhiteCastleKingSide: true,
     canWhiteCastleQueenSide: true,
     canBlackCastleKingSide: true,
-    canBlackCastleQueenSide: true,
+    canBlackCastleQueenSide: true
   });
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [showGameEndModal, setShowGameEndModal] = useState(false);
@@ -137,7 +113,6 @@ const ChessBoard = ({
   useEffect(() => {
     const fetchGameState = async () => {
       if (!propGameState?.gameSessionId) {
-        console.error("Missing gameSessionId");
         return;
       }
 
@@ -176,36 +151,31 @@ const ChessBoard = ({
   }, [propGameState?.gameSessionId]);
 
   // Check game status (check/checkmate)
+// Add to ChessBoard.tsx
   useEffect(() => {
     const checkGameStatus = async () => {
-      if (!gameState.gameSessionId) return;
-
+      if (!gameState.gameSessionId || !gameState.gameHistoryId) return;
       try {
         const whiteInCheck = await chessGameService.isCheck(gameState.gameSessionId, "white");
         const blackInCheck = await chessGameService.isCheck(gameState.gameSessionId, "black");
         let checkedPlayer: PieceColor | null = null;
         if (whiteInCheck) checkedPlayer = "white";
         else if (blackInCheck) checkedPlayer = "black";
-
         let isCheckmateState = false;
         if (checkedPlayer) {
           isCheckmateState = await chessGameService.isCheckmate(gameState.gameSessionId, checkedPlayer);
         }
-
-        setGameStateValue({
+        const newGameState = {
           ...gameState,
           isCheck: whiteInCheck || blackInCheck,
           isCheckmate: isCheckmateState,
           checkedPlayer,
-        });
-
+        };
+        setGameStateValue(newGameState);
         if (checkedPlayer && isCheckmateState) {
           const winningPlayer = checkedPlayer === "white" ? "black" : "white";
           const winnerName = winningPlayer === "white" ? player1Name : player2Name;
-          const basePoints = 100;
-          const timeBonus = timers ? Math.floor(timers[winningPlayer].timeLeft / 60) * 5 : 0;
-          const pointsAwarded = basePoints + timeBonus;
-
+          const pointsAwarded = 100 + (timers ? Math.floor(timers[winningPlayer].timeLeft / 60) * 5 : 0);
           const gameResultData: GameResult = {
             winner: winningPlayer,
             winnerName: winnerName || "Unknown",
@@ -214,27 +184,19 @@ const ChessBoard = ({
             gameid: gameState.gameSessionId,
             winnerid: winningPlayer === "white" ? gameState.userId1 : gameState.userId2,
           };
-
-          setGameResult(gameResultData);
-          setShowGameEndModal(true);
-
-          toast({
-            title: "Checkmate!",
-            description: `${winnerName} (${winningPlayer}) wins!`,
-            variant: "default",
-          });
-
-          await gameHistoryService.completeGameHistory(gameState.gameSessionId, gameResultData);
-          await gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid);
-        } else if (checkedPlayer) {
-          const playerName = checkedPlayer === "white" ? player1Name : player2Name;
-          toast({
-            title: "Check!",
-            description: `${playerName}'s king is in check!`,
-            variant: "destructive",
-          });
+          if (onGameEnd) {
+            onGameEnd(gameResultData);
+          } else {
+            setGameResult(gameResultData);
+            setShowGameEndModal(true);
+          }
+          await Promise.all([
+            gameHistoryService.completeGameHistory(gameState.gameHistoryId, gameResultData),
+            gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
+          ]);
         }
       } catch (error) {
+        console.error("Error in checkGameStatus:", error);
         toast({
           title: "Error",
           description: "Failed to check game status.",
@@ -243,7 +205,7 @@ const ChessBoard = ({
       }
     };
     checkGameStatus();
-  }, [board, gameState.gameSessionId]);
+  }, [board, gameState.gameSessionId, gameState.gameHistoryId]);
 
   // Timer management
   useEffect(() => {
@@ -272,7 +234,7 @@ const ChessBoard = ({
             winner: winningPlayer,
             winnerName: winnerName || "Unknown",
             pointsAwarded,
-            gameEndReason: "timeout",
+            gameEndReason: "timeout", // Lowercase
             gameid: gameState.gameSessionId,
             winnerid: winningPlayer === "white" ? gameState.userId1 : gameState.userId2,
           };
@@ -323,14 +285,53 @@ const ChessBoard = ({
     }
     if (gameState.isCheckmate || isLoadingMove) return;
 
-    // If no piece selected and clicked on own piece, select it
-    if (!selectedPiece) {
-      const clickedPiece = board[row][col];
+    setIsLoadingMove(true);
+    try {
+      // Fetch the latest game state from the server
+      const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
+      const serverBoard = ensureClassicBoard(updatedSession.board);
+      setBoard(serverBoard); // Sync client board with server
+      setGameStateValue(updatedSession.gameState);
+      setCurrentPlayerValue(updatedSession.gameState.currentTurn);
+
+      // Validate it’s the correct player’s turn
+      if (updatedSession.gameState.currentTurn !== currentPlayer) {
+        toast({ title: "Error", description: "It’s not your turn", variant: "destructive" });
+        resetSelection(); // Deselect if not the player’s turn
+        return;
+      }
+
+      // If no piece is selected, select it
+      if (!selectedPiece) {
+        const clickedPiece = serverBoard[row][col];
+        if (!clickedPiece || clickedPiece.color !== updatedSession.gameState.currentTurn) {
+          toast({ title: "Invalid Selection", description: "Select a piece of your color.", variant: "destructive" });
+          return;
+        }
+        if (clickedPiece && clickedPiece.color === currentPlayer) {
+          setSelectedPiece({ row, col });
+          const moves = await calculateValidMoves(
+            { row, col },
+            serverBoard,
+            currentPlayer,
+            gameState.gameSessionId,
+            gameMode,
+            8,
+            true,
+            gameState.enPassantTarget
+          );
+          setValidMoves(moves);
+        }
+        return;
+      }
+
+      // Check if clicking on another piece of the same color
+      const clickedPiece = serverBoard[row][col];
       if (clickedPiece && clickedPiece.color === currentPlayer) {
         setSelectedPiece({ row, col });
         const moves = await calculateValidMoves(
           { row, col },
-          board,
+          serverBoard,
           currentPlayer,
           gameState.gameSessionId,
           gameMode,
@@ -339,54 +340,32 @@ const ChessBoard = ({
           gameState.enPassantTarget
         );
         setValidMoves(moves);
+        return;
       }
-      return;
-    }
 
-    // If piece is selected, try to move it
-    setIsLoadingMove(true);
-    try {
+      // Check if the target square is a valid move
+      const isValid = validMoves.some(m => m.row === row && m.col === col);
+      if (!isValid) {
+        resetSelection(); // Deselect the piece if the move is invalid
+        return;
+      }
+
+      // Attempt the move
       const move = {
         from: { row: selectedPiece.row, col: selectedPiece.col },
         to: { row, col }
       };
 
-      // Validate move
-      const isValid = await chessGameService.validateMove(
-        gameState.gameSessionId,
-        {
-          row: selectedPiece.row,
-          col: selectedPiece.col,
-          torow: row,
-          tocol: col
-        }
-      );
-
-      if (!isValid) {
-        toast({ title: "Invalid Move", variant: "destructive" });
-        resetSelection();
-        return;
-      }
-
-      // Execute move
+      // Execute move on the server
       await gameService.executeMove(gameState.gameSessionId, move);
-
-      // Update local state
-      const newBoard = cloneBoard(board);
-      const movingPiece = newBoard[selectedPiece.row][selectedPiece.col];
-      if (movingPiece) {
-        movingPiece.hasMoved = true;
-        newBoard[row][col] = movingPiece;
-        newBoard[selectedPiece.row][selectedPiece.col] = null;
-      }
-      setBoard(newBoard);
-
-      // Switch turns
-      const nextPlayer = currentPlayer === "white" ? "black" : "white";
-      setCurrentPlayerValue(nextPlayer);
+      const postMoveSession = await gameSessionService.getGameSession(gameState.gameSessionId);
+      setBoard(ensureClassicBoard(postMoveSession.board));
+      setGameStateValue(postMoveSession.gameState);
+      setCurrentPlayerValue(postMoveSession.gameState.currentTurn);
 
       // Update timers
       if (onTimeUpdate && timers) {
+        const nextPlayer = currentPlayer === "white" ? "black" : "white";
         onTimeUpdate({
           ...timers,
           [currentPlayer]: { ...timers[currentPlayer], active: false },
@@ -395,11 +374,140 @@ const ChessBoard = ({
       }
 
       resetSelection();
+
+      // Trigger bot move if in single-player mode
+      if (gameMode === "CLASSIC_SINGLE_PLAYER" && postMoveSession.gameState.currentTurn === "black") {
+        await handleBotMove();
+      }
     } catch (error) {
-      toast({ title: "Move Failed", variant: "destructive" });
-      resetSelection();
+      toast({
+        title: "Move Failed",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive"
+      });
+      resetSelection(); // Deselect on error
     } finally {
       setIsLoadingMove(false);
+    }
+  };
+
+  useEffect(() => {
+    const fetchGameHistory = async () => {
+      if (!propGameState?.gameSessionId) return;
+      try {
+        const history = await gameHistoryService.getGameHistoriesBySession(propGameState.gameSessionId);
+        setGameStateValue({ ...gameState, gameHistoryId: history.id });
+      } catch (error) {
+        console.error("Failed to fetch game history:", error);
+        toast({
+          title: "Error",
+          description: "Failed to load game history.",
+          variant: "destructive",
+        });
+      }
+    };
+    fetchGameHistory();
+  }, [propGameState?.gameSessionId]);
+
+
+  const handleBotMove = async () => {
+    try {
+      const session = await gameSessionService.getGameSession(gameState.gameSessionId);
+      if (session.status !== "ACTIVE") {
+        console.log("[Bot] Game is no longer active, skipping move:", session.status);
+        return;
+      }
+
+      if (session.gameState.isCheckmate || session.gameState.isDraw) {
+        console.log("[Bot] Game is over, not making a move");
+        return;
+      }
+
+      if (session.gameState.currentTurn !== "black") {
+        console.log("[Bot] Not Black’s turn yet:", session.gameState.currentTurn);
+        return;
+      }
+
+      setBoard(ensureClassicBoard(session.board));
+      setGameStateValue(session.gameState);
+      setCurrentPlayerValue(session.gameState.currentTurn);
+
+      const botMove = await aiserervice.getBotMove(gameState.gameSessionId, "black");
+
+      if (!botMove) {
+        console.log("[Bot] No valid moves available");
+        const isCheck = await chessGameService.isCheck(gameState.gameSessionId, "black");
+        if (isCheck) {
+          // Checkmate: White wins
+          const gameResultData: GameResult = {
+            winner: "white",
+            winnerName: player1Name || "White",
+            pointsAwarded: 100,
+            gameEndReason: "checkmate",
+            gameid: gameState.gameSessionId,
+            winnerid: gameState.userId1,
+          };
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
+          setGameStateValue({ ...gameState, isCheckmate: true, checkedPlayer: "black" });
+          try {
+            const latestSession = await gameSessionService.getGameSession(gameState.gameSessionId);
+            if (latestSession.status === "ACTIVE") {
+              await gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid);
+            } else {
+              console.log("[Bot] Game already ended, skipping endGame call");
+            }
+          } catch (error) {
+            if (error.message.includes("Game is not active and cannot be ended")) {
+              console.log("[Bot] Game was already ended, ignoring.");
+            } else {
+              throw error; // Re-throw other unexpected errors
+            }
+          }
+        } else {
+          // Stalemate: Draw
+          const gameResultData: GameResult = {
+            winner: null,
+            winnerName: "Draw",
+            pointsAwarded: 0,
+            gameEndReason: "draw",
+            gameid: gameState.gameSessionId,
+            winnerid: null,
+          };
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
+          setGameStateValue({ ...gameState, isDraw: true });
+          try {
+            await gameSessionService.endGame(gameState.gameSessionId, null, true);
+          } catch (error) {
+            if (error.message.includes("Game is not active and cannot be ended")) {
+              console.log("[Bot] Game was already ended, ignoring.");
+            } else {
+              throw error; // Re-throw other unexpected errors
+            }
+          }
+        }
+        return;
+      }
+
+      // Validate and execute bot move
+      const fromPiece = session.board[botMove.from.row][botMove.from.col];
+      if (!fromPiece || fromPiece.color !== "black") {
+        throw new Error("Bot selected an invalid piece");
+      }
+
+      await gameService.executeMove(gameState.gameSessionId, botMove);
+      const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
+      setBoard(ensureClassicBoard(updatedSession.board));
+      setGameStateValue(updatedSession.gameState);
+      setCurrentPlayerValue(updatedSession.gameState.currentTurn);
+    } catch (error) {
+      console.error("[Bot] Move failed:", error);
+      toast({
+        title: "Bot Move Failed",
+        description: "The bot couldn’t make a move",
+        variant: "destructive",
+      });
     }
   };
 
