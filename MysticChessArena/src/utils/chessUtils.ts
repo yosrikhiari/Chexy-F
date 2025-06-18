@@ -9,7 +9,6 @@ import {gameSessionService} from '@/services/GameSessionService.ts';
 import {rpgGameService} from '@/services/RPGGameService.ts';
 import {realtimeService} from '@/services/RealtimeService.ts';
 
-
 // Utility to fetch board and board size from backend
 const fetchBoardAndSize = async (
   gameId: string,
@@ -135,33 +134,19 @@ export const isPositionUnderAttack = async (
     for (let col = 0; col < boardSize; col++) {
       const piece = board[row][col];
       if (piece && piece.color === attackingColor) {
-        // If we don't have a game ID, use local validation
-        if (!gameId) {
-          const moves = await calculateValidMovesForPiece(
-            {row, col},
-            board,
-            attackingColor,
-            "", // Empty game ID
-            gameMode,
-            boardSize,
-            false
-          );
-          if (moves.some(move => move.row === pos.row && move.col === pos.col)) {
-            return true;
-          }
-        } else {
-          const moves = await calculateValidMovesForPiece(
-            { row, col },
-            board,
-            attackingColor,
-            gameId,
-            gameMode,
-            boardSize,
-            false
-          );
-          if (moves.some(move => move.row === pos.row && move.col === pos.col)) {
-            return true;
-          }
+        const moves = await calculateValidMovesForPiece(
+          { row, col },
+          board,
+          attackingColor,
+          gameId,
+          gameMode,
+          boardSize,
+          false, // checkForCheck: false to prevent recursive check loops
+          null,
+          true // skipCastling: true to prevent recursive castling checks
+        );
+        if (moves.some(move => move.row === pos.row && move.col === pos.col)) {
+          return true;
         }
       }
     }
@@ -258,7 +243,9 @@ export const isCheckmate = async (
               gameId,
               "CLASSIC_MULTIPLAYER",
               boardSize,
-              true
+              true,
+              null,
+              false // Allow castling checks for checkmate evaluation
             );
             if (moves.length > 0) {
               return false;
@@ -285,6 +272,7 @@ export const calculateValidMoves = async (
   const serverBoard = await verifyBoardState(gameId);
   return calculateValidMovesForPiece(pos, board, currentPlayer, gameId, gameMode, boardSize, checkForCheck, enPassantTarget);
 };
+
 const verifyBoardState = async (gameId: string) => {
   try {
     const session = await gameSessionService.getGameSession(gameId);
@@ -296,6 +284,7 @@ const verifyBoardState = async (gameId: string) => {
     return null;
   }
 };
+
 export const printBoard = (board: (Piece | null)[][]) => {
   console.log("   a b c d e f g h");
   for (let row = 0; row < 8; row++) {
@@ -368,7 +357,8 @@ export const calculateValidMovesForPiece = async (
   gameMode: GameMode,
   boardSize: number = 8,
   checkForCheck: boolean = true,
-  enPassantTarget: BoardPosition | null = null
+  enPassantTarget: BoardPosition | null = null,
+  skipCastling: boolean = false
 ): Promise<BoardPosition[]> => {
   const piece = board[pos.row][pos.col];
   if (!piece || piece.color !== currentPlayer) {
@@ -383,14 +373,6 @@ export const calculateValidMovesForPiece = async (
       const direction = piece.color === "white" ? -1 : 1; // White moves up, black moves down
       const startRow = piece.color === "white" ? boardSize - 2 : 1;
       const isInitialPosition = pos.row === startRow;
-
-      // DEBUG: Log pawn movement parameters
-      console.log(`Pawn at [${pos.row},${pos.col}]:`, {
-        direction,
-        startRow,
-        isInitialPosition,
-        hasMoved: piece.hasMoved
-      });
 
       // Single move forward
       const singleMove = { row: pos.row + direction, col: pos.col };
@@ -457,6 +439,7 @@ export const calculateValidMovesForPiece = async (
       break;
     }
     case "king": {
+      // Normal king moves
       for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
         for (let colOffset = -1; colOffset <= 1; colOffset++) {
           if (rowOffset === 0 && colOffset === 0) continue;
@@ -472,6 +455,27 @@ export const calculateValidMovesForPiece = async (
               moves.push(move);
             }
           }
+        }
+      }
+
+      // Castling moves (only if king hasn't moved and castling is not skipped)
+      if (!piece.hasMoved && !skipCastling) {
+        // King-side castling
+        if (await canCastle(board, pos, currentPlayer, "king", gameId, gameMode)) {
+          const kingSideCastle = {
+            row: pos.row,
+            col: pos.col + 2
+          };
+          moves.push(kingSideCastle);
+        }
+
+        // Queen-side castling
+        if (await canCastle(board, pos, currentPlayer, "queen", gameId, gameMode)) {
+          const queenSideCastle = {
+            row: pos.row,
+            col: pos.col - 2
+          };
+          moves.push(queenSideCastle);
         }
       }
       break;
@@ -519,7 +523,6 @@ export const calculateValidMovesForPiece = async (
     }
   }
 
-
   // Filter moves that would put the player in check if needed
   if (checkForCheck) {
     const validMoves = [];
@@ -543,4 +546,75 @@ export const calculateValidMovesForPiece = async (
     moves = validMoves;
   }
   return moves;
+};
+
+const canCastle = async (
+  board: (Piece | RPGPiece | null)[][],
+  kingPos: BoardPosition,
+  color: PieceColor,
+  side: "king" | "queen",
+  gameId: string,
+  gameMode: GameMode
+): Promise<boolean> => {
+  console.log(`Checking ${color} ${side}-side castling at row ${kingPos.row}, col ${kingPos.col}`);
+  const row = color === "white" ? 7 : 0;
+  if (kingPos.row !== row) {
+    console.log("Wrong row");
+    return false;
+  }
+
+  // Check if king is currently in check
+  const isKingInCheck = await isPositionUnderAttack(
+    kingPos,
+    board,
+    color === "white" ? "black" : "white",
+    gameId,
+    gameMode
+  );
+  if (isKingInCheck) {
+    console.log("King is in check, cannot castle");
+    return false;
+  }
+
+  // Check if path is clear and squares aren't under attack
+  const direction = side === "king" ? 1 : -1;
+  const rookCol = side === "king" ? 7 : 0;
+
+  // Check if rook exists and hasn't moved
+  const rook = board[row][rookCol];
+  if (!rook || rook.type !== "rook" || rook.color !== color || rook.hasMoved) {
+    console.log("Rook check failed:", { exists: !!rook, type: rook?.type, hasMoved: rook?.hasMoved });
+    return false;
+  }
+
+  // Check squares between king and rook are empty
+  let col = kingPos.col + direction;
+  while (col !== rookCol) {
+    if (board[row][col] !== null) {
+      return false;
+    }
+    col += direction;
+  }
+
+  // Check if king would pass through or end up in check
+  const squaresToCheck = [
+    kingPos.col + direction,
+    kingPos.col + 2 * direction
+  ].filter(c => c !== kingPos.col); // Don't check starting square
+
+  for (const col of squaresToCheck) {
+    if (col < 0 || col >= 8) continue;
+    const isUnderAttack = await isPositionUnderAttack(
+      { row, col },
+      board,
+      color === "white" ? "black" : "white",
+      gameId,
+      gameMode
+    );
+    if (isUnderAttack) {
+      return false;
+    }
+  }
+
+  return true;
 };

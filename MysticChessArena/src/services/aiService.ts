@@ -210,141 +210,36 @@ export class AIService {
     }
   }
 
-  private async getSimpleBotMove(gameId: string, color: PieceColor): Promise<{ from: BoardPosition, to: BoardPosition } | null> {
-    // Standard opening moves for black
-    const openingMoves = [
-      { from: { row: 1, col: 4 }, to: { row: 3, col: 4 } },  // e5
-      { from: { row: 1, col: 3 }, to: { row: 3, col: 3 } },  // d5
-      { from: { row: 0, col: 6 }, to: { row: 2, col: 5 } },  // Nf6
-      { from: { row: 0, col: 1 }, to: { row: 2, col: 2 } }   // Nc6
-    ];
-
-    // Return a random opening move
-    return openingMoves[Math.floor(Math.random() * openingMoves.length)];
-  }
-
-  private getBotPointsFromSession(session: any): number {
-    const botId = session.botId;
-    const bot = bots.find(b => b.id === botId);
-    return bot?.points || 800; // Default to 800 if not found
-  }
-
   private convertBoardToFEN(board: (Piece | null)[][], turn: 'w' | 'b'): string {
-    // Validate board structure
-    if (!board || board.length !== 8 || board.some(row => !row || row.length !== 8)) {
-      // Return starting position if board is invalid
-      return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-    }
-
     let fen = '';
-    let emptySquares = 0;
-
     for (let row = 0; row < 8; row++) {
-      emptySquares = 0;
-
+      let empty = 0;
       for (let col = 0; col < 8; col++) {
         const piece = board[row][col];
-
         if (!piece) {
-          emptySquares++;
-          continue;
-        }
-
-        if (emptySquares > 0) {
-          fen += emptySquares.toString();
-          emptySquares = 0;
-        }
-
-        const pieceChar = this.pieceToChar(piece);
-        if (pieceChar) {
+          empty++;
+        } else {
+          if (empty > 0) {
+            fen += empty;
+            empty = 0;
+          }
+          const pieceChar = this.pieceToChar(piece);
           fen += pieceChar;
         }
       }
-
-      if (emptySquares > 0) {
-        fen += emptySquares.toString();
-      }
-
-      if (row < 7) {
-        fen += '/';
-      }
+      if (empty > 0) fen += empty;
+      if (row < 7) fen += '/';
     }
-
-    // Ensure we have exactly 8 rows
-    const rowCount = fen.split('/').length;
-    if (rowCount !== 8) {
-      return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-    }
-
-    // Add turn, castling, en passant, etc.
-    fen += ` ${turn} KQkq - 0 1`;
+    fen += ` ${turn} KQkq - 0 1`; // Simplified castling/en passant
     return fen;
   }
 
-  private pieceToChar(piece: Piece | null | undefined): string {
-    if (!piece) return ''; // Handle null/undefined
-
-    // Validate piece has required properties
-    if (!piece.type || !piece.color) {
-      console.warn('Invalid piece object:', piece);
-      return '';
-    }
-
+  private pieceToChar(piece: Piece): string {
     const map: Record<PieceType, string> = {
-      king: 'k',
-      queen: 'q',
-      rook: 'r',
-      bishop: 'b',
-      knight: 'n',
-      pawn: 'p'
+      king: 'k', queen: 'q', rook: 'r', bishop: 'b', knight: 'n', pawn: 'p'
     };
-
-    // Safely get the character, default to empty string if type is invalid
     const c = map[piece.type] || '';
-
-    // Ensure we have a string before calling toUpperCase
-    if (typeof c !== 'string') {
-      console.warn('Invalid piece type mapping:', piece.type);
-      return '';
-    }
-
     return piece.color === 'white' ? c.toUpperCase() : c;
-  }
-
-  private prioritizeMoves(board: Piece[][], moves: { from: BoardPosition, to: BoardPosition }[], color: PieceColor) {
-    const pieceValues: Record<PieceType, number> = {
-      queen: 9,
-      rook: 5,
-      bishop: 3,
-      knight: 3,
-      pawn: 1,
-      king: 0
-    };
-
-    return moves.sort((a, b) => {
-      const targetA = board[a.to.row][a.to.col];
-      const targetB = board[b.to.row][b.to.col];
-
-      if (targetA?.type === 'king') return -1;
-      if (targetB?.type === 'king') return 1;
-
-      const valueA = targetA ? pieceValues[targetA.type] || 0 : 0;
-      const valueB = targetB ? pieceValues[targetB.type] || 0 : 0;
-
-      if (valueA !== valueB) return valueB - valueA;
-
-      const centerScoreA = this.getCenterScore(a.to);
-      const centerScoreB = this.getCenterScore(b.to);
-
-      return centerScoreB - centerScoreA;
-    });
-  }
-
-  private getCenterScore(pos: BoardPosition): number {
-    const centerX = 3.5, centerY = 3.5;
-    const dx = Math.abs(pos.col - centerX);
-    const dy = Math.abs(pos.row - centerY);
-    return 1 - (dx + dy) / 7;
   }
 }
 

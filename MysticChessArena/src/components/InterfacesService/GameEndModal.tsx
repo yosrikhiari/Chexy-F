@@ -13,13 +13,21 @@ import { JwtService } from "@/services/JwtService.ts";
 import { userService } from "@/services/UserService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 
-const GameEndModal: React.FC<GameEndModalProps> = ({
-                                                     open,
-                                                     gameResult,
-                                                     onClose,
-                                                     onPlayAgain,
-                                                     isRankedMatch = false,
-                                                   }) => {
+// Update the props interface to include onReviewGame and onBackToMenu
+interface ExtendedGameEndModalProps extends GameEndModalProps {
+  onReviewGame: () => void;
+  onBackToMenu: () => void;
+}
+
+const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
+                                                             open,
+                                                             gameResult,
+                                                             onClose,
+                                                             onPlayAgain,
+                                                             onReviewGame,
+                                                             onBackToMenu,
+                                                             isRankedMatch = false,
+                                                           }) => {
   const [error, setError] = useState<string | null>(null);
 
   // Extract properties safely with default values
@@ -29,7 +37,7 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
     pointsAwarded = 0,
     gameEndReason = "checkmate",
     gameid = "",
-    winnerid = ""
+    winnerid = "",
   } = gameResult || {};
 
   const reasonText = {
@@ -67,12 +75,11 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
         }
 
         // Complete game
-
         const history = await gameHistoryService.getGameHistoriesBySession(gameid);
         if (!history || !history.id) {
           throw new Error("Game history not found");
         }
-        const historyId = history.id; // Assuming `id` is the field
+        const historyId = history.id;
         await gameHistoryService.completeGameHistory(historyId, gameResult);
       } catch (err) {
         console.error("Error updating backend:", err);
@@ -86,7 +93,6 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
   if (!gameResult) return null;
 
   return (
-
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -128,8 +134,14 @@ const GameEndModal: React.FC<GameEndModalProps> = ({
               Play Again
             </button>
             <button
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-md hover:bg-secondary/90 transition-colors"
+              onClick={onReviewGame}
+            >
+              Review Game
+            </button>
+            <button
               className="flex-1 bg-primary text-primary-foreground font-medium py-2 rounded-md hover:bg-primary/90 transition-colors"
-              onClick={onClose}
+              onClick={onBackToMenu}
             >
               Back to Menu
             </button>

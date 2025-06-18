@@ -1,4 +1,5 @@
 import React, { useState, useEffect, Component } from "react";
+import { useNavigate } from "react-router-dom";
 import ChessBoard from "./ChessBoard.tsx";
 import GameControls from "./GameControls.tsx";
 import PlayerInfo from "./PlayerInfo.tsx";
@@ -15,7 +16,7 @@ import { JwtService } from "@/services/JwtService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameService } from "@/services/GameService.ts";
-import {aiserervice} from "@/services/aiService.ts";
+import { aiserervice } from "@/services/aiService.ts";
 
 // Error Boundary Component
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -71,6 +72,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
   const [timers, setTimers] = useState<GameTimers | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
+  const [isGameOver, setIsGameOver] = useState(false);
   const [playerStats, setPlayerStats] = useState<{
     white: PlayerStats;
     black: PlayerStats;
@@ -81,6 +83,12 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const navigate = useNavigate();
+  const handleBackToMenu = () => {
+    setIsModalOpen(false);
+    navigate('/game-select');
+  };
 
   useEffect(() => {
     const initializeGame = async () => {
@@ -114,11 +122,10 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
           ...session.gameState,
           gameSessionId: session.gameId,
           userId1: session.whitePlayer.userId,
-          userId2: session.blackPlayer?.userId || "BOT", // Explicitly set bot ID
+          userId2: session.blackPlayer?.userId || "BOT",
         });
         setCurrentPlayer(session.gameState.currentTurn);
 
-// In the initializeGame function:
         if (mode === "CLASSIC_SINGLE_PLAYER" && session.status !== 'ACTIVE') {
           await gameSessionService.startGame(session.gameId);
           const updatedSession = await gameSessionService.getGameSession(session.gameId);
@@ -126,20 +133,20 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
           setGameState(updatedSession.gameState);
           setCurrentPlayer(updatedSession.gameState.currentTurn);
         }
+
         const timers = {
           white: {
             timeLeft: session.timers?.white?.timeLeft ?? 600,
-            active: session.gameState.currentTurn.toLowerCase() === "white" // Add this
+            active: session.gameState.currentTurn.toLowerCase() === "white",
           },
           black: {
             timeLeft: session.timers?.black?.timeLeft ?? 600,
-            active: session.gameState.currentTurn.toLowerCase() === "black" // Add this
+            active: session.gameState.currentTurn.toLowerCase() === "black",
           },
           defaultTime: session.timers?.defaultTime ?? 600,
         };
         setTimers(timers);
         console.log("Timers set to:", timers);
-
       } catch (error) {
         console.error("Error in initializeGame:", error);
         toast({ title: "Error", description: "Failed to initialize game.", variant: "destructive" });
@@ -181,10 +188,43 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     return () => clearInterval(interval);
   }, [gameSession, mode]);
 
+  // Monitor game state for end conditions
+  useEffect(() => {
+    const checkGameEnd = async () => {
+      if (!gameSession || !gameState.gameSessionId) return;
+
+      try {
+        const session = await gameSessionService.getGameSession(gameState.gameSessionId);
+        const isGameEnded = session.status === "COMPLETED" ||
+          gameState.isCheckmate ||
+          gameState.isDraw ||
+          (gameResult && ['checkmate', 'resignation', 'draw', 'tie_resolved'].includes(gameResult.gameEndReason));
+
+        if (isGameEnded) {
+          setIsGameOver(true);
+          setTimers((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              white: { ...prev.white, active: false },
+              black: { ...prev.black, active: false },
+            };
+          });
+        }
+      } catch (error) {
+        console.error("Error checking game end:", error);
+        toast({ title: "Error", description: "Failed to check game status.", variant: "destructive" });
+      }
+    };
+
+    checkGameEnd();
+  }, [gameState, gameSession, gameResult]);
+
   // Handle game end
   const handleGameEnd = async (result: GameResult) => {
     setGameResult(result);
     setIsModalOpen(true);
+    setIsGameOver(true);
 
     setTimers((prev) => {
       if (!prev) return prev;
@@ -199,8 +239,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
       if (gameSession) {
         const history = await gameHistoryService.createGameHistory(gameSession.gameId);
         await gameHistoryService.completeGameHistory(history.id, result);
-        await gameSessionService.endGame(gameSession.gameId, result.winnerid);
-        await userService.updateUserPoints(result.winnerid, result.pointsAwarded);
+        await gameSessionService.endGame(gameSession.gameId, result.winnerid, result.gameEndReason === "draw" || result.gameEndReason === "tie_resolved");
       }
     } catch (error) {
       toast({
@@ -239,16 +278,17 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
         setTimers({
           white: {
             timeLeft: session.timers?.white?.timeLeft ?? 600,
-            active: session.timers?.white?.active ?? true,
+            active: session.gameState.currentTurn.toLowerCase() === "white",
           },
           black: {
             timeLeft: session.timers?.black?.timeLeft ?? 600,
-            active: session.timers?.black?.active ?? false,
+            active: session.gameState.currentTurn.toLowerCase() === "black",
           },
           defaultTime: session.timers?.defaultTime ?? 600,
         });
         setGameResult(null);
         setIsModalOpen(false);
+        setIsGameOver(false);
 
         await gameSessionService.startGame(session.gameId);
       } else {
@@ -270,14 +310,16 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
   // Handle player change
   const handlePlayerChange = (color: PieceColor) => {
     setCurrentPlayer(color);
-    setTimers((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        white: { ...prev.white, active: color === "white" },
-        black: { ...prev.black, active: color === "black" },
-      };
-    });
+    if (!isGameOver) {
+      setTimers((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          white: { ...prev.white, active: color === "white" },
+          black: { ...prev.black, active: color === "black" },
+        };
+      });
+    }
   };
 
   if (isLoading || !timers) {
@@ -304,7 +346,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                   timers={timers}
                   setTimers={setTimers}
                   currentPlayer={currentPlayer}
-                  isGameOver={!!gameResult}
+                  isGameOver={isGameOver}
                   onTimeout={(color) => {
                     const winner = color === "white" ? "black" : "white";
                     const winnerName =
@@ -364,7 +406,8 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                 }}
                 player1Name={playerStats.white.name}
                 player2Name={playerStats.black.name}
-                onResetGame={resetGame} board={[]}              />
+                onResetGame={resetGame} board={[]}
+              />
 
               <GameControls
                 onResign={() => {
@@ -418,13 +461,13 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                 <div>
                   <h4 className="font-medium mb-1">Game Status</h4>
                   <div>
-                    {gameState.isCheck && (
+                    {isGameOver ? (
+                      <p className="text-red-600 font-medium">Game Over</p>
+                    ) : gameState.isCheck ? (
                       <p className="text-amber-600 font-medium">Check!</p>
-                    )}
-                    {gameState.isCheckmate && (
+                    ) : gameState.isCheckmate ? (
                       <p className="text-red-600 font-medium">Checkmate!</p>
-                    )}
-                    {!gameState.isCheck && !gameState.isCheckmate && (
+                    ) : (
                       <p className="text-green-600 font-medium">In Progress</p>
                     )}
                   </div>
@@ -450,6 +493,8 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
           gameResult={gameResult}
           onClose={() => setIsModalOpen(false)}
           onPlayAgain={resetGame}
+          onReviewGame={() => setIsModalOpen(false)}
+          onBackToMenu={handleBackToMenu}
           isRankedMatch={isRankedMatch}
         />
       </div>

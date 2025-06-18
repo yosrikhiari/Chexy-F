@@ -47,21 +47,7 @@ const ensureClassicBoard = (board: any): Piece[][] => {
   return normalized;
 };
 
-const ChessBoard = ({
-                      flipped = false,
-                      onPlayerChange,
-                      timers,
-                      onTimeUpdate,
-                      onTimeout,
-                      player1Name,
-                      player2Name,
-                      onResetGame,
-                      currentPlayer: propCurrentPlayer,
-                      onMove,
-                      onGameEnd,
-                      gameState: propGameState,
-                      onGameStateChange,
-                    }: ChessBoardProps) => {
+const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTimeout, player1Name, player2Name, onResetGame, currentPlayer: propCurrentPlayer, onMove, onGameEnd, gameState: propGameState, onGameStateChange,}: ChessBoardProps) => {
   const [board, setBoard] = useState<Piece[][]>(initialBoard);
   const [selectedPiece, setSelectedPiece] = useState<BoardPosition | null>(null);
   const [validMoves, setValidMoves] = useState<BoardPosition[]>([]);
@@ -194,6 +180,11 @@ const ChessBoard = ({
             gameHistoryService.completeGameHistory(gameState.gameHistoryId, gameResultData),
             gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
           ]);
+          const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
+          if (updatedSession.status !== "COMPLETED") {
+            console.error("Failed to update game status to COMPLETED");
+            toast({ title: "Error", description: "Game end failed to sync", variant: "destructive" });
+          }
         }
       } catch (error) {
         console.error("Error in checkGameStatus:", error);
@@ -419,7 +410,10 @@ const ChessBoard = ({
       }
 
       if (session.gameState.isCheckmate || session.gameState.isDraw) {
-        console.log("[Bot] Game is over, not making a move");
+        console.log("[Bot] Game is over, ensuring end state");
+        if (session.status === "ACTIVE") {
+          await gameSessionService.endGame(gameState.gameSessionId, gameState.userId1);
+        }
         return;
       }
 
@@ -587,8 +581,11 @@ const ChessBoard = ({
               moveCount: 0,
             });
           }
-        }}
-      />
+        }} onReviewGame={function (): void {
+        throw new Error("Function not implemented.");
+      }} onBackToMenu={function (): void {
+        throw new Error("Function not implemented.");
+      }}      />
     </div>
   );
 };

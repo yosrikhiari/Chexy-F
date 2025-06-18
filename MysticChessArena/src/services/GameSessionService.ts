@@ -70,6 +70,7 @@ export class GameSessionService {
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
 
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to end game: ${response.status} - ${errorText}`);

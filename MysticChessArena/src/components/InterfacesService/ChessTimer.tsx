@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { GameResult, GameTimers, PieceColor } from '@/Interfaces/types/chess.ts';
-import { ChessTimerProps } from '@/Interfaces/ChessTimerProps.ts';
+import React, { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils.ts';
 import { Timer } from 'lucide-react';
+import { ChessTimerProps } from '@/Interfaces/ChessTimerProps.ts';
+import { GameResult, GameTimers, PieceColor } from '@/Interfaces/types/chess.ts';
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 
@@ -49,11 +49,11 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
           setTimers({
             white: {
               timeLeft: session.timers.white.timeLeft,
-              active: session.timers.white.active ?? false,
+              active: session.gameState.currentTurn.toLowerCase() === "white",
             },
             black: {
               timeLeft: session.timers.black.timeLeft,
-              active: session.timers.black.active ?? false,
+              active: session.gameState.currentTurn.toLowerCase() === "black",
             },
             defaultTime: session.timers.defaultTime,
           });
@@ -80,22 +80,23 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
 
     const timerInterval = setInterval(() => {
       setTimers((prev: GameTimers) => {
-        if (prev && prev[currentPlayer]?.active && prev[currentPlayer]?.timeLeft > 0) {
-          const updatedTimers = {
-            ...prev,
-            [currentPlayer]: {
-              ...prev[currentPlayer],
-              timeLeft: prev[currentPlayer].timeLeft - 1,
-            },
-          };
-
-          if (updatedTimers[currentPlayer].timeLeft === 0) {
-            handleTimeout(currentPlayer);
-          }
-
-          return updatedTimers;
+        if (!prev || !prev[currentPlayer]?.active || prev[currentPlayer]?.timeLeft <= 0) {
+          return prev;
         }
-        return prev;
+
+        const updatedTimers = {
+          ...prev,
+          [currentPlayer]: {
+            ...prev[currentPlayer],
+            timeLeft: prev[currentPlayer].timeLeft - 1,
+          },
+        };
+
+        if (updatedTimers[currentPlayer].timeLeft === 0) {
+          handleTimeout(currentPlayer);
+        }
+
+        return updatedTimers;
       });
     }, 1000);
 
@@ -116,7 +117,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
       const winnerId = color === "white" ? session.blackPlayer?.userId : session.whitePlayer?.userId;
 
       if (winnerId) {
-        await gameSessionService.endGame(gameId, winnerId, false); // Timeout is a win, not a draw
+        await gameSessionService.endGame(gameId, winnerId, false);
         const gameResult: GameResult = {
           winner: color === "white" ? "black" : "white",
           winnerName: winnerId === session.whitePlayer?.userId ? session.whitePlayer.username : (session.blackPlayer?.username || "Bot"),
@@ -155,11 +156,11 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
       <div
         className={cn(
           'flex items-center gap-2 rounded-md p-2',
-          timers.white.active ? 'bg-primary/10 animate-pulse' : 'bg-muted/30',
-          timers.white.timeLeft < 30 && timers.white.active ? 'text-destructive font-bold' : ''
+          timers.white.active && !isGameOver ? 'bg-primary/10 animate-pulse' : 'bg-muted/30',
+          timers.white.timeLeft < 30 && timers.white.active && !isGameOver ? 'text-destructive font-bold' : ''
         )}
       >
-        <Timer className={cn('h-5 w-5', timers.white.active ? 'animate-spin' : '')} />
+        <Timer className={cn('h-5 w-5', timers.white.active && !isGameOver ? 'animate-spin' : '')} />
         <div className="text-sm sm:text-base font-medium">{formatTime(timers.white.timeLeft)}</div>
         <div className="text-xs text-muted-foreground">{whitePlayerName} (white)</div>
       </div>
@@ -167,11 +168,11 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
       <div
         className={cn(
           'flex items-center gap-2 rounded-md p-2',
-          timers.black.active ? 'bg-primary/10 animate-pulse' : 'bg-muted/30',
-          timers.black.timeLeft < 30 && timers.black.active ? 'text-destructive font-bold' : ''
+          timers.black.active && !isGameOver ? 'bg-primary/10 animate-pulse' : 'bg-muted/30',
+          timers.black.timeLeft < 30 && timers.black.active && !isGameOver ? 'text-destructive font-bold' : ''
         )}
       >
-        <Timer className={cn('h-5 w-5', timers.black.active ? 'animate-spin' : '')} />
+        <Timer className={cn('h-5 w-5', timers.black.active && !isGameOver ? 'animate-spin' : '')} />
         <div className="text-sm sm:text-base font-medium">{formatTime(timers.black.timeLeft)}</div>
         <div className="text-xs text-muted-foreground">{blackPlayerName} (black)</div>
       </div>
