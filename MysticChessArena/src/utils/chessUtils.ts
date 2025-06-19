@@ -9,6 +9,8 @@ import {gameSessionService} from '@/services/GameSessionService.ts';
 import {rpgGameService} from '@/services/RPGGameService.ts';
 import {realtimeService} from '@/services/RealtimeService.ts';
 
+
+
 // Utility to fetch board and board size from backend
 const fetchBoardAndSize = async (
   gameId: string,

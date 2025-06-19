@@ -104,6 +104,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
   }, [currentPlayer, isGameOver, setTimers, gameId, gameMode, timers]);
 
   // Handle timeout event
+// Handle timeout event
   const handleTimeout = async (color: PieceColor) => {
     if (!gameId || !playerId) {
       const errorMsg = "Game ID or Player ID missing";
@@ -114,26 +115,33 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
 
     try {
       const session = await gameSessionService.getGameSession(gameId);
-      const winnerId = color === "white" ? session.blackPlayer?.userId : session.whitePlayer?.userId;
+      let winnerId: string | null = color === "white" ? session.blackPlayer?.userId : session.whitePlayer?.userId;
 
-      if (winnerId) {
-        await gameSessionService.endGame(gameId, winnerId, false);
-        const gameResult: GameResult = {
-          winner: color === "white" ? "black" : "white",
-          winnerName: winnerId === session.whitePlayer?.userId ? session.whitePlayer.username : (session.blackPlayer?.username || "Bot"),
-          pointsAwarded: session.isRankedMatch ? 100 : 50,
-          gameEndReason: "timeout",
-          gameid: gameId,
-          winnerid: winnerId,
-        };
+      // Handle single-player mode where black is a bot
+      if (gameMode === "CLASSIC_SINGLE_PLAYER" && color === "white") {
+        winnerId = "BOT"; // Bot wins if white times out
+      }
 
+      const gameResult: GameResult = {
+        winner: color === "white" ? "black" : "white",
+        winnerName:
+          color === "white"
+            ? (session.blackPlayer?.username || "Bot")
+            : (session.whitePlayer?.username || "White"),
+        pointsAwarded: session.isRankedMatch ? 100 : 50,
+        gameEndReason: "timeout",
+        gameid: gameId,
+        winnerid: winnerId || "", // Use empty string if no winnerId
+      };
+
+      if (session.status === "ACTIVE") {
+        await gameSessionService.endGame(gameId, winnerId || null, false);
         if (session.gameHistoryId) {
           await gameHistoryService.completeGameHistory(session.gameHistoryId, gameResult);
         }
-        onTimeout(color);
-      } else {
-        throw new Error("Winner ID not found");
       }
+
+      onTimeout(color);
     } catch (err) {
       const errorMsg = `Failed to handle timeout: ${(err as Error).message}`;
       setLocalError(errorMsg);

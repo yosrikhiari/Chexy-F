@@ -1,6 +1,7 @@
 import { GameHistory } from "@/Interfaces/types/GameHistory";
 import { GameResult } from "@/Interfaces/types/chess";
 import { JwtService } from "./JwtService";
+import {PlayerAction} from '@/Interfaces/services/PlayerAction.ts';
 
 export class GameHistoryService {
   baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
@@ -93,6 +94,15 @@ export class GameHistoryService {
     if (!response.ok) throw new Error("Failed to add player action");
     return await response.json();
   }
+  async getPlayerActions(gameSessionId: string): Promise<PlayerAction[]> {
+    const response = await fetch(`${this.baseUrl}/game-history/session/${gameSessionId}/actions`, {
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to fetch player actions");
+    return await response.json();
+  }
+
+
 }
 
 export const gameHistoryService = new GameHistoryService();

@@ -5,5 +5,5 @@ export interface PlayerAction {
   from: [number, number];
   to: [number, number];
   timestamp: number;
+  sequenceNumber: number;
 }
-

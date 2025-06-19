@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { toast } from "@/components/ui/use-toast.tsx";
 import {
   PieceColor,
@@ -18,7 +18,7 @@ import { gameSessionService } from "@/services/GameSessionService.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameService } from "@/services/GameService.ts";
-import {GameMode} from "@/Interfaces/enums/GameMode.ts";
+import { GameMode } from "@/Interfaces/enums/GameMode.ts";
 import { aiserervice } from "@/services/aiService.ts";
 
 // Utility to deep clone the board to prevent direct mutations
@@ -48,7 +48,8 @@ const ensureClassicBoard = (board: any): Piece[][] => {
 };
 
 const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTimeout, player1Name, player2Name, onResetGame, currentPlayer: propCurrentPlayer, onMove, onGameEnd, gameState: propGameState, onGameStateChange,}: ChessBoardProps) => {
-  const [board, setBoard] = useState<Piece[][]>(initialBoard);
+  const [boardHistory, setBoardHistory] = useState<Piece[][][]>([initialBoard]);
+  const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
   const [selectedPiece, setSelectedPiece] = useState<BoardPosition | null>(null);
   const [validMoves, setValidMoves] = useState<BoardPosition[]>([]);
   const [internalCurrentPlayer, setInternalCurrentPlayer] = useState<PieceColor>("white");
@@ -73,6 +74,8 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
   const [isLoadingMove, setIsLoadingMove] = useState(false);
   const [gameMode, setGameMode] = useState<GameMode>("CLASSIC_MULTIPLAYER");
 
+  const isProcessingRef = useRef(false);
+
   const currentPlayer = propCurrentPlayer || internalCurrentPlayer;
   const gameState = propGameState || internalGameState;
 
@@ -95,12 +98,10 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
     }
   };
 
-  // Fetch and sync game state from server
+  // Fetch initial game state and build board history
   useEffect(() => {
-    const fetchGameState = async () => {
-      if (!propGameState?.gameSessionId) {
-        return;
-      }
+    const fetchGameData = async () => {
+      if (!propGameState?.gameSessionId) return;
 
       try {
         const gameSession: GameSession = await gameSessionService.getGameSession(propGameState.gameSessionId);
@@ -111,12 +112,19 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
             description: `This component supports only CLASSIC_MULTIPLAYER or CLASSIC_SINGLE_PLAYER mode. Current mode: ${gameSession.gameMode}`,
             variant: "destructive",
           });
-          setBoard(initialBoard);
+          setBoardHistory([initialBoard]);
           return;
         }
 
         const classicBoard = ensureClassicBoard(gameSession.board);
-        setBoard(classicBoard);
+        const actions = await gameHistoryService.getPlayerActions(gameSession.gameId);
+        actions.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+
+        // Initialize with the starting board from the server
+        const history = [classicBoard];
+        setBoardHistory(history);
+        setCurrentMoveIndex(0);
+
         setGameStateValue({
           ...gameSession.gameState,
           gameSessionId: propGameState.gameSessionId,
@@ -127,17 +135,16 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
       } catch (error) {
         toast({
           title: "Error",
-          description: "Failed to fetch game state from server.",
+          description: "Failed to fetch game data from server.",
           variant: "destructive",
         });
-        setBoard(initialBoard);
+        setBoardHistory([initialBoard]);
       }
     };
-    fetchGameState();
+    fetchGameData();
   }, [propGameState?.gameSessionId]);
 
   // Check game status (check/checkmate)
-// Add to ChessBoard.tsx
   useEffect(() => {
     const checkGameStatus = async () => {
       if (!gameState.gameSessionId || !gameState.gameHistoryId) return;
@@ -196,7 +203,7 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
       }
     };
     checkGameStatus();
-  }, [board, gameState.gameSessionId, gameState.gameHistoryId]);
+  }, [boardHistory, gameState.gameSessionId, gameState.gameHistoryId]);
 
   // Timer management
   useEffect(() => {
@@ -225,9 +232,9 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
             winner: winningPlayer,
             winnerName: winnerName || "Unknown",
             pointsAwarded,
-            gameEndReason: "timeout", // Lowercase
+            gameEndReason: "timeout",
             gameid: gameState.gameSessionId,
-            winnerid: winningPlayer === "white" ? gameState.userId1 : gameState.userId2,
+            winnerid: winningPlayer === "white" ? gameState.userId1 : (gameState.userId2 || "BOT"), // Handle bot case
           };
 
           setGameResult(gameResultData);
@@ -235,8 +242,8 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
           onTimeout(currentPlayer);
 
           Promise.all([
-            gameHistoryService.completeGameHistory(gameState.gameSessionId, gameResultData),
-            gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
+            gameHistoryService.completeGameHistory(gameState.gameHistoryId, gameResultData), // Fixed: Use gameHistoryId
+            gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid, false),
           ]).catch(() => {
             toast({
               title: "Error",
@@ -249,7 +256,7 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
     }, 1000);
 
     return () => clearInterval(timerInterval);
-  }, [timers, currentPlayer, onTimeUpdate, onTimeout, gameState.gameSessionId, gameMode]);
+  }, [timers, currentPlayer, onTimeUpdate, onTimeout, gameState.gameSessionId, gameState.gameHistoryId, gameMode, player1Name, player2Name]);
 
   // Sync current player with parent
   useEffect(() => {
@@ -270,29 +277,42 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
     validMoves.some(move => move.row === row && move.col === col);
 
   const handleSquareClick = async (row: number, col: number) => {
-    if (!gameState.gameSessionId) {
-      toast({ title: "Error", description: "Game session not initialized", variant: "destructive" });
-      return;
-    }
-    if (gameState.isCheckmate || isLoadingMove) return;
-
-    setIsLoadingMove(true);
+    if (isProcessingRef.current) return; // Block if already processing
+    isProcessingRef.current = true;
     try {
-      // Fetch the latest game state from the server
+      if (currentMoveIndex < boardHistory.length - 1) {
+        toast({
+          title: "Review Mode",
+          description: "Please go to the latest move to continue playing.",
+          variant: "default"
+        });
+        return;
+      }
+      if (!gameState.gameSessionId) {
+        toast({ title: "Error", description: "Game session not initialized", variant: "destructive" });
+        return;
+      }
+      if (gameState.isCheckmate) return;
+
       const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
       const serverBoard = ensureClassicBoard(updatedSession.board);
-      setBoard(serverBoard); // Sync client board with server
+      setBoardHistory(prev => {
+        const latestBoard = prev[prev.length - 1];
+        if (JSON.stringify(latestBoard) !== JSON.stringify(serverBoard)) {
+          return [...prev, serverBoard];
+        }
+        return prev;
+      });
+      setCurrentMoveIndex(prev => prev + (JSON.stringify(boardHistory[boardHistory.length - 1]) !== JSON.stringify(serverBoard) ? 1 : 0));
       setGameStateValue(updatedSession.gameState);
       setCurrentPlayerValue(updatedSession.gameState.currentTurn);
 
-      // Validate it’s the correct player’s turn
       if (updatedSession.gameState.currentTurn !== currentPlayer) {
         toast({ title: "Error", description: "It’s not your turn", variant: "destructive" });
-        resetSelection(); // Deselect if not the player’s turn
+        resetSelection();
         return;
       }
 
-      // If no piece is selected, select it
       if (!selectedPiece) {
         const clickedPiece = serverBoard[row][col];
         if (!clickedPiece || clickedPiece.color !== updatedSession.gameState.currentTurn) {
@@ -316,7 +336,6 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         return;
       }
 
-      // Check if clicking on another piece of the same color
       const clickedPiece = serverBoard[row][col];
       if (clickedPiece && clickedPiece.color === currentPlayer) {
         setSelectedPiece({ row, col });
@@ -334,27 +353,25 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         return;
       }
 
-      // Check if the target square is a valid move
       const isValid = validMoves.some(m => m.row === row && m.col === col);
       if (!isValid) {
-        resetSelection(); // Deselect the piece if the move is invalid
+        resetSelection();
         return;
       }
 
-      // Attempt the move
       const move = {
         from: { row: selectedPiece.row, col: selectedPiece.col },
         to: { row, col }
       };
 
-      // Execute move on the server
       await gameService.executeMove(gameState.gameSessionId, move);
       const postMoveSession = await gameSessionService.getGameSession(gameState.gameSessionId);
-      setBoard(ensureClassicBoard(postMoveSession.board));
+      const newBoard = ensureClassicBoard(postMoveSession.board);
+      setBoardHistory(prev => [...prev, newBoard]);
+      setCurrentMoveIndex(prev => prev + 1);
       setGameStateValue(postMoveSession.gameState);
       setCurrentPlayerValue(postMoveSession.gameState.currentTurn);
 
-      // Update timers
       if (onTimeUpdate && timers) {
         const nextPlayer = currentPlayer === "white" ? "black" : "white";
         onTimeUpdate({
@@ -366,7 +383,6 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
 
       resetSelection();
 
-      // Trigger bot move if in single-player mode
       if (gameMode === "CLASSIC_SINGLE_PLAYER" && postMoveSession.gameState.currentTurn === "black") {
         await handleBotMove();
       }
@@ -376,9 +392,9 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         description: error instanceof Error ? error.message : "An error occurred",
         variant: "destructive"
       });
-      resetSelection(); // Deselect on error
+      resetSelection();
     } finally {
-      setIsLoadingMove(false);
+      isProcessingRef.current = false; // Release lock
     }
   };
 
@@ -399,7 +415,6 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
     };
     fetchGameHistory();
   }, [propGameState?.gameSessionId]);
-
 
   const handleBotMove = async () => {
     try {
@@ -422,7 +437,8 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         return;
       }
 
-      setBoard(ensureClassicBoard(session.board));
+      setBoardHistory(prev => [...prev, ensureClassicBoard(session.board)]);
+      setCurrentMoveIndex(prev => prev + 1);
       setGameStateValue(session.gameState);
       setCurrentPlayerValue(session.gameState.currentTurn);
 
@@ -432,7 +448,6 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         console.log("[Bot] No valid moves available");
         const isCheck = await chessGameService.isCheck(gameState.gameSessionId, "black");
         if (isCheck) {
-          // Checkmate: White wins
           const gameResultData: GameResult = {
             winner: "white",
             winnerName: player1Name || "White",
@@ -455,11 +470,10 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
             if (error.message.includes("Game is not active and cannot be ended")) {
               console.log("[Bot] Game was already ended, ignoring.");
             } else {
-              throw error; // Re-throw other unexpected errors
+              throw error;
             }
           }
         } else {
-          // Stalemate: Draw
           const gameResultData: GameResult = {
             winner: null,
             winnerName: "Draw",
@@ -477,22 +491,17 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
             if (error.message.includes("Game is not active and cannot be ended")) {
               console.log("[Bot] Game was already ended, ignoring.");
             } else {
-              throw error; // Re-throw other unexpected errors
+              throw error;
             }
           }
         }
         return;
       }
 
-      // Validate and execute bot move
-      const fromPiece = session.board[botMove.from.row][botMove.from.col];
-      if (!fromPiece || fromPiece.color !== "black") {
-        throw new Error("Bot selected an invalid piece");
-      }
-
       await gameService.executeMove(gameState.gameSessionId, botMove);
       const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
-      setBoard(ensureClassicBoard(updatedSession.board));
+      setBoardHistory(prev => [...prev, ensureClassicBoard(updatedSession.board)]);
+      setCurrentMoveIndex(prev => prev + 1);
       setGameStateValue(updatedSession.gameState);
       setCurrentPlayerValue(updatedSession.gameState.currentTurn);
     } catch (error) {
@@ -506,7 +515,8 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
   };
 
   const renderBoard = () => {
-    const boardToRender = flipped ? [...board].reverse().map(row => [...row].reverse()) : board;
+    const displayBoard = boardHistory[currentMoveIndex];
+    const boardToRender = flipped ? [...displayBoard].reverse().map(row => [...row].reverse()) : displayBoard;
 
     return boardToRender.map((row, rowIndex) => {
       const actualRowIndex = flipped ? 7 - rowIndex : rowIndex;
@@ -547,7 +557,22 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
       <div className="rounded-md overflow-hidden shadow-lg border border-accent/20">
         {renderBoard()}
       </div>
-
+      <div className="flex justify-center mt-4">
+        <button
+          onClick={() => setCurrentMoveIndex(prev => Math.max(0, prev - 1))}
+          disabled={currentMoveIndex === 0}
+          className="mx-2 px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+        >
+          Backward
+        </button>
+        <button
+          onClick={() => setCurrentMoveIndex(prev => Math.min(boardHistory.length - 1, prev + 1))}
+          disabled={currentMoveIndex === boardHistory.length - 1}
+          className="mx-2 px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+        >
+          Forward
+        </button>
+      </div>
       {gameState.isCheck && !gameState.isCheckmate && (
         <div className="mt-4 p-2 bg-red-100 text-red-800 rounded-md">
           {gameState.checkedPlayer === currentPlayer
@@ -555,13 +580,11 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
             : "Opponent's king is in check."}
         </div>
       )}
-
       {gameState.isCheckmate && (
         <div className="mt-4 p-2 bg-primary/20 text-primary-foreground rounded-md font-bold">
           Checkmate! Game over.
         </div>
       )}
-
       <GameEndModal
         open={showGameEndModal}
         gameResult={gameResult}
@@ -570,7 +593,8 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
           setShowGameEndModal(false);
           if (onResetGame) {
             onResetGame();
-            setBoard(initialBoard);
+            setBoardHistory([initialBoard]);
+            setCurrentMoveIndex(0);
             setCurrentPlayerValue("white");
             setGameStateValue({
               ...internalGameState,
@@ -581,11 +605,10 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
               moveCount: 0,
             });
           }
-        }} onReviewGame={function (): void {
-        throw new Error("Function not implemented.");
-      }} onBackToMenu={function (): void {
-        throw new Error("Function not implemented.");
-      }}      />
+        }}
+        onReviewGame={() => { throw new Error("Function not implemented."); }}
+        onBackToMenu={() => { throw new Error("Function not implemented."); }}
+      />
     </div>
   );
 };

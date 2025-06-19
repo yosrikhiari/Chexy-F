@@ -356,7 +356,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                     const winnerId =
                       winner === "white"
                         ? gameState.userId1
-                        : gameState.userId2;
+                        : (gameState.userId2 || "BOT"); // Handle bot
 
                     handleGameEnd({
                       winner,
@@ -364,7 +364,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                       pointsAwarded: isRankedMatch ? 15 : 0,
                       gameEndReason: "timeout",
                       gameid: gameState.gameSessionId,
-                      winnerid: winnerId || "",
+                      winnerid: winnerId,
                     });
                   }}
                   gameId={gameState.gameSessionId}
@@ -393,7 +393,9 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                   const winnerName = winner === "white"
                     ? playerStats.white.name
                     : playerStats.black.name;
-                  const winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
+                  const winnerId = winner === "white"
+                    ? gameState.userId1
+                    : (gameState.userId2 || "BOT"); // Handle bot
 
                   handleGameEnd({
                     winner,
@@ -401,13 +403,12 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                     pointsAwarded: isRankedMatch ? 15 : 0,
                     gameEndReason: "timeout",
                     gameid: gameState.gameSessionId,
-                    winnerid: winnerId || "",
+                    winnerid: winnerId,
                   });
                 }}
                 player1Name={playerStats.white.name}
                 player2Name={playerStats.black.name}
-                onResetGame={resetGame} board={[]}
-              />
+                onResetGame={resetGame} board={[]}              />
 
               <GameControls
                 onResign={() => {
