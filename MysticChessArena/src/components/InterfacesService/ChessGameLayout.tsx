@@ -5,7 +5,7 @@ import GameControls from "./GameControls.tsx";
 import PlayerInfo from "./PlayerInfo.tsx";
 import ChessTimer from "./ChessTimer.tsx";
 import GameEndModal from "./GameEndModal.tsx";
-import { PieceColor, GameTimers, GameState, GameResult, PlayerStats } from "@/Interfaces/types/chess.ts";
+import { PieceColor, GameTimers, GameState, GameResult, PlayerStats, PieceType, BoardPosition } from "@/Interfaces/types/chess.ts";
 import { ChessGameLayoutProps } from "@/Interfaces/ChessGameLayoutProps.ts";
 import { GameSession } from "@/Interfaces/types/GameSession.ts";
 import { toast } from "@/components/ui/use-toast.tsx";
@@ -17,6 +17,7 @@ import { gameSessionService } from "@/services/GameSessionService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameService } from "@/services/GameService.ts";
 import { aiserervice } from "@/services/aiService.ts";
+import { PlayerAction } from "@/Interfaces/services/PlayerAction.ts";
 
 // Error Boundary Component
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -45,6 +46,14 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
   }
 }
 
+// Extend PlayerAction to include pieceType and additional move details
+type ExtendedPlayerAction = PlayerAction & {
+  pieceType: PieceType;
+  resultsInCheck?: boolean;
+  resultsInCheckmate?: boolean;
+  resultsInStalemate?: boolean;
+};
+
 const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                                                                    className = "",
                                                                    isRankedMatch = false,
@@ -67,7 +76,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     canWhiteCastleKingSide: true,
     canWhiteCastleQueenSide: true,
     canBlackCastleKingSide: true,
-    canBlackCastleQueenSide: true
+    canBlackCastleQueenSide: true,
   });
   const [timers, setTimers] = useState<GameTimers | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -83,37 +92,108 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [localMoveHistory, setLocalMoveHistory] = useState<ExtendedPlayerAction[]>([]);
 
   const navigate = useNavigate();
   const handleBackToMenu = () => {
     setIsModalOpen(false);
-    navigate('/game-select');
+    navigate('/');
+  };
+
+  // Convert move to algebraic notation with move type indicators
+  const moveToAlgebraicNotation = (action: ExtendedPlayerAction): string => {
+    if (!action.from || !action.to || !Array.isArray(action.from) || !Array.isArray(action.to)) {
+      return "Invalid move";
+    }
+
+    const pieceMap: { [key: string]: string } = {
+      king: 'K',
+      queen: 'Q',
+      rook: 'R',
+      bishop: 'B',
+      knight: 'N',
+      pawn: '',
+    };
+
+    const fromCol = String.fromCharCode(97 + action.from[1]);
+    const toCol = String.fromCharCode(97 + action.to[1]);
+    const toRow = 8 - action.to[0];
+
+    const pieceType = action.pieceType || 'pawn';
+    const isCapture = action.actionType === 'capture';
+
+    let notation = '';
+    if (pieceType === 'pawn') {
+      if (isCapture) {
+        notation = `${fromCol}x${toCol}${toRow}`;
+      } else {
+        notation = `${toCol}${toRow}`;
+      }
+    } else {
+      notation = `${pieceMap[pieceType]}${isCapture ? 'x' : ''}${toCol}${toRow}`;
+    }
+
+    // Append indicators for check, checkmate, or stalemate
+    if (action.resultsInCheckmate) {
+      notation += '#';
+    } else if (action.resultsInCheck) {
+      notation += '+';
+    } else if (action.resultsInStalemate) {
+      notation += ' (stalemate)';
+    }
+
+    return notation;
   };
 
   useEffect(() => {
     const initializeGame = async () => {
       try {
         if (!authService.isLoggedIn()) {
-          console.log("User not logged in");
           toast({ title: "Error", description: "Please log in to start a game.", variant: "destructive" });
           return;
         }
 
         const keycloakId = JwtService.getKeycloakId();
-        console.log("Keycloak ID:", keycloakId);
         if (!keycloakId) {
-          console.log("No Keycloak ID found");
           toast({ title: "Error", description: "No Keycloak ID found.", variant: "destructive" });
           return;
         }
 
         const user = await userService.getCurrentUser(keycloakId);
-        console.log("Fetched user:", user);
         setCurrentUser(user);
 
         let session: GameSession;
         if (propGameId && propPlayerId) {
           session = await gameSessionService.getGameSession(propGameId);
+          // Check if the game is already active or completed
+          if (session.status === "ACTIVE" || session.status === "COMPLETED") {
+            setGameSession(session);
+            setGameState({
+              ...session.gameState,
+              gameSessionId: session.gameId,
+              userId1: session.whitePlayer.userId,
+              userId2: session.blackPlayer?.userId || "BOT",
+            });
+            setCurrentPlayer(session.gameState.currentTurn);
+            const timers = {
+              white: {
+                timeLeft: session.timers?.white?.timeLeft ?? 600,
+                active: session.gameState.currentTurn.toLowerCase() === "white",
+              },
+              black: {
+                timeLeft: session.timers?.black?.timeLeft ?? 600,
+                active: session.gameState.currentTurn.toLowerCase() === "black",
+              },
+              defaultTime: session.timers?.defaultTime ?? 600,
+            };
+            setTimers(timers);
+            // Load move history from localStorage
+            const savedMoveHistory = localStorage.getItem(`moveHistory_${propGameId}`);
+            if (savedMoveHistory) {
+              setLocalMoveHistory(JSON.parse(savedMoveHistory));
+            }
+            return; // Exit early since the game is already started or completed
+          }
         } else {
           session = await gameSessionService.createGameSession(user.id, mode || "CLASSIC_SINGLE_PLAYER", isRankedMatch);
         }
@@ -146,19 +226,16 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
           defaultTime: session.timers?.defaultTime ?? 600,
         };
         setTimers(timers);
-        console.log("Timers set to:", timers);
       } catch (error) {
         console.error("Error in initializeGame:", error);
         toast({ title: "Error", description: "Failed to initialize game.", variant: "destructive" });
       } finally {
-        console.log("Setting isLoading to false");
         setIsLoading(false);
       }
     };
     initializeGame();
   }, [propGameId, propPlayerId, isRankedMatch, mode]);
 
-  // Monitor for black player joining (skip for single-player)
   useEffect(() => {
     if (mode === "CLASSIC_SINGLE_PLAYER" || !gameSession || gameSession.blackPlayer?.userId) return;
 
@@ -188,7 +265,6 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     return () => clearInterval(interval);
   }, [gameSession, mode]);
 
-  // Monitor game state for end conditions
   useEffect(() => {
     const checkGameEnd = async () => {
       if (!gameSession || !gameState.gameSessionId) return;
@@ -220,7 +296,6 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     checkGameEnd();
   }, [gameState, gameSession, gameResult]);
 
-  // Handle game end
   const handleGameEnd = async (result: GameResult) => {
     setGameResult(result);
     setIsModalOpen(true);
@@ -250,7 +325,6 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     }
   };
 
-  // Reset the game
   const resetGame = async () => {
     try {
       if (currentUser && authService.isLoggedIn()) {
@@ -289,6 +363,9 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
         setGameResult(null);
         setIsModalOpen(false);
         setIsGameOver(false);
+        setLocalMoveHistory([]);
+        localStorage.removeItem(`moveHistory_${gameState.gameSessionId}`); // Clear move history for old session
+        localStorage.removeItem(`boardHistory_${gameState.gameSessionId}`); // Clear board history for old session
 
         await gameSessionService.startGame(session.gameId);
       } else {
@@ -307,7 +384,6 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     }
   };
 
-  // Handle player change
   const handlePlayerChange = (color: PieceColor) => {
     setCurrentPlayer(color);
     if (!isGameOver) {
@@ -322,13 +398,57 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     }
   };
 
+  const handleMoveMade = (move: {
+    from: BoardPosition;
+    to: BoardPosition;
+    actionType: 'move' | 'capture';
+    pieceType: PieceType;
+    resultsInCheck?: boolean;
+    resultsInCheckmate?: boolean;
+    resultsInStalemate?: boolean;
+  }) => {
+    const newAction: ExtendedPlayerAction = {
+      gameId: gameState.gameSessionId,
+      playerId: currentPlayer === 'white' ? gameState.userId1 : gameState.userId2,
+      actionType: move.actionType,
+      from: [move.from.row, move.from.col],
+      to: [move.to.row, move.to.col],
+      timestamp: Date.now(),
+      sequenceNumber: localMoveHistory.length + 1,
+      pieceType: move.pieceType,
+      resultsInCheck: move.resultsInCheck,
+      resultsInCheckmate: move.resultsInCheckmate,
+      resultsInStalemate: move.resultsInStalemate,
+    };
+    setLocalMoveHistory(prev => {
+      const newHistory = [...prev, newAction];
+      localStorage.setItem(`moveHistory_${gameState.gameSessionId}`, JSON.stringify(newHistory));
+      return newHistory;
+    });
+  };
+
   if (isLoading || !timers) {
-    console.log("Rendering loading state. isLoading:", isLoading, "timers:", timers);
     return <div className="text-center p-4">Loading game...</div>;
   }
 
   return (
     <ErrorBoundary>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #555;
+        }
+      `}</style>
       <div className={`${className}`}>
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
           <div className="lg:col-span-3">
@@ -356,7 +476,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                     const winnerId =
                       winner === "white"
                         ? gameState.userId1
-                        : (gameState.userId2 || "BOT"); // Handle bot
+                        : (gameState.userId2 || "BOT");
 
                     handleGameEnd({
                       winner,
@@ -395,7 +515,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                     : playerStats.black.name;
                   const winnerId = winner === "white"
                     ? gameState.userId1
-                    : (gameState.userId2 || "BOT"); // Handle bot
+                    : (gameState.userId2 || "BOT");
 
                   handleGameEnd({
                     winner,
@@ -408,7 +528,10 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                 }}
                 player1Name={playerStats.white.name}
                 player2Name={playerStats.black.name}
-                onResetGame={resetGame} board={[]}              />
+                onResetGame={resetGame}
+                board={[]}
+                onMoveMade={handleMoveMade}
+              />
 
               <GameControls
                 onResign={() => {
@@ -483,6 +606,28 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                       Casual match - no points awarded
                     </p>
                   )}
+                </div>
+                <div>
+                  <h4 className="font-medium mb-1">Move History</h4>
+                  <div className="max-h-48 overflow-y-auto custom-scrollbar">
+                    {localMoveHistory.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No moves yet</p>
+                    ) : (
+                      <ul className="text-sm space-y-1">
+                        {localMoveHistory.reduce((acc: JSX.Element[], action, index) => {
+                          if (index % 2 === 0) {
+                            acc.push(
+                              <li key={action.sequenceNumber}>
+                                {Math.floor(index / 2) + 1}. White: {moveToAlgebraicNotation(action)}{' '}
+                                {localMoveHistory[index + 1] ? `Black: ${moveToAlgebraicNotation(localMoveHistory[index + 1])}` : ''}
+                              </li>
+                            );
+                          }
+                          return acc;
+                        }, [])}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

@@ -21,11 +21,9 @@ import { gameService } from "@/services/GameService.ts";
 import { GameMode } from "@/Interfaces/enums/GameMode.ts";
 import { aiserervice } from "@/services/aiService.ts";
 
-// Utility to deep clone the board to prevent direct mutations
 const cloneBoard = (board: Piece[][]): Piece[][] =>
   board.map(row => row.map(piece => (piece ? { ...piece } : null)));
 
-// Ensure board is always a valid Piece[][] for classic chess
 const ensureClassicBoard = (board: any): Piece[][] => {
   if (!Array.isArray(board) || board.length !== 8 || !board.every((row: any) => Array.isArray(row) && row.length === 8)) {
     console.warn('Invalid board structure, using initialBoard');
@@ -47,7 +45,22 @@ const ensureClassicBoard = (board: any): Piece[][] => {
   return normalized;
 };
 
-const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTimeout, player1Name, player2Name, onResetGame, currentPlayer: propCurrentPlayer, onMove, onGameEnd, gameState: propGameState, onGameStateChange,}: ChessBoardProps) => {
+const ChessBoard = ({
+                      flipped = false,
+                      onPlayerChange,
+                      timers,
+                      onTimeUpdate,
+                      onTimeout,
+                      player1Name,
+                      player2Name,
+                      onResetGame,
+                      currentPlayer: propCurrentPlayer,
+                      onMove,
+                      onGameEnd,
+                      gameState: propGameState,
+                      onGameStateChange,
+                      onMoveMade,
+                    }: ChessBoardProps) => {
   const [boardHistory, setBoardHistory] = useState<Piece[][][]>([initialBoard]);
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
   const [selectedPiece, setSelectedPiece] = useState<BoardPosition | null>(null);
@@ -117,13 +130,15 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         }
 
         const classicBoard = ensureClassicBoard(gameSession.board);
-        const actions = await gameHistoryService.getPlayerActions(gameSession.gameId);
-        actions.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
-
-        // Initialize with the starting board from the server
-        const history = [classicBoard];
-        setBoardHistory(history);
-        setCurrentMoveIndex(0);
+        const savedHistory = localStorage.getItem(`boardHistory_${propGameState.gameSessionId}`);
+        if (savedHistory) {
+          const parsedHistory = JSON.parse(savedHistory);
+          setBoardHistory(parsedHistory);
+          setCurrentMoveIndex(parsedHistory.length - 1);
+        } else {
+          setBoardHistory([classicBoard]);
+          setCurrentMoveIndex(0);
+        }
 
         setGameStateValue({
           ...gameSession.gameState,
@@ -234,7 +249,7 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
             pointsAwarded,
             gameEndReason: "timeout",
             gameid: gameState.gameSessionId,
-            winnerid: winningPlayer === "white" ? gameState.userId1 : (gameState.userId2 || "BOT"), // Handle bot case
+            winnerid: winningPlayer === "white" ? gameState.userId1 : (gameState.userId2 || "BOT"),
           };
 
           setGameResult(gameResultData);
@@ -242,8 +257,8 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
           onTimeout(currentPlayer);
 
           Promise.all([
-            gameHistoryService.completeGameHistory(gameState.gameHistoryId, gameResultData), // Fixed: Use gameHistoryId
-            gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid, false),
+            gameHistoryService.completeGameHistory(gameState.gameHistoryId, gameResultData),
+            gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
           ]).catch(() => {
             toast({
               title: "Error",
@@ -277,7 +292,7 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
     validMoves.some(move => move.row === row && move.col === col);
 
   const handleSquareClick = async (row: number, col: number) => {
-    if (isProcessingRef.current) return; // Block if already processing
+    if (isProcessingRef.current) return;
     isProcessingRef.current = true;
     try {
       if (currentMoveIndex < boardHistory.length - 1) {
@@ -294,16 +309,8 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
       }
       if (gameState.isCheckmate) return;
 
+      // Fetch server session only to validate turn and state, not to update boardHistory
       const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
-      const serverBoard = ensureClassicBoard(updatedSession.board);
-      setBoardHistory(prev => {
-        const latestBoard = prev[prev.length - 1];
-        if (JSON.stringify(latestBoard) !== JSON.stringify(serverBoard)) {
-          return [...prev, serverBoard];
-        }
-        return prev;
-      });
-      setCurrentMoveIndex(prev => prev + (JSON.stringify(boardHistory[boardHistory.length - 1]) !== JSON.stringify(serverBoard) ? 1 : 0));
       setGameStateValue(updatedSession.gameState);
       setCurrentPlayerValue(updatedSession.gameState.currentTurn);
 
@@ -312,6 +319,9 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         resetSelection();
         return;
       }
+
+      // Use local board for move validation
+      const serverBoard = ensureClassicBoard(updatedSession.board);
 
       if (!selectedPiece) {
         const clickedPiece = serverBoard[row][col];
@@ -363,12 +373,42 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         from: { row: selectedPiece.row, col: selectedPiece.col },
         to: { row, col }
       };
+      const isCapture = !!serverBoard[row][col];
+      const pieceType = serverBoard[selectedPiece.row][selectedPiece.col].type;
 
+      console.log(`[DEBUG] Executing move: from=[${move.from.row},${move.from.col}], to=[${move.to.row},${move.to.col}]`);
       await gameService.executeMove(gameState.gameSessionId, move);
       const postMoveSession = await gameSessionService.getGameSession(gameState.gameSessionId);
       const newBoard = ensureClassicBoard(postMoveSession.board);
-      setBoardHistory(prev => [...prev, newBoard]);
-      setCurrentMoveIndex(prev => prev + 1);
+      setBoardHistory(prev => {
+        const newHistory = [...prev, newBoard];
+        localStorage.setItem(`boardHistory_${gameState.gameSessionId}`, JSON.stringify(newHistory));
+        console.log(`[DEBUG] Adding post-move board to history: new length=${newHistory.length}, board=`, newBoard);
+        return newHistory;
+      });
+      setCurrentMoveIndex(prev => {
+        const newIndex = prev + 1;
+        console.log(`[DEBUG] Post-move currentMoveIndex: prev=${prev}, newIndex=${newIndex}`);
+        return newIndex;
+      });
+
+      // Determine move outcomes
+      const isCheck = await chessGameService.isCheck(gameState.gameSessionId, postMoveSession.gameState.currentTurn);
+      const isCheckmate = isCheck && await chessGameService.isCheckmate(gameState.gameSessionId, postMoveSession.gameState.currentTurn);
+      const isStalemate = !isCheck && await chessGameService.isDraw(gameState.gameSessionId, postMoveSession.gameState.currentTurn);
+
+      if (onMoveMade) {
+        onMoveMade({
+          from: move.from,
+          to: move.to,
+          actionType: isCapture ? 'capture' : 'move',
+          pieceType,
+          resultsInCheck: isCheck && !isCheckmate,
+          resultsInCheckmate: isCheckmate,
+          resultsInStalemate: isStalemate,
+        });
+      }
+
       setGameStateValue(postMoveSession.gameState);
       setCurrentPlayerValue(postMoveSession.gameState.currentTurn);
 
@@ -394,7 +434,7 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
       });
       resetSelection();
     } finally {
-      isProcessingRef.current = false; // Release lock
+      isProcessingRef.current = false;
     }
   };
 
@@ -437,8 +477,6 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         return;
       }
 
-      setBoardHistory(prev => [...prev, ensureClassicBoard(session.board)]);
-      setCurrentMoveIndex(prev => prev + 1);
       setGameStateValue(session.gameState);
       setCurrentPlayerValue(session.gameState.currentTurn);
 
@@ -498,10 +536,38 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
         return;
       }
 
+      const serverBoard = ensureClassicBoard(session.board);
+      const isCapture = !!serverBoard[botMove.to.row][botMove.to.col];
+      const pieceType = serverBoard[botMove.from.row][botMove.from.col].type;
+
       await gameService.executeMove(gameState.gameSessionId, botMove);
       const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
-      setBoardHistory(prev => [...prev, ensureClassicBoard(updatedSession.board)]);
-      setCurrentMoveIndex(prev => prev + 1);
+      setBoardHistory(prev => {
+        const newHistory = [...prev, ensureClassicBoard(updatedSession.board)];
+        localStorage.setItem(`boardHistory_${gameState.gameSessionId}`, JSON.stringify(newHistory));
+        return newHistory;
+      });
+      setCurrentMoveIndex(prev => {
+        const newIndex = prev + 1;
+        return newIndex;
+      });
+
+      const isCheck = await chessGameService.isCheck(gameState.gameSessionId, updatedSession.gameState.currentTurn);
+      const isCheckmate = isCheck && await chessGameService.isCheckmate(gameState.gameSessionId, updatedSession.gameState.currentTurn);
+      const isStalemate = !isCheck && await chessGameService.isDraw(gameState.gameSessionId, updatedSession.gameState.currentTurn);
+
+      if (onMoveMade) {
+        onMoveMade({
+          from: botMove.from,
+          to: botMove.to,
+          actionType: isCapture ? 'capture' : 'move',
+          pieceType,
+          resultsInCheck: isCheck && !isCheckmate,
+          resultsInCheckmate: isCheckmate,
+          resultsInStalemate: isStalemate,
+        });
+      }
+
       setGameStateValue(updatedSession.gameState);
       setCurrentPlayerValue(updatedSession.gameState.currentTurn);
     } catch (error) {
@@ -557,20 +623,36 @@ const ChessBoard = ({flipped = false, onPlayerChange, timers, onTimeUpdate, onTi
       <div className="rounded-md overflow-hidden shadow-lg border border-accent/20">
         {renderBoard()}
       </div>
-      <div className="flex justify-center mt-4">
+      <div className="flex justify-center space-x-4 mt-4">
         <button
-          onClick={() => setCurrentMoveIndex(prev => Math.max(0, prev - 1))}
+          onClick={() => {
+            setCurrentMoveIndex(prev => {
+              const newIndex = Math.max(0, prev - 1);
+              return newIndex;
+            });
+          }}
           disabled={currentMoveIndex === 0}
-          className="mx-2 px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+          className="p-2 rounded-full text-primary hover:bg-primary/10 disabled:opacity-50"
+          aria-label="Previous move"
         >
-          Backward
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
         </button>
         <button
-          onClick={() => setCurrentMoveIndex(prev => Math.min(boardHistory.length - 1, prev + 1))}
+          onClick={() => {
+            setCurrentMoveIndex(prev => {
+              const newIndex = Math.min(boardHistory.length - 1, prev + 1);
+              return newIndex;
+            });
+          }}
           disabled={currentMoveIndex === boardHistory.length - 1}
-          className="mx-2 px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+          className="p-2 rounded-full text-primary hover:bg-primary/10 disabled:opacity-50"
+          aria-label="Next move"
         >
-          Forward
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
         </button>
       </div>
       {gameState.isCheck && !gameState.isCheckmate && (
