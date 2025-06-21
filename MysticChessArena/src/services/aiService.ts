@@ -7,6 +7,7 @@ import {gameSessionService} from '@/services/GameSessionService.ts';
 import {bots} from '@/Interfaces/Bot.ts';
 import {gameService} from '@/services/GameService.ts';
 import {chessGameService} from '@/services/ChessGameService.ts';
+import {initialBoard} from '@/utils/chessConstants.ts';
 
 export class AIService {
   private static baseUrl = 'http://localhost:5000/api';
@@ -155,9 +156,9 @@ export class AIService {
     return moves;
   }
 
-  async getBotMove(gameId: string, color: PieceColor): Promise<{ from: BoardPosition, to: BoardPosition } | null> {
+  async getBotMove(gameId: string, color: PieceColor, botPoints: number = 600): Promise<{ from: BoardPosition; to: BoardPosition } | null> {
     try {
-      console.log(`[Bot] Starting bot move calculation for ${color}`);
+      console.log(`[Bot] Starting bot move calculation for ${color} (${botPoints} points)`);
       const session = await gameSessionService.getGameSession(gameId);
 
       if (!session?.board) {
@@ -179,43 +180,60 @@ export class AIService {
       console.log("[Bot] Current board state from server:");
       printBoard(session.board);
 
-      const normalizedBoard = normalizeBoard(session.board);
-      const validMoves = await this.calculateValidMovesForColor(normalizedBoard, color, gameId);
+      // Convert board to FEN for the AI service
+      const fen = this.convertBoardToFEN(session.board, color === 'white' ? 'w' : 'b');
 
-      if (validMoves.length === 0) {
-        console.log("[Bot] No valid moves available - checking game state");
+      // Call the AI service with botPoints
+      const response = await fetch(`${AIService.baseUrl}/classic/ai-move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fen,
+          botPoints,
+          gameId
+        })
+      });
 
-        // Check if this is checkmate or stalemate
-        const isCheck = await chessGameService.isCheck(gameId, color);
-        if (isCheck) {
-          console.log("[Bot] Checkmate detected");
-          await gameSessionService.endGame(gameId, color === "white" ? session.blackPlayer?.userId : session.whitePlayer.userId);
-        } else {
-          console.log("[Bot] Stalemate detected");
-          await gameSessionService.endGame(gameId, undefined, true);
-        }
-        return null;
+      if (!response.ok) {
+        throw new Error(`AI service returned ${response.status}`);
       }
 
-      const capturingMoves = validMoves.filter(move => normalizedBoard[move.to.row][move.to.col] !== null);
-      const move = capturingMoves.length > 0
-        ? capturingMoves[Math.floor(Math.random() * capturingMoves.length)]
-        : validMoves[Math.floor(Math.random() * validMoves.length)];
+      const data = await response.json();
 
-      console.log("[Bot] Selected move:", move);
-      return move;
+      if (data.move) {
+        return {
+          from: { row: data.move.from.row, col: data.move.from.col },
+          to: { row: data.move.to.row, col: data.move.to.col }
+        };
+      }
+
+      // If no move returned, check if this is checkmate or stalemate
+      const isCheck = await chessGameService.isCheck(gameId, color);
+      if (isCheck) {
+        console.log("[Bot] Checkmate detected");
+        await gameSessionService.endGame(gameId, color === "white" ? session.blackPlayer?.userId : session.whitePlayer.userId);
+      } else {
+        console.log("[Bot] Stalemate detected");
+        await gameSessionService.endGame(gameId, undefined, true);
+      }
+
+      return null;
     } catch (error) {
       console.error("[AI] Error in getBotMove:", error);
       return null;
     }
   }
 
-  private convertBoardToFEN(board: (Piece | null)[][], turn: 'w' | 'b'): string {
+
+  private convertBoardToFEN(board: any[][], turn: 'w' | 'b'): string {
+    // Normalize the board to ensure it’s a valid 8x8 array of Piece | null
+    const normalizedBoard: (Piece | null)[][] = this.normalizeBoard(board);
+
     let fen = '';
     for (let row = 0; row < 8; row++) {
       let empty = 0;
       for (let col = 0; col < 8; col++) {
-        const piece = board[row][col];
+        const piece = normalizedBoard[row][col];
         if (!piece) {
           empty++;
         } else {
@@ -230,8 +248,35 @@ export class AIService {
       if (empty > 0) fen += empty;
       if (row < 7) fen += '/';
     }
-    fen += ` ${turn} KQkq - 0 1`; // Simplified castling/en passant
+    fen += ` ${turn} KQkq - 0 1`; // Simplified for now; adjust castling/en passant as needed
+    console.log(`[DEBUG] Generated FEN: ${fen}`);
     return fen;
+  }
+
+  private normalizeBoard(board: any[][]): (Piece | null)[][] {
+    if (!Array.isArray(board) || board.length !== 8 || !board.every(row => Array.isArray(row) && row.length === 8)) {
+      console.warn('[AI] Invalid board structure, falling back to initial board');
+      return initialBoard; // Import initialBoard from chessConstants.ts
+    }
+
+    return board.map((row, rowIndex) =>
+      row.map((cell, colIndex) => {
+        if (!cell) return null;
+        // Assume backend sends { type: string, color: string, ... }
+        if (typeof cell.type !== 'string' || typeof cell.color !== 'string') {
+          console.warn(`[AI] Invalid piece at [${rowIndex},${colIndex}]:`, cell);
+          return null;
+        }
+        const normalizedType = cell.type.toLowerCase() as PieceType;
+        const normalizedColor = cell.color.toLowerCase() as PieceColor;
+        if (!['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'].includes(normalizedType) ||
+          !['white', 'black'].includes(normalizedColor)) {
+          console.warn(`[AI] Unrecognized piece at [${rowIndex},${colIndex}]:`, cell);
+          return null;
+        }
+        return { type: normalizedType, color: normalizedColor, hasMoved: cell.hasMoved ?? false };
+      })
+    );
   }
 
   private pieceToChar(piece: Piece): string {

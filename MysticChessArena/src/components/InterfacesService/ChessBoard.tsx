@@ -20,6 +20,9 @@ import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameService } from "@/services/GameService.ts";
 import { GameMode } from "@/Interfaces/enums/GameMode.ts";
 import { aiserervice } from "@/services/aiService.ts";
+import {useLocation} from "react-router-dom";
+import {bots} from "@/Interfaces/Bot.ts";
+import {GameHistory} from "@/Interfaces/types/GameHistory.ts";
 
 const cloneBoard = (board: Piece[][]): Piece[][] =>
   board.map(row => row.map(piece => (piece ? { ...piece } : null)));
@@ -61,6 +64,9 @@ const ChessBoard = ({
                       onGameStateChange,
                       onMoveMade,
                     }: ChessBoardProps) => {
+  const location = useLocation();
+  const { botId } = location.state || {};
+  const selectedBot = bots.find(bot => bot.id === botId);
   const [boardHistory, setBoardHistory] = useState<Piece[][][]>([initialBoard]);
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
   const [selectedPiece, setSelectedPiece] = useState<BoardPosition | null>(null);
@@ -111,59 +117,155 @@ const ChessBoard = ({
     }
   };
 
-  // Fetch initial game state and build board history
+  const safeCompleteGameHistory = async (result: GameResult) => {
+    if (!gameState.gameHistoryId) {
+      console.error("Missing gameHistoryId, attempting to create/find history", gameState);
+
+      // Try to get or create game history if missing
+      try {
+        let history: GameHistory;
+        try {
+          history = await gameHistoryService.getGameHistoriesBySession(gameState.gameSessionId);
+        } catch (error) {
+          console.log("Creating new game history for completion...");
+          history = await gameHistoryService.createGameHistory(gameState.gameSessionId);
+        }
+
+        // Update the game state with the found/created history ID
+        setGameStateValue({
+          ...gameState,
+          gameHistoryId: history.id
+        });
+
+        // Now complete with the proper ID
+        await gameHistoryService.completeGameHistory(history.id, result);
+        return;
+      } catch (error) {
+        console.error("Failed to create/find game history for completion:", error);
+        toast({ title: "Error", description: "Failed to save game result", variant: "destructive" });
+        return;
+      }
+    }
+
+    try {
+      await gameHistoryService.completeGameHistory(gameState.gameHistoryId, result);
+    } catch (error) {
+      console.error("Failed to complete game history:", error);
+      toast({ title: "Error", description: "Failed to save game result", variant: "destructive" });
+    }
+  };
+
+
   useEffect(() => {
     const fetchGameData = async () => {
       if (!propGameState?.gameSessionId) return;
 
       try {
+        console.log("Fetching game data for session:", propGameState.gameSessionId);
+
+        // 1. Get game session first
         const gameSession: GameSession = await gameSessionService.getGameSession(propGameState.gameSessionId);
         setGameMode(gameSession.gameMode);
+
+        // 2. Validate game mode
         if (gameSession.gameMode !== "CLASSIC_MULTIPLAYER" && gameSession.gameMode !== "CLASSIC_SINGLE_PLAYER") {
-          toast({
-            title: "Error",
-            description: `This component supports only CLASSIC_MULTIPLAYER or CLASSIC_SINGLE_PLAYER mode. Current mode: ${gameSession.gameMode}`,
-            variant: "destructive",
-          });
+          toast({ title: "Error", description: `Unsupported game mode: ${gameSession.gameMode}`, variant: "destructive" });
           setBoardHistory([initialBoard]);
           return;
         }
 
+        // 3. Get or create game history - THIS IS CRITICAL
+        let history: GameHistory;
+        try {
+          history = await gameHistoryService.getGameHistoriesBySession(propGameState.gameSessionId);
+          console.log("Found existing game history:", history.id);
+        } catch (error) {
+          console.log("Creating new game history for session:", propGameState.gameSessionId);
+          history = await gameHistoryService.createGameHistory(propGameState.gameSessionId);
+          console.log("Created new game history:", history.id);
+        }
+
+        // 4. IMMEDIATELY set the game state with the history ID
+        const newGameState = {
+          ...gameSession.gameState,
+          gameSessionId: propGameState.gameSessionId,
+          userId1: propGameState.userId1,
+          userId2: propGameState.userId2,
+          gameHistoryId: history.id, // This is the critical fix
+        };
+
+        console.log("Setting game state with history ID:", newGameState.gameHistoryId);
+        setGameStateValue(newGameState);
+
+        // 5. Load board state
         const classicBoard = ensureClassicBoard(gameSession.board);
         const savedHistory = localStorage.getItem(`boardHistory_${propGameState.gameSessionId}`);
         if (savedHistory) {
-          const parsedHistory = JSON.parse(savedHistory);
-          setBoardHistory(parsedHistory);
-          setCurrentMoveIndex(parsedHistory.length - 1);
+          setBoardHistory(JSON.parse(savedHistory));
+          setCurrentMoveIndex(JSON.parse(savedHistory).length - 1);
         } else {
           setBoardHistory([classicBoard]);
           setCurrentMoveIndex(0);
         }
 
-        setGameStateValue({
-          ...gameSession.gameState,
-          gameSessionId: propGameState.gameSessionId,
-          userId1: propGameState.userId1,
-          userId2: propGameState.userId2,
-        });
         setCurrentPlayerValue(gameSession.gameState.currentTurn);
       } catch (error) {
-        toast({
-          title: "Error",
-          description: "Failed to fetch game data from server.",
-          variant: "destructive",
-        });
+        console.error("Failed to initialize game:", error);
+        toast({ title: "Error", description: "Failed to initialize game", variant: "destructive" });
         setBoardHistory([initialBoard]);
       }
     };
     fetchGameData();
   }, [propGameState?.gameSessionId]);
 
-  // Check game status (check/checkmate)
+  const ensureGameHistoryId = async (): Promise<string> => {
+    if (gameState.gameHistoryId) {
+      return gameState.gameHistoryId;
+    }
+
+    console.warn("gameHistoryId missing, attempting to recover...");
+    try {
+      let history: GameHistory;
+      try {
+        history = await gameHistoryService.getGameHistoriesBySession(gameState.gameSessionId);
+      } catch (error) {
+        history = await gameHistoryService.createGameHistory(gameState.gameSessionId);
+      }
+
+      setGameStateValue({
+        ...gameState,
+        gameHistoryId: history.id
+      });
+
+      return history.id;
+    } catch (error) {
+      throw new Error("Failed to ensure game history ID");
+    }
+  };
+
+  const completeGameWithEnsuredHistory = async (result: GameResult) => {
+    try {
+      const historyId = await ensureGameHistoryId();
+      await gameHistoryService.completeGameHistory(historyId, result);
+    } catch (error) {
+      console.error("Failed to complete game history:", error);
+      toast({ title: "Error", description: "Failed to save game result", variant: "destructive" });
+    }
+  };
+
+  useEffect(() => {
+    console.log("Game state updated - gameHistoryId:", gameState.gameHistoryId, "gameSessionId:", gameState.gameSessionId);
+    if (gameState.gameSessionId && !gameState.gameHistoryId) {
+      console.warn("WARNING: gameSessionId exists but gameHistoryId is missing!");
+    }
+  }, [gameState.gameHistoryId, gameState.gameSessionId]);
+
+
   useEffect(() => {
     const checkGameStatus = async () => {
-      if (!gameState.gameSessionId || !gameState.gameHistoryId) return;
+      if (!gameState.gameSessionId || !gameState.gameHistoryId || gameState.isCheckmate || gameState.isDraw) return;
       try {
+        const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
         const whiteInCheck = await chessGameService.isCheck(gameState.gameSessionId, "white");
         const blackInCheck = await chessGameService.isCheck(gameState.gameSessionId, "black");
         let checkedPlayer: PieceColor | null = null;
@@ -173,14 +275,16 @@ const ChessBoard = ({
         if (checkedPlayer) {
           isCheckmateState = await chessGameService.isCheckmate(gameState.gameSessionId, checkedPlayer);
         }
+        const isDrawState = !isCheckmateState && await chessGameService.isDraw(gameState.gameSessionId, updatedSession.gameState.currentTurn);
         const newGameState = {
           ...gameState,
           isCheck: whiteInCheck || blackInCheck,
           isCheckmate: isCheckmateState,
+          isDraw: isDrawState,
           checkedPlayer,
         };
         setGameStateValue(newGameState);
-        if (checkedPlayer && isCheckmateState) {
+        if (isCheckmateState && checkedPlayer) {
           const winningPlayer = checkedPlayer === "white" ? "black" : "white";
           const winnerName = winningPlayer === "white" ? player1Name : player2Name;
           const pointsAwarded = 100 + (timers ? Math.floor(timers[winningPlayer].timeLeft / 60) * 5 : 0);
@@ -199,14 +303,28 @@ const ChessBoard = ({
             setShowGameEndModal(true);
           }
           await Promise.all([
-            gameHistoryService.completeGameHistory(gameState.gameHistoryId, gameResultData),
+            await completeGameWithEnsuredHistory(gameResultData),
             gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
           ]);
-          const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
-          if (updatedSession.status !== "COMPLETED") {
-            console.error("Failed to update game status to COMPLETED");
-            toast({ title: "Error", description: "Game end failed to sync", variant: "destructive" });
+        } else if (isDrawState) {
+          const gameResultData: GameResult = {
+            winner: null,
+            winnerName: "Draw",
+            pointsAwarded: 0,
+            gameEndReason: "draw",
+            gameid: gameState.gameSessionId,
+            winnerid: null,
+          };
+          if (onGameEnd) {
+            onGameEnd(gameResultData);
+          } else {
+            setGameResult(gameResultData);
+            setShowGameEndModal(true);
           }
+          await Promise.all([
+            await completeGameWithEnsuredHistory(gameResultData),
+            gameSessionService.endGame(gameState.gameSessionId, null, true),
+          ]);
         }
       } catch (error) {
         console.error("Error in checkGameStatus:", error);
@@ -218,9 +336,9 @@ const ChessBoard = ({
       }
     };
     checkGameStatus();
-  }, [boardHistory, gameState.gameSessionId, gameState.gameHistoryId]);
 
-  // Timer management
+  }, [gameState.gameSessionId, gameState.gameHistoryId]);
+
   useEffect(() => {
     if (!timers || gameMode === "SINGLE_PLAYER_RPG") return;
 
@@ -257,7 +375,7 @@ const ChessBoard = ({
           onTimeout(currentPlayer);
 
           Promise.all([
-            gameHistoryService.completeGameHistory(gameState.gameHistoryId, gameResultData),
+            completeGameWithEnsuredHistory(gameResultData),
             gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
           ]).catch(() => {
             toast({
@@ -273,7 +391,6 @@ const ChessBoard = ({
     return () => clearInterval(timerInterval);
   }, [timers, currentPlayer, onTimeUpdate, onTimeout, gameState.gameSessionId, gameState.gameHistoryId, gameMode, player1Name, player2Name]);
 
-  // Sync current player with parent
   useEffect(() => {
     if (onPlayerChange) {
       onPlayerChange(currentPlayer);
@@ -299,7 +416,7 @@ const ChessBoard = ({
         toast({
           title: "Review Mode",
           description: "Please go to the latest move to continue playing.",
-          variant: "default"
+          variant: "default",
         });
         return;
       }
@@ -309,7 +426,6 @@ const ChessBoard = ({
       }
       if (gameState.isCheckmate) return;
 
-      // Fetch server session only to validate turn and state, not to update boardHistory
       const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
       setGameStateValue(updatedSession.gameState);
       setCurrentPlayerValue(updatedSession.gameState.currentTurn);
@@ -320,7 +436,6 @@ const ChessBoard = ({
         return;
       }
 
-      // Use local board for move validation
       const serverBoard = ensureClassicBoard(updatedSession.board);
 
       if (!selectedPiece) {
@@ -371,7 +486,7 @@ const ChessBoard = ({
 
       const move = {
         from: { row: selectedPiece.row, col: selectedPiece.col },
-        to: { row, col }
+        to: { row, col },
       };
       const isCapture = !!serverBoard[row][col];
       const pieceType = serverBoard[selectedPiece.row][selectedPiece.col].type;
@@ -392,16 +507,59 @@ const ChessBoard = ({
         return newIndex;
       });
 
-      // Determine move outcomes
-      const isCheck = await chessGameService.isCheck(gameState.gameSessionId, postMoveSession.gameState.currentTurn);
-      const isCheckmate = isCheck && await chessGameService.isCheckmate(gameState.gameSessionId, postMoveSession.gameState.currentTurn);
+      const opponentColor = currentPlayer === "white" ? "black" : "white";
+      const isCheck = await chessGameService.isCheck(gameState.gameSessionId, opponentColor);
+      const isCheckmate = isCheck && await chessGameService.isCheckmate(gameState.gameSessionId, opponentColor);
       const isStalemate = !isCheck && await chessGameService.isDraw(gameState.gameSessionId, postMoveSession.gameState.currentTurn);
+
+      if (isCheckmate) {
+        const winningPlayer = opponentColor === "white" ? "black" : "white";
+        const winnerName = winningPlayer === "white" ? player1Name : player2Name;
+        const pointsAwarded = 100 + (timers ? Math.floor(timers[winningPlayer].timeLeft / 60) * 5 : 0);
+        const gameResultData: GameResult = {
+          winner: winningPlayer,
+          winnerName: winnerName || "Unknown",
+          pointsAwarded,
+          gameEndReason: "checkmate",
+          gameid: gameState.gameSessionId,
+          winnerid: winningPlayer === "white" ? gameState.userId1 : gameState.userId2,
+        };
+        if (onGameEnd) {
+          onGameEnd(gameResultData);
+        } else {
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
+        }
+        await Promise.all([
+          completeGameWithEnsuredHistory(gameResultData),
+          gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
+        ]);
+      } else if (isStalemate) {
+        const gameResultData: GameResult = {
+          winner: null,
+          winnerName: "Draw",
+          pointsAwarded: 0,
+          gameEndReason: "draw",
+          gameid: gameState.gameSessionId,
+          winnerid: null,
+        };
+        if (onGameEnd) {
+          onGameEnd(gameResultData);
+        } else {
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
+        }
+        await Promise.all([
+          completeGameWithEnsuredHistory(gameResultData),
+          gameSessionService.endGame(gameState.gameSessionId, null, true),
+        ]);
+      }
 
       if (onMoveMade) {
         onMoveMade({
           from: move.from,
           to: move.to,
-          actionType: isCapture ? 'capture' : 'move',
+          actionType: isCapture ? "capture" : "move",
           pieceType,
           resultsInCheck: isCheck && !isCheckmate,
           resultsInCheckmate: isCheckmate,
@@ -409,7 +567,12 @@ const ChessBoard = ({
         });
       }
 
-      setGameStateValue(postMoveSession.gameState);
+      setGameStateValue({
+        ...postMoveSession.gameState,
+        isCheck,
+        isCheckmate,
+        checkedPlayer: isCheck ? opponentColor : null,
+      });
       setCurrentPlayerValue(postMoveSession.gameState.currentTurn);
 
       if (onTimeUpdate && timers) {
@@ -430,7 +593,7 @@ const ChessBoard = ({
       toast({
         title: "Move Failed",
         description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive"
+        variant: "destructive",
       });
       resetSelection();
     } finally {
@@ -458,6 +621,8 @@ const ChessBoard = ({
 
   const handleBotMove = async () => {
     try {
+      setIsLoadingMove(true);
+
       const session = await gameSessionService.getGameSession(gameState.gameSessionId);
       if (session.status !== "ACTIVE") {
         console.log("[Bot] Game is no longer active, skipping move:", session.status);
@@ -473,14 +638,26 @@ const ChessBoard = ({
       }
 
       if (session.gameState.currentTurn !== "black") {
-        console.log("[Bot] Not Black’s turn yet:", session.gameState.currentTurn);
+        console.log("[Bot] Not Black's turn yet:", session.gameState.currentTurn);
         return;
       }
 
       setGameStateValue(session.gameState);
       setCurrentPlayerValue(session.gameState.currentTurn);
 
-      const botMove = await aiserervice.getBotMove(gameState.gameSessionId, "black");
+      const botPoints = selectedBot?.points || 600;
+
+      toast({
+        title: `${selectedBot?.name || 'Bot'} is thinking...`,
+        description: `Difficulty: ${botPoints} points`,
+        duration: 3000
+      });
+
+      const botMove = await aiserervice.getBotMove(
+        gameState.gameSessionId,
+        "black",
+        botPoints
+      );
 
       if (!botMove) {
         console.log("[Bot] No valid moves available");
@@ -494,23 +671,14 @@ const ChessBoard = ({
             gameid: gameState.gameSessionId,
             winnerid: gameState.userId1,
           };
-          setGameResult(gameResultData);
-          setShowGameEndModal(true);
-          setGameStateValue({ ...gameState, isCheckmate: true, checkedPlayer: "black" });
-          try {
-            const latestSession = await gameSessionService.getGameSession(gameState.gameSessionId);
-            if (latestSession.status === "ACTIVE") {
-              await gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid);
-            } else {
-              console.log("[Bot] Game already ended, skipping endGame call");
-            }
-          } catch (error) {
-            if (error.message.includes("Game is not active and cannot be ended")) {
-              console.log("[Bot] Game was already ended, ignoring.");
-            } else {
-              throw error;
-            }
+          if (onGameEnd) {
+            onGameEnd(gameResultData);
+          } else {
+            setGameResult(gameResultData);
+            setShowGameEndModal(true);
           }
+          setGameStateValue({ ...gameState, isCheckmate: true, checkedPlayer: "black" });
+          await gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid);
         } else {
           const gameResultData: GameResult = {
             winner: null,
@@ -520,18 +688,14 @@ const ChessBoard = ({
             gameid: gameState.gameSessionId,
             winnerid: null,
           };
-          setGameResult(gameResultData);
-          setShowGameEndModal(true);
-          setGameStateValue({ ...gameState, isDraw: true });
-          try {
-            await gameSessionService.endGame(gameState.gameSessionId, null, true);
-          } catch (error) {
-            if (error.message.includes("Game is not active and cannot be ended")) {
-              console.log("[Bot] Game was already ended, ignoring.");
-            } else {
-              throw error;
-            }
+          if (onGameEnd) {
+            onGameEnd(gameResultData);
+          } else {
+            setGameResult(gameResultData);
+            setShowGameEndModal(true);
           }
+          setGameStateValue({ ...gameState, isDraw: true });
+          await gameSessionService.endGame(gameState.gameSessionId, null, true);
         }
         return;
       }
@@ -540,21 +704,21 @@ const ChessBoard = ({
       const isCapture = !!serverBoard[botMove.to.row][botMove.to.col];
       const pieceType = serverBoard[botMove.from.row][botMove.from.col].type;
 
+      console.log(`[Bot] Executing move: from [${botMove.from.row},${botMove.from.col}] to [${botMove.to.row},${botMove.to.col}]`);
+
       await gameService.executeMove(gameState.gameSessionId, botMove);
       const updatedSession = await gameSessionService.getGameSession(gameState.gameSessionId);
+
       setBoardHistory(prev => {
         const newHistory = [...prev, ensureClassicBoard(updatedSession.board)];
         localStorage.setItem(`boardHistory_${gameState.gameSessionId}`, JSON.stringify(newHistory));
         return newHistory;
       });
-      setCurrentMoveIndex(prev => {
-        const newIndex = prev + 1;
-        return newIndex;
-      });
+      setCurrentMoveIndex(prev => prev + 1);
 
-      const isCheck = await chessGameService.isCheck(gameState.gameSessionId, updatedSession.gameState.currentTurn);
-      const isCheckmate = isCheck && await chessGameService.isCheckmate(gameState.gameSessionId, updatedSession.gameState.currentTurn);
-      const isStalemate = !isCheck && await chessGameService.isDraw(gameState.gameSessionId, updatedSession.gameState.currentTurn);
+      const isCheck = await chessGameService.isCheck(gameState.gameSessionId, "white"); // Check for white after bot's move
+      const isCheckmate = isCheck && await chessGameService.isCheckmate(gameState.gameSessionId, "white");
+      const isStalemate = !isCheck && await chessGameService.isDraw(gameState.gameSessionId, "white");
 
       if (onMoveMade) {
         onMoveMade({
@@ -568,15 +732,59 @@ const ChessBoard = ({
         });
       }
 
-      setGameStateValue(updatedSession.gameState);
+      setGameStateValue({
+        ...updatedSession.gameState,
+        isCheck,
+        isCheckmate,
+        checkedPlayer: isCheck ? "white" : null,
+        isDraw: isStalemate,
+      });
       setCurrentPlayerValue(updatedSession.gameState.currentTurn);
+
+      // Handle game end conditions
+      if (isCheckmate) {
+        const gameResultData: GameResult = {
+          winner: "black",
+          winnerName: player2Name || "Bot",
+          pointsAwarded: 100,
+          gameEndReason: "checkmate",
+          gameid: gameState.gameSessionId,
+          winnerid: gameState.userId2 || "BOT",
+        };
+        if (onGameEnd) {
+          onGameEnd(gameResultData);
+        } else {
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
+        }
+        await gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid);
+      } else if (isStalemate) {
+        const gameResultData: GameResult = {
+          winner: null,
+          winnerName: "Draw",
+          pointsAwarded: 0,
+          gameEndReason: "draw",
+          gameid: gameState.gameSessionId,
+          winnerid: null,
+        };
+        if (onGameEnd) {
+          onGameEnd(gameResultData);
+        } else {
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
+        }
+        await gameSessionService.endGame(gameState.gameSessionId, null, true);
+      }
+
     } catch (error) {
       console.error("[Bot] Move failed:", error);
       toast({
         title: "Bot Move Failed",
-        description: "The bot couldn’t make a move",
+        description: error instanceof Error ? error.message : "The bot couldn't make a move",
         variant: "destructive",
       });
+    } finally {
+      setIsLoadingMove(false);
     }
   };
 

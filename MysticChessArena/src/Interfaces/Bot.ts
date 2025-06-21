@@ -1,40 +1,74 @@
 export interface Bot {
-  id: string; // Unique identifier for the bot
-  name: string; // Bot's name (e.g., "Beginner Bot")
-  points: number; // Difficulty level in points (e.g., 400, 1200, 2800)
-  description: string; // Short description of the bot's playstyle
+  id: string;
+  name: string;
+  points: number;
+  description: string;
+  avatar?: string;
+  difficulty: 'beginner' | 'easy' | 'novice' | 'intermediate' | 'advanced' | 'master';
 }
-
 
 export const bots: Bot[] = [
   {
-    id: "bot_beginner",
+    id: "rookie",
+    name: "Rookie Bot",
+    points: 300,
+    difficulty: 'beginner',
+    description: "Makes frequent mistakes and blunders. Perfect for learning the basics!"
+  },
+  {
+    id: "beginner",
     name: "Beginner Bot",
     points: 400,
-    description: "Perfect for new players, makes simple moves and occasional blunders.",
+    difficulty: 'beginner',
+    description: "Still learning chess. Makes obvious mistakes but knows basic rules."
   },
   {
-    id: "bot_novice",
+    id: "casual",
+    name: "Casual Bot",
+    points: 600,
+    difficulty: 'easy',
+    description: "Plays casually with occasional good moves. Good for new players."
+  },
+  {
+    id: "novice",
     name: "Novice Bot",
     points: 800,
-    description: "Knows basic tactics, suitable for casual players.",
+    difficulty: 'novice',
+    description: "Understands basic tactics but still makes mistakes."
   },
   {
-    id: "bot_intermediate",
+    id: "amateur",
+    name: "Amateur Bot",
+    points: 1000,
+    difficulty: 'novice',
+    description: "Decent player with some tactical awareness."
+  },
+  {
+    id: "intermediate",
     name: "Intermediate Bot",
     points: 1200,
-    description: "Plays solid chess with occasional tactical tricks.",
+    difficulty: 'intermediate',
+    description: "Solid player with good tactical skills."
   },
   {
-    id: "bot_advanced",
+    id: "advanced",
     name: "Advanced Bot",
-    points: 1800,
-    description: "A tough opponent with strong positional and tactical skills.",
+    points: 1600,
+    difficulty: 'advanced',
+    description: "Strong player with excellent tactical and positional understanding."
   },
   {
-    id: "bot_master",
+    id: "expert",
+    name: "Expert Bot",
+    points: 2000,
+    difficulty: 'advanced',
+    description: "Very strong player. Prepare for a real challenge!"
+  },
+  {
+    id: "master",
     name: "Master Bot",
     points: 2400,
-    description: "Grandmaster-level play, powered by a sophisticated MML model.",
-  },
+    difficulty: 'master',
+    description: "Master-level play. Only for the most experienced players."
+  }
 ];
