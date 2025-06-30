@@ -41,6 +41,15 @@ export class AuthService {
     return response.ok;
   }
 
+  async forgotPassword(email: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!response.ok) throw new Error("Failed to send reset request");
+  }
+
   isLoggedIn(): boolean {
     const token = JwtService.getToken();
     return !!token && !JwtService.isTokenExpired(token);

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Shield } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,38 +7,32 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { authService } from "@/services/AuthService.ts";
 
-const Login = () => {
-  const navigate = useNavigate();
+const ForgotPassword = () => {
   const { toast } = useToast();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleResetRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!email.trim() || !password.trim()) {
+    if (!email.trim()) {
       toast({
-        title: "Missing credentials",
-        description: "Please enter both email and password",
+        title: "Missing email",
+        description: "Please enter your email address",
         variant: "destructive",
       });
       return;
     }
-
     setIsLoading(true);
     try {
-      const data = await authService.login({ emailAddress: email, password });
-      localStorage.setItem("user", JSON.stringify(data.user));
+      await authService.forgotPassword(email);
       toast({
-        title: "Login successful",
-        description: `Welcome to Mystic Chess Arena, ${data.user.username}!`,
+        title: "Reset request sent",
+        description: "If an account exists for this email, a reset link will be sent.",
       });
-      navigate("/game-select");
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: "Login failed",
-        description: error.message || "Invalid credentials",
+        title: "Error",
+        description: "Failed to send reset request",
         variant: "destructive",
       });
     } finally {
@@ -55,11 +49,11 @@ const Login = () => {
               <Shield className="h-8 w-8 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Mystic Chess Arena</CardTitle>
-          <CardDescription>Enter your credentials to access the realm</CardDescription>
+          <CardTitle className="text-2xl font-bold">Reset Password</CardTitle>
+          <CardDescription>Enter your email to receive a password reset link</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin}>
+          <form onSubmit={handleResetRequest}>
             <div className="space-y-4">
               <div className="space-y-2">
                 <label
@@ -76,33 +70,13 @@ const Login = () => {
                   required
                 />
               </div>
-              <div className="space-y-2">
-                <label
-                  htmlFor="password"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
-                  Password
-                </label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
             </div>
             <Button className="w-full mt-6" type="submit" disabled={isLoading}>
-              {isLoading ? "Authenticating..." : "Login"}
+              {isLoading ? "Sending..." : "Send Reset Link"}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm">
-            You Don't Have An Account? <Link to="/register" className="text-primary hover:underline">Sign up</Link>
-          </p>
-          <p className="mt-2 text-center text-sm">
-            <Link to="/forgot-password" className="text-primary hover:underline">Forgot Password?</Link>
+            Remember your password? <Link to="/login" className="text-primary hover:underline">Login</Link>
           </p>
         </CardContent>
       </Card>
@@ -110,4 +84,4 @@ const Login = () => {
   );
 };
 
-export default Login;
+export default ForgotPassword;
