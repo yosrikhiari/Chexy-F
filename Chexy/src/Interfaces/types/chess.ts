@@ -32,6 +32,11 @@ export interface GameTimers {
   defaultTime: number;
 }
 
+export interface ChessOpening {
+  eco: string;
+  name: string;
+}
+
 export interface GameState {
   gameSessionId: string;
   userId1: string;

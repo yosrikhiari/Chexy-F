@@ -1,11 +1,10 @@
 import { EnhancedRPGPiece } from '@/Interfaces/types/enhancedRpgChess';
-import {BoardPosition, Piece, PieceColor, PieceType} from '@/Interfaces/types/chess';
+import {BoardPosition, Piece, PieceColor, PieceType, ChessOpening} from '@/Interfaces/types/chess';
 import { AIStrategy } from '@/Interfaces/enums/AIStrategy';
 import {RPGModifier, CapacityModifier} from '@/Interfaces/types/rpgChess';
 import {calculateValidMoves, normalizeBoard, printBoard} from '@/utils/chessUtils.ts';
 import {gameSessionService} from '@/services/GameSessionService.ts';
-import {bots} from '@/Interfaces/Bot.ts';
-import {gameService} from '@/services/GameService.ts';
+
 import {chessGameService} from '@/services/ChessGameService.ts';
 import {initialBoard} from '@/utils/chessConstants.ts';
 
@@ -285,6 +284,29 @@ export class AIService {
     };
     const c = map[piece.type] || '';
     return piece.color === 'white' ? c.toUpperCase() : c;
+  }
+
+
+  async updateAndDetectOpening(gameId: string, moves: { from: BoardPosition; to: BoardPosition }[]): Promise<ChessOpening | null> {
+    try {
+      console.log("API call with moves:", moves); // Debug log
+      const response = await fetch(`${AIService.baseUrl}/detect-opening`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves, gameId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to detect opening: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log("API response:", data); // Debug log
+      return data.eco && data.name ? { eco: data.eco, name: data.name } : null;
+    } catch (error) {
+      console.error(`Error detecting opening for game ${gameId}:`, error);
+      return null;
+    }
   }
 }
 

@@ -15,7 +15,6 @@ import { userService } from "@/services/UserService.ts";
 import { JwtService } from "@/services/JwtService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
-import { gameService } from "@/services/GameService.ts";
 import { aiserervice } from "@/services/aiService.ts";
 import { PlayerAction } from "@/Interfaces/services/PlayerAction.ts";
 
@@ -44,6 +43,12 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
     }
     return this.props.children;
   }
+}
+
+// Opening interface
+interface ChessOpening {
+  eco: string;
+  name: string;
 }
 
 // Extend PlayerAction to include pieceType and additional move details
@@ -93,6 +98,10 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [localMoveHistory, setLocalMoveHistory] = useState<ExtendedPlayerAction[]>([]);
+
+  // Add opening detection state
+  const [currentOpening, setCurrentOpening] = useState<ChessOpening | null>(null);
+  const [isDetectingOpening, setIsDetectingOpening] = useState(false);
 
   const navigate = useNavigate();
   const handleBackToMenu = () => {
@@ -145,6 +154,42 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
     return notation;
   };
 
+
+  useEffect(() => {
+    if (localMoveHistory.length > 0) {
+      detectOpeningAfterMove();
+    }
+  }, [localMoveHistory]);
+
+  // Function to detect opening after each move
+  const detectOpeningAfterMove = async () => {
+    if (!gameState.gameSessionId || isDetectingOpening || localMoveHistory.length === 0) return;
+
+    try {
+      setIsDetectingOpening(true);
+      const moves = localMoveHistory.map(action => ({
+        from: { row: action.from[0], col: action.from[1] },
+        to: { row: action.to[0], col: action.to[1] }
+      }));
+      console.log("Sending moves for opening detection:", JSON.stringify(moves, null, 2));
+      const detectedOpening = await aiserervice.updateAndDetectOpening(gameState.gameSessionId, moves);
+
+      if (detectedOpening) {
+        console.log("Detected opening:", detectedOpening); // Debug log
+        setCurrentOpening(detectedOpening);
+        localStorage.setItem(`opening_${gameState.gameSessionId}`, JSON.stringify(detectedOpening));
+      } else {
+        console.log("No opening detected from backend response");
+        setCurrentOpening(null);
+      }
+    } catch (error) {
+      console.error("Error detecting opening:", error);
+      setCurrentOpening(null);
+    } finally {
+      setIsDetectingOpening(false);
+    }
+  };
+
   useEffect(() => {
     const initializeGame = async () => {
       try {
@@ -190,7 +235,16 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
             // Load move history from localStorage
             const savedMoveHistory = localStorage.getItem(`moveHistory_${propGameId}`);
             if (savedMoveHistory) {
-              setLocalMoveHistory(JSON.parse(savedMoveHistory));
+              const parsedHistory = JSON.parse(savedMoveHistory);
+              console.log("Loaded move history:", parsedHistory);
+              setLocalMoveHistory(parsedHistory);
+            } else {
+              setLocalMoveHistory([]);
+            }
+            // Load opening from localStorage
+            const savedOpening = localStorage.getItem(`opening_${propGameId}`);
+            if (savedOpening) {
+              setCurrentOpening(JSON.parse(savedOpening));
             }
             return; // Exit early since the game is already started or completed
           }
@@ -364,8 +418,10 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
         setIsModalOpen(false);
         setIsGameOver(false);
         setLocalMoveHistory([]);
+        setCurrentOpening(null); // Reset opening
         localStorage.removeItem(`moveHistory_${gameState.gameSessionId}`); // Clear move history for old session
         localStorage.removeItem(`boardHistory_${gameState.gameSessionId}`); // Clear board history for old session
+        localStorage.removeItem(`opening_${gameState.gameSessionId}`); // Clear opening for old session
 
         await gameSessionService.startGame(session.gameId);
       } else {
@@ -397,8 +453,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
       });
     }
   };
-
-  const handleMoveMade = (move: {
+  const handleMoveMade = async (move: {
     from: BoardPosition;
     to: BoardPosition;
     actionType: 'move' | 'capture';
@@ -420,12 +475,17 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
       resultsInCheckmate: move.resultsInCheckmate,
       resultsInStalemate: move.resultsInStalemate,
     };
+
     setLocalMoveHistory(prev => {
       const newHistory = [...prev, newAction];
       localStorage.setItem(`moveHistory_${gameState.gameSessionId}`, JSON.stringify(newHistory));
+      detectOpeningAfterMove(); // Call immediately after updating history
       return newHistory;
     });
   };
+  useEffect(() => {
+    console.log("Current opening state:", currentOpening);
+  }, [currentOpening]);
 
   if (isLoading || !timers) {
     return <div className="text-center p-4">Loading game...</div>;
@@ -569,6 +629,30 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
                     {isRankedMatch ? "Ranked Match" : mode === "CLASSIC_SINGLE_PLAYER" ? "Single Player" : "Normal Match"}
                   </p>
                 </div>
+
+                {/* Opening Detection Section */}
+                <div>
+                  <h4 className="font-medium mb-1">Opening</h4>
+                  <div className="text-sm">
+                    {isDetectingOpening ? (
+                      <p className="text-blue-600 font-medium">Analyzing...</p>
+                    ) : currentOpening ? (
+                      <div className="space-y-1">
+                        <p className="font-medium text-primary">
+                          {currentOpening.eco}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {currentOpening.name}
+                        </p>
+                      </div>
+                    ) : localMoveHistory.length > 0 ? (
+                      <p className="text-muted-foreground">No opening detected</p>
+                    ) : (
+                      <p className="text-muted-foreground">Game not started</p>
+                    )}
+                  </div>
+                </div>
+
                 <div>
                   <h4 className="font-medium mb-1">Current Turn</h4>
                   <div className="flex items-center gap-2">
