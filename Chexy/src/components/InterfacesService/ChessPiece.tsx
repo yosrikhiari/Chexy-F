@@ -4,7 +4,6 @@ import { ChessPieceProps } from '@/Interfaces/ChessPieceProps.ts';
 import { Piece } from '@/Interfaces/types/chess.ts';
 import { RPGPiece } from '@/Interfaces/types/rpgChess.ts';
 import { EnhancedRPGPiece } from '@/Interfaces/types/enhancedRpgChess.ts';
-
 import { rpgGameService } from "@/services/RPGGameService.ts";
 import { enhancedRPGService } from "@/services/EnhancedRPGService.ts";
 
@@ -30,11 +29,6 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
   const isEnhancedRPGPiece = (p: Piece | RPGPiece | EnhancedRPGPiece | null): p is EnhancedRPGPiece =>
     !!p && 'pluscurrentHp' in p;
 
-  const classicPieces = {
-    white: { king: '♔', queen: '♕', rook: '♖', bishop: '♗', knight: '♘', pawn: '♙' },
-    black: { king: '♚', queen: '♛', rook: '♜', bishop: '♝', knight: '♞', pawn: '♟' },
-  };
-
   const rpgPieceIcons: Record<string, string> = {
     common: '🛡️', rare: '⚔️', epic: '🔥', legendary: '✨',
   };
@@ -49,7 +43,6 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
       console.warn('Click ignored: No piece provided');
       return;
     }
-    // For classic chess modes
     if (isClassicPiece(piece) &&
       (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
       onClick(piece, piece.Position || { row: -1, col: -1 });
@@ -58,7 +51,6 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
     try {
       setError(null);
       if (isClassicPiece(piece) && (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
-        // Trigger onClick to select the piece in ChessBoard
         if (onClick) {
           onClick(piece, { row: piece.Position?.row ?? -1, col: piece.Position?.col ?? -1 });
         }
@@ -85,21 +77,22 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
 
   const renderClassicPiece = (p: Piece) => {
     const { type, color } = p;
-    if (!classicPieces[color] || !classicPieces[color][type]) {
-      console.error('Invalid piece data:', { color, type });
-      return <div className="text-red-500">?</div>;
-    }
+    // Capitalize color and type for image file names
+    const colorCapitalized = color.charAt(0).toUpperCase() + color.slice(1);
+    const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+    const imagePath = `/chessassets/${colorCapitalized}-${typeCapitalized}.png`;
+
     return (
-      <div
+      <img
+        src={imagePath}
+        alt={`${color} ${type}`}
         className={cn(
-          'chess-piece text-3xl sm:text-4xl cursor-pointer',
-          color === 'white' ? 'text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]' : 'text-[#222222] drop-shadow-[0_1px_1px_rgba(255,255,255,0.3)]',
+          'chess-piece w-full h-full object-contain',
           isSelected && 'ring-2 ring-blue-500'
         )}
         onClick={gameId && playerId ? handleClick : undefined}
-      >
-        {classicPieces[color][type]}
-      </div>
+        onError={() => console.error(`Failed to load image: ${imagePath}`)}
+      />
     );
   };
 

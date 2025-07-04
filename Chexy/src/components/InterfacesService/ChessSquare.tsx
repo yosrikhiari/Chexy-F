@@ -5,7 +5,7 @@ import { ChessSquareProps } from '@/Interfaces/ChessSquareProps.ts';
 import { BoardEffect } from '@/Interfaces/types/rpgChess.ts';
 import { enhancedRPGService } from '@/services/EnhancedRPGService.ts';
 import { rpgGameService } from '@/services/RPGGameService.ts';
-import {Piece} from "@/Interfaces/types/chess.ts";
+import { Piece } from "@/Interfaces/types/chess.ts";
 
 const ChessSquare: React.FC<ChessSquareProps> = ({
                                                    row,
@@ -57,10 +57,6 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
     };
     return effectType ? configs[effectType] || { className: '', icon: '' } : { className: '', icon: '' };
   };
-
-  // Handle click with potential backend interaction for special effects
-
-
 
   const handleClick = async () => {
     try {
@@ -114,7 +110,7 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
   return (
     <div
       className={cn(
-        'w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 flex items-center justify-center relative cursor-pointer',
+        'w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 flex items-center justify-center relative cursor-pointer',
         specialEffect ? effectClass : isLight ? 'bg-chess-light' : 'bg-chess-dark',
         isSelected && 'ring-2 ring-blue-500',
         isValidMove && !specialEffect && 'bg-chess-valid-move',
