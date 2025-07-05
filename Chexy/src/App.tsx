@@ -8,6 +8,7 @@ import RPGAdventure from "@/pages/RPGAdventure";
 import NotFound from "@/pages/NotFound";
 import ProtectedRoute from "@/Guard/ProtectedRoute.tsx";
 import BotSelect from "@/pages/BotSelect.tsx";
+import Lobby from "@/pages/Lobby.jsx";
 import Register from "@/pages/Register.tsx";
 import ForgotPassword from "@/pages/ForgotPassword.tsx";
 
@@ -21,6 +22,7 @@ const App = () => {
         <Route element={<ProtectedRoute />}>
           <Route path="/game-select" element={<GameSelect />} />
           <Route path="/bot-select" element={<BotSelect />} />
+          <Route path="/lobby" element={<Lobby />} />
           <Route path="/" element={<Index />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/profile" element={<Profile />} />

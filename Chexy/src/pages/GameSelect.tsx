@@ -12,14 +12,14 @@ import { gameSessionService } from "@/services/GameSessionService.ts";
 import { GameMode } from "@/Interfaces/enums/GameMode.ts";
 import { GameType } from "@/Interfaces/GameType.ts";
 
-const GameSelect = () => {
+const GameSelect: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    const fetchUserData = async () => {
+    const fetchUserData = async (): Promise<void> => {
       try {
         const token = JwtService.getToken();
         if (!token || JwtService.isTokenExpired(token)) {
@@ -29,14 +29,30 @@ const GameSelect = () => {
 
         const keycloakId = JwtService.getKeycloakId();
         if (keycloakId) {
-          const userData = await userService.getCurrentUser(keycloakId);
+          const userData: User = await userService.getCurrentUser(keycloakId);
           setUser(userData);
         } else {
-          setUser({ username: "Guest", points: 0, id: "", keycloakId: "", emailAddress: "", role: "USER", isActive: true } as User);
+          setUser({
+            username: "Guest",
+            points: 0,
+            id: "",
+            keycloakId: "",
+            emailAddress: "",
+            role: "USER",
+            isActive: true,
+          } as User);
         }
       } catch (error) {
         console.error("Failed to fetch user data:", error);
-        setUser({ username: "Guest", points: 0, id: "", keycloakId: "", emailAddress: "", role: "USER", isActive: true } as User);
+        setUser({
+          username: "Guest",
+          points: 0,
+          id: "",
+          keycloakId: "",
+          emailAddress: "",
+          role: "USER",
+          isActive: true,
+        } as User);
       } finally {
         setLoading(false);
       }
@@ -56,7 +72,7 @@ const GameSelect = () => {
       comingSoon: false,
       path: "/rpg",
       isRanked: false,
-      mode: "SINGLE_PLAYER_RPG",
+      mode: "SINGLE_PLAYER_RPG" as GameMode,
     },
     {
       title: "Normal Match",
@@ -65,20 +81,25 @@ const GameSelect = () => {
       comingSoon: false,
       path: "/bot-select",
       isRanked: false,
-      mode: "CLASSIC_SINGLE_PLAYER",
+      mode: "CLASSIC_SINGLE_PLAYER" as GameMode,
     },
     {
       title: "Ranked Match",
       description: "Test your skills and climb the leaderboard",
       icon: <Trophy className="h-8 w-8" />,
       comingSoon: false,
-      path: "/",
+      path: "/lobby",
       isRanked: true,
-      mode: "CLASSIC_MULTIPLAYER",
+      mode: "CLASSIC_MULTIPLAYER" as GameMode,
     },
   ];
 
-  const handleSelectGame = async (path: string, comingSoon: boolean, isRanked: boolean, mode: GameMode) => {
+  const handleSelectGame = async (
+    path: string,
+    comingSoon: boolean,
+    isRanked: boolean,
+    mode: GameMode
+  ): Promise<void> => {
     if (comingSoon) return;
 
     if (!user || !authService.isLoggedIn()) {
@@ -88,7 +109,8 @@ const GameSelect = () => {
     }
 
     if (path === "/bot-select") {
-      // Navigate to bot selection with user and game details
+      navigate(path, { state: { user, isRanked, mode } });
+    } else if (path === "/lobby") {
       navigate(path, { state: { user, isRanked, mode } });
     } else {
       try {
@@ -101,7 +123,7 @@ const GameSelect = () => {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = (): void => {
     authService.logout();
     navigate("/login");
   };
@@ -154,7 +176,7 @@ const GameSelect = () => {
           <p className="text-muted-foreground">
             Your rank points: <span className="text-primary font-bold">{user?.points || 0}</span>
           </p>
-          <div className="flex gap-4 mt-4">
+          <div className="flex gap-4 mt-4I-4 mt-2">
             <Button variant="outline" size="sm" onClick={() => navigate("/profile")}>
               <UserIcon className="h-4 w-4" /> Profile
             </Button>

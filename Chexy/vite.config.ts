@@ -11,10 +11,13 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     mode === 'development'
-  ].filter(Boolean),
+  ].filter(Boolean) as any[],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  define: {
+    global: 'globalThis',
   },
 }));
