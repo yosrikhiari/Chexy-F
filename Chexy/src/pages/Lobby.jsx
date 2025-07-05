@@ -8,6 +8,7 @@ import { Users, Gamepad2, UserPlus, Clock, Sword, Trophy, User as UserIcon } fro
 import { friendshipService } from "@/services/FriendshipService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
+import { userService } from "@/services/UserService.ts"; // Add this import
 import { useToast } from "@/hooks/use-toast";
 
 const Lobby = () => {
@@ -19,7 +20,7 @@ const Lobby = () => {
   const [stompClient, setStompClient] = useState(null);
   const [availableGames, setAvailableGames] = useState([]);
   const [friends, setFriends] = useState([]);
-  const [recentOpponents, setRecentOpponents] = useState([]);
+  const [recentOpponents, setRecentOpponents] = useState([]); // This will now store user objects
   const [queueStatus, setQueueStatus] = useState({ playersInQueue: 0 });
   const [inQueue, setInQueue] = useState(false);
   const [matchFoundData, setMatchFoundData] = useState(null);
@@ -104,12 +105,33 @@ const Lobby = () => {
             const data = JSON.parse(message.body);
             console.log("Match cancelled:", data);
             setShowAcceptDialog(false);
-            setInQueue(false);
-            toast({
-              title: "Match Cancelled",
-              description: data.message,
-              variant: "destructive"
-            });
+
+            // Check if this user left the queue or should remain in queue
+            if (data.leftQueue === true) {
+              // This user declined and left the queue
+              setInQueue(false);
+              toast({
+                title: "Match Cancelled",
+                description: data.message,
+                variant: "destructive"
+              });
+            } else if (data.leftQueue === false) {
+              // This user's opponent declined, but this user remains in queue
+              setInQueue(true); // Keep them in queue
+              toast({
+                title: "Match Cancelled",
+                description: data.message,
+                variant: "destructive"
+              });
+            } else {
+              // Fallback for timeout scenarios
+              setInQueue(false);
+              toast({
+                title: "Match Cancelled",
+                description: data.message,
+                variant: "destructive"
+              });
+            }
           } catch (error) {
             console.error("Error parsing match cancelled data:", error);
           }
@@ -177,10 +199,28 @@ const Lobby = () => {
       ));
       setFriends(friendsList);
 
-      const opponents = histories
+      // Get opponent IDs from game histories
+      const opponentIds = histories
           .flatMap(h => h.userIds.filter(id => id !== user.id))
           .slice(0, 5);
-      setRecentOpponents([...new Set(opponents)]);
+
+      // Remove duplicates
+      const uniqueOpponentIds = [...new Set(opponentIds)];
+
+      // Fetch user data for each opponent ID
+      const opponentPromises = uniqueOpponentIds.map(async (opponentId) => {
+        try {
+          const opponentUser = await userService.getByUserId(opponentId);
+          return opponentUser;
+        } catch (error) {
+          console.error(`Error fetching user data for ID ${opponentId}:`, error);
+          // Return a fallback object if user fetch fails
+          return { id: opponentId, username: `User ${opponentId}` };
+        }
+      });
+
+      const opponents = await Promise.all(opponentPromises);
+      setRecentOpponents(opponents);
     } catch (error) {
       console.error("Error loading lobby data:", error);
       toast({
@@ -333,43 +373,48 @@ const Lobby = () => {
 
           {/* Match Found Dialog */}
           {showAcceptDialog && matchFoundData && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <Card className="bg-white p-6 max-w-md w-full mx-4">
-                  <CardHeader className="text-center">
-                    <CardTitle className="text-2xl text-green-600">Match Found!</CardTitle>
-                    <CardDescription className="text-lg">
-                      Opponent: {matchFoundData.opponentId}
-                      <br />
-                      Points: {matchFoundData.opponentPoints || 'Unknown'}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-orange-600 mb-2">
-                        {acceptanceTimeLeft}s
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        Time remaining to accept
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20 shadow-lg max-w-md w-full mx-4 animate-float">
+                <CardHeader className="text-center pb-4">
+                  <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                    <Sword className="h-8 w-8 text-primary animate-pulse" />
+                  </div>
+                  <CardTitle className="text-2xl text-primary">
+                    Match Found!
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="text-center">
+                    <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                      <div className="text-3xl font-bold text-primary">
+                        {acceptanceTimeLeft}
                       </div>
                     </div>
-                    <div className="flex justify-center space-x-4">
-                      <Button
-                          onClick={acceptMatch}
-                          className="bg-green-500 hover:bg-green-600 text-white px-8"
-                      >
-                        Accept
-                      </Button>
-                      <Button
-                          onClick={declineMatch}
-                          variant="destructive"
-                          className="px-8"
-                      >
-                        Decline
-                      </Button>
+                    <div className="text-sm text-muted-foreground font-medium">
+                      Time remaining to accept
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
+                  </div>
+                  <div className="flex justify-center space-x-4">
+                    <Button
+                      onClick={acceptMatch}
+                      size="lg"
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                    >
+                      <Trophy className="mr-2 h-5 w-5" />
+                      Accept Challenge
+                    </Button>
+                    <Button
+                      onClick={declineMatch}
+                      size="lg"
+                      variant="outline"
+                      className="border-primary/50 hover:border-primary text-primary-foreground"
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {/* Matchmaking Section */}
@@ -549,7 +594,7 @@ const Lobby = () => {
               </CardContent>
             </Card>
 
-            {/* Recent Opponents */}
+            {/* Recent Opponents - Updated to show usernames */}
             <Card className="hover:border-primary/50 transition-all">
               <CardHeader>
                 <div className="flex items-center space-x-3">
@@ -571,14 +616,14 @@ const Lobby = () => {
                     <div className="space-y-3">
                       {recentOpponents.map((opponent) => (
                           <div
-                              key={opponent}
+                              key={opponent.id}
                               className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
                           >
                             <div className="flex items-center space-x-3">
                               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                                 <UserIcon className="h-4 w-4 text-primary" />
                               </div>
-                              <span className="font-medium">{opponent}</span>
+                              <span className="font-medium">{opponent.username}</span>
                             </div>
                             <Button
                                 onClick={() => createGame(true)}
