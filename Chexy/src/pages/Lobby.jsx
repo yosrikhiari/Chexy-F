@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import React, {useEffect, useState} from "react";
+import {useLocation, useNavigate} from "react-router-dom";
 import SockJS from "sockjs-client";
-import { Client } from "@stomp/stompjs";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Users, Gamepad2, UserPlus, Clock, Sword, Trophy, User as UserIcon } from "lucide-react";
-import { friendshipService } from "@/services/FriendshipService.ts";
-import { gameHistoryService } from "@/services/GameHistoryService.ts";
-import { gameSessionService } from "@/services/GameSessionService.ts";
-import { userService } from "@/services/UserService.ts"; // Add this import
-import { useToast } from "@/hooks/use-toast";
+import {Client} from "@stomp/stompjs";
+import {Button} from "@/components/ui/button";
+import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/components/ui/card";
+import {Clock, Gamepad2, Sword, Trophy, User as UserIcon, UserPlus, Users} from "lucide-react";
+import {friendshipService} from "@/services/FriendshipService.ts";
+import {gameHistoryService} from "@/services/GameHistoryService.ts";
+import {gameSessionService} from "@/services/GameSessionService.ts";
+import {userService} from "@/services/UserService.ts"; // Add this import
+import {useToast} from "@/hooks/use-toast";
 
 const Lobby = () => {
   const navigate = useNavigate();
@@ -210,8 +210,7 @@ const Lobby = () => {
       // Fetch user data for each opponent ID
       const opponentPromises = uniqueOpponentIds.map(async (opponentId) => {
         try {
-          const opponentUser = await userService.getByUserId(opponentId);
-          return opponentUser;
+          return await userService.getByUserId(opponentId);
         } catch (error) {
           console.error(`Error fetching user data for ID ${opponentId}:`, error);
           // Return a fallback object if user fetch fails
