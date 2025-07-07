@@ -57,6 +57,7 @@ export class AuthService {
 
   logout(): void {
     JwtService.removeToken();
+    localStorage.removeItem("user");
   }
 }
 

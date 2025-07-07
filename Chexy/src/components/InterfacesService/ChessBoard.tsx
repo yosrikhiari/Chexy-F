@@ -24,9 +24,6 @@
   import {bots} from "@/Interfaces/Bot.ts";
   import {GameHistory} from "@/Interfaces/types/GameHistory.ts";
 
-  const cloneBoard = (board: Piece[][]): Piece[][] =>
-    board.map(row => row.map(piece => (piece ? { ...piece } : null)));
-
   const ensureClassicBoard = (board: any): Piece[][] => {
     if (!Array.isArray(board) || board.length !== 8 || !board.every((row: any) => Array.isArray(row) && row.length === 8)) {
       console.warn('Invalid board structure, using initialBoard');
@@ -116,46 +113,6 @@
         onPlayerChange(color);
       }
     };
-
-    const safeCompleteGameHistory = async (result: GameResult) => {
-      if (!gameState.gameHistoryId) {
-        console.error("Missing gameHistoryId, attempting to create/find history", gameState);
-
-        // Try to get or create game history if missing
-        try {
-          let history: GameHistory;
-          try {
-            history = await gameHistoryService.getGameHistoriesBySession(gameState.gameSessionId);
-          } catch (error) {
-            console.log("Creating new game history for completion...");
-            history = await gameHistoryService.createGameHistory(gameState.gameSessionId);
-          }
-
-          // Update the game state with the found/created history ID
-          setGameStateValue({
-            ...gameState,
-            gameHistoryId: history.id
-          });
-
-          // Now complete with the proper ID
-          await gameHistoryService.completeGameHistory(history.id, result);
-          return;
-        } catch (error) {
-          console.error("Failed to create/find game history for completion:", error);
-          toast({ title: "Error", description: "Failed to save game result", variant: "destructive" });
-          return;
-        }
-      }
-
-      try {
-        await gameHistoryService.completeGameHistory(gameState.gameHistoryId, result);
-      } catch (error) {
-        console.error("Failed to complete game history:", error);
-        toast({ title: "Error", description: "Failed to save game result", variant: "destructive" });
-      }
-    };
-
-
     useEffect(() => {
       const fetchGameData = async () => {
         if (!propGameState?.gameSessionId) return;
@@ -275,7 +232,7 @@
       };
       syncMoves();
     }, [gameState.gameSessionId, gameState.currentTurn]);
-  
+
     useEffect(() => {
       const checkGameStatus = async () => {
         if (!gameState.gameSessionId || !gameState.gameHistoryId || gameState.isCheckmate || gameState.isDraw) return;

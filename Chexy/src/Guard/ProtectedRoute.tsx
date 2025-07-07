@@ -8,8 +8,8 @@ const ProtectedRoute = () => {
   }
 
   const token = JwtService.getToken();
+  console.log("ProtectedRoute - Token:", token, "Expired:", JwtService.isTokenExpired(token));
   const isAuthenticated = !!token && !JwtService.isTokenExpired(token);
-
   return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
 };
 

@@ -11,18 +11,24 @@ import BotSelect from "@/pages/BotSelect.tsx";
 import Lobby from "@/pages/Lobby.jsx";
 import Register from "@/pages/Register.tsx";
 import ForgotPassword from "@/pages/ForgotPassword.tsx";
+import ChessBoardPvP from "@/components/InterfacesService/PvPChessBoard.tsx";
+import { WebSocketProvider } from "./WebSocket/WebSocketContext";
+import ChessGameLayoutPvP from "@/components/InterfacesService/ChessGameLayoutPvP.tsx";
 
 const App = () => {
   return (
+    <WebSocketProvider>
     <BrowserRouter>
       <Routes>
+        <Route path="/game/:gameId" element={<ChessGameLayoutPvP />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />F
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/game-select" element={<GameSelect />} />
           <Route path="/bot-select" element={<BotSelect />} />
           <Route path="/lobby" element={<Lobby />} />
+          <Route path="/game/:gameId" element={<ChessBoardPvP />} />
           <Route path="/" element={<Index />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/profile" element={<Profile />} />
@@ -31,6 +37,7 @@ const App = () => {
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
+    </WebSocketProvider>
   );
 };
 

@@ -22,7 +22,8 @@ export interface ChessBoardProps {
   onMove?: (color: PieceColor) => void;
   gameState?: GameState;
   onGameStateChange?: React.Dispatch<React.SetStateAction<GameState>>;
-  board: (Piece | null)[][];
+  board?: (Piece | null)[][];
+  playerColor?: PieceColor;
   onGameEnd?: (result: GameResult) => void;
   onMoveMade?: (move: {
     from: BoardPosition;

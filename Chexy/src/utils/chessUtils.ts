@@ -1,108 +1,11 @@
 import {Piece, BoardPosition, PieceColor, PieceType} from "@/Interfaces/types/chess";
 import { RPGPiece } from "@/Interfaces/types/rpgChess";
-import { EnhancedRPGPiece } from "@/Interfaces/types/enhancedRpgChess";
-import { GameSession } from "@/Interfaces/types/GameSession";
-import { RPGGameState } from "@/Interfaces/types/rpgChess";
 import { GameMode } from "@/Interfaces/enums/GameMode";
-import {chessGameService} from '@/services/ChessGameService.ts';
 import {gameSessionService} from '@/services/GameSessionService.ts';
-import {rpgGameService} from '@/services/RPGGameService.ts';
-import {realtimeService} from '@/services/RealtimeService.ts';
 
 
 
-// Utility to fetch board and board size from backend
-const fetchBoardAndSize = async (
-  gameId: string,
-  gameMode: GameMode
-): Promise<{ board: (Piece | RPGPiece | EnhancedRPGPiece | null)[][]; boardSize: number }> => {
-  try {
-    if (
-      gameMode === "CLASSIC_MULTIPLAYER" ||
-      gameMode === "CLASSIC_SINGLE_PLAYER" ||
-      gameMode === "TOURNAMENT"
-    ) {
-      const session: GameSession = await gameSessionService.getGameSession(gameId);
-      return {
-        board: (session.board as (Piece | null)[][]) || createEmptyBoard(8),
-        boardSize: 8,
-      };
-    } else if (
-      gameMode === "SINGLE_PLAYER_RPG" ||
-      gameMode === "MULTIPLAYER_RPG" ||
-      gameMode === "ENHANCED_RPG"
-    ) {
-      const rpgState: RPGGameState = await rpgGameService.getRPGGame(gameId);
-      const boardSize = rpgState.boardSize || 8;
-      let board = createEmptyBoard(boardSize);
 
-      // Place player and enemy armies
-      if (rpgState.playerArmy) {
-        board = placePiecesOnBoard(board, rpgState.playerArmy);
-      }
-      if (rpgState.enemyArmy) {
-        board = placePiecesOnBoard(board, rpgState.enemyArmy);
-      }
-
-      return { board, boardSize };
-    }
-    return { board: createEmptyBoard(8), boardSize: 8 }; // Fallback
-  } catch (error) {
-    console.error("Failed to fetch board:", error);
-    return { board: createEmptyBoard(8), boardSize: 8 }; // Fallback
-  }
-};
-
-// Create an empty board
-const createEmptyBoard = (size: number): (Piece | RPGPiece | EnhancedRPGPiece | null)[][] => {
-  return Array(size).fill(null).map(() => Array(size).fill(null));
-};
-
-// Place pieces on board
-const placePiecesOnBoard = (
-  board: (Piece | RPGPiece | EnhancedRPGPiece | null)[][],
-  pieces: (Piece | RPGPiece | EnhancedRPGPiece)[]
-): (Piece | RPGPiece | EnhancedRPGPiece | null)[][] => {
-  const newBoard = board.map(row => [...row]);
-  pieces.forEach(piece => {
-    const { position } = piece as RPGPiece;
-    if (
-      position &&
-      position.row >= 0 &&
-      position.row < board.length &&
-      position.col >= 0 &&
-      position.col < board[0].length
-    ) {
-      newBoard[position.row][position.col] = { ...piece };
-    }
-  });
-  return newBoard;
-};
-
-const validateMoveWithBackend = async (
-  gameId: string,
-  from: BoardPosition,
-  to: BoardPosition
-): Promise<boolean> => {
-  try {
-    if (!gameId) {
-      console.error("Game ID is required for validation");
-      return false;
-    }
-
-    const movever2 = {
-      row: from.row,
-      col: from.col,
-      torow: to.row,
-      tocol: to.col
-    };
-
-    return await chessGameService.validateMove(gameId, movever2);
-  } catch (error) {
-    console.error("Failed to validate move:", error);
-    return false;
-  }
-};
 
 export const isValidPosition = (pos: BoardPosition, boardSize: number = 8): boolean => {
   return pos.row >= 0 && pos.row < boardSize && pos.col >= 0 && pos.col < boardSize;
@@ -156,25 +59,6 @@ export const isPositionUnderAttack = async (
   return false;
 };
 
-export const isInCheck = async (
-  gameId: string,
-  kingColor: PieceColor,
-  boardSize: number = 8,
-  fallbackBoard?: (Piece | RPGPiece | null)[][]
-): Promise<boolean> => {
-  try {
-    return await chessGameService.isCheck(gameId, kingColor);
-  } catch (error) {
-    console.error("Failed to check for check:", error);
-    if (fallbackBoard) {
-      const kingPos = findKingPosition(fallbackBoard, kingColor, boardSize);
-      if (!kingPos) return false;
-      const opponentColor = kingColor === "white" ? "black" : "white";
-      return await isPositionUnderAttack(kingPos, fallbackBoard, opponentColor, gameId, "CLASSIC_MULTIPLAYER", boardSize);
-    }
-    return false;
-  }
-};
 
 export const findKingPosition = (
   board: (Piece | RPGPiece | null)[][],
@@ -223,43 +107,6 @@ export const wouldBeInCheckAfterMove = async (
   );
 };
 
-export const isCheckmate = async (
-  gameId: string,
-  kingColor: PieceColor,
-  boardSize: number = 8,
-  fallbackBoard?: (Piece | RPGPiece | null)[][]
-): Promise<boolean> => {
-  try {
-    return await chessGameService.isCheckmate(gameId, kingColor);
-  } catch (error) {
-    console.error("Failed to check for checkmate:", error);
-    if (fallbackBoard && (await isInCheck(gameId, kingColor, boardSize, fallbackBoard))) {
-      for (let row = 0; row < boardSize; row++) {
-        for (let col = 0; col < boardSize; col++) {
-          const piece = fallbackBoard[row][col];
-          if (piece && piece.color === kingColor) {
-            const moves = await calculateValidMovesForPiece(
-              { row, col },
-              fallbackBoard,
-              kingColor,
-              gameId,
-              "CLASSIC_MULTIPLAYER",
-              boardSize,
-              true,
-              null,
-              false // Allow castling checks for checkmate evaluation
-            );
-            if (moves.length > 0) {
-              return false;
-            }
-          }
-        }
-      }
-      return true;
-    }
-    return false;
-  }
-};
 
 export const calculateValidMoves = async (
   pos: BoardPosition,
@@ -271,7 +118,7 @@ export const calculateValidMoves = async (
   checkForCheck: boolean = true,
   enPassantTarget: BoardPosition | null = null
 ): Promise<BoardPosition[]> => {
-  const serverBoard = await verifyBoardState(gameId);
+  await verifyBoardState(gameId);
   return calculateValidMovesForPiece(pos, board, currentPlayer, gameId, gameMode, boardSize, checkForCheck, enPassantTarget);
 };
 
@@ -315,16 +162,6 @@ export const printBoard = (board: (Piece | null)[][]) => {
   console.log("   a b c d e f g h");
 };
 
-export const logMoveCalculation = (
-  pos: BoardPosition,
-  piece: Piece,
-  moves: BoardPosition[]
-) => {
-  console.log(
-    `Calculating moves for ${piece.color} ${piece.type} at [${pos.row},${pos.col}]:`,
-    moves.map(m => `[${m.row},${m.col}]`)
-  );
-};
 
 export const normalizeBoard = (board: any[][]): Piece[][] => {
   return board.map(row =>
