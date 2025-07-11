@@ -23,18 +23,26 @@ const ensureClassicBoard = (board: any): Piece[][] => {
     console.warn("Invalid board structure, using initialBoard");
     return initialBoard;
   }
-  return board.map((row: any[]) =>
-    row.map((cell: any) => {
-      if (!cell || typeof cell.type !== "string" || typeof cell.color !== "string") return null;
-      const normalizedType = cell.type.toLowerCase() as PieceType;
-      const normalizedColor = cell.color.toLowerCase() as PieceColor;
-      if (["king", "queen", "rook", "bishop", "knight", "pawn"].includes(normalizedType) &&
-        ["white", "black"].includes(normalizedColor)) {
-        return { type: normalizedType, color: normalizedColor, hasMoved: cell.hasMoved ?? false };
+  console.log("Raw server board:", JSON.stringify(board)); // Log raw server board
+  const normalizedBoard = board.map((row: any[], rowIdx: number) =>
+    row.map((cell: any, colIdx: number) => {
+      if (!cell) return null;
+      const type = cell.type || cell.pieceType;
+      const color = cell.color || cell.pieceColor;
+      if (typeof type === "string" && typeof color === "string") {
+        const normalizedType = type.toLowerCase() as PieceType;
+        const normalizedColor = color.toLowerCase() as PieceColor;
+        if (["king", "queen", "rook", "bishop", "knight", "pawn"].includes(normalizedType) &&
+          ["white", "black"].includes(normalizedColor)) {
+          return { type: normalizedType, color: normalizedColor, hasMoved: cell.hasMoved ?? false };
+        }
       }
+      console.warn(`Invalid cell at [${rowIdx}][${colIdx}]:`, cell);
       return null;
     })
   );
+  console.log("Normalized board:", JSON.stringify(normalizedBoard)); // Log processed board
+  return normalizedBoard;
 };
 
 const ChessBoardPvP: React.FC<ChessBoardProps> = ({
@@ -84,9 +92,10 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
   const [playerColor, setPlayerColor] = useState<PieceColor>(color || "white");
   const isProcessingRef = useRef(false);
   const { client, isConnected } = useWebSocket();
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const currentPlayer = propCurrentPlayer || internalCurrentPlayer;
-  const gameState = propGameState || internalGameState;
+  const gameState23 = propGameState || internalGameState;
 
   const setGameStateValue = (newState: GameState) => {
     if (onGameStateChange) onGameStateChange(newState);
@@ -100,7 +109,6 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
   };
 
   useEffect(() => {
-    console.log("ChessBoardPvP mounted with gameId:", gameId, "state:", location.state);
     if (!gameId || !playerId || !color || !opponentId) {
       toast({
         title: "Error",
@@ -111,7 +119,6 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
       return;
     }
 
-    // Add WebSocket connection check
     if (!client || !isConnected) {
       console.log("WebSocket not connected yet, waiting...");
       return;
@@ -119,65 +126,18 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
 
     const subscriptions: { unsubscribe: () => void }[] = [];
 
-    subscriptions.push(
-      client.subscribe(`/topic/game/${gameId}`, (message) => {
-        try {
-          const gameUpdate = JSON.parse(message.body);
-          console.log("Received game update:", gameUpdate);
-
-          const newBoard = ensureClassicBoard(gameUpdate.board);
-          setBoardHistory((prev) => [...prev.slice(0, currentMoveIndex + 1), newBoard]);
-          setCurrentMoveIndex((prev) => prev + 1);
-
-          const newGameState = {
-            ...gameUpdate.gameState,
-            gameSessionId: gameId,
-            userId1: gameUpdate.whitePlayerId || playerId,
-            userId2: gameUpdate.blackPlayerId || opponentId,
-          };
-          setGameStateValue(newGameState);
-          setCurrentPlayerValue(newGameState.currentTurn);
-
-          if (gameUpdate.gameResult) {
-            setGameResult(gameUpdate.gameResult);
-            setShowGameEndModal(true);
-            if (onGameEnd) onGameEnd(gameUpdate.gameResult);
-          }
-
-          if (gameUpdate.timers && onTimeUpdate) {
-            onTimeUpdate(gameUpdate.timers);
-          }
-        } catch (error) {
-          console.error("Error processing game update:", error);
-          toast({
-            title: "Error",
-            description: "Failed to process game update.",
-            variant: "destructive",
-          });
-        }
-      })
-    );
-
-    subscriptions.push(
-      client.subscribe(`/user/queue/game/${gameId}/move-validation`, (message) => {
-        const validation = JSON.parse(message.body);
-        if (!validation.valid) {
-          toast({
-            title: "Invalid Move",
-            description: validation.message || "Move not allowed",
-            variant: "destructive",
-          });
-          resetSelection();
-        }
-      })
-    );
-
     const initializeGame = async () => {
       try {
         const session = await gameSessionService.getGameSession(gameId);
         const classicBoard = ensureClassicBoard(session.board);
+        console.log("Initial board from server:", classicBoard);
         setBoardHistory([classicBoard]);
         setCurrentMoveIndex(0);
+        const hasPieces = classicBoard.some(row => row.some(cell => cell !== null));
+        console.log("Board has pieces:", hasPieces);
+        if (!hasPieces) {
+          console.error("Board is empty!");
+        }
         const initialGameState = {
           ...session.gameState,
           gameSessionId: gameId,
@@ -187,6 +147,51 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         setGameStateValue(initialGameState);
         setCurrentPlayerValue(session.gameState.currentTurn);
         setPlayerColor(color);
+
+        subscriptions.push(
+          client.subscribe(`/topic/game/${gameId}`, (message) => {
+            const gameUpdate = JSON.parse(message.body);
+            console.log("Game update:", gameUpdate);
+            const serverBoard = ensureClassicBoard(gameUpdate.board);
+            setBoardHistory((prev) => {
+              const currentBoard = prev[currentMoveIndex];
+              if (JSON.stringify(currentBoard) !== JSON.stringify(serverBoard)) {
+                console.log("Board out of sync, updating...");
+                return [...prev.slice(0, currentMoveIndex + 1), serverBoard];
+              }
+              return prev;
+            });
+            setCurrentMoveIndex((prev) => prev + 1);
+            setGameStateValue({
+              ...gameUpdate.gameState,
+              gameSessionId: gameId,
+              userId1: gameUpdate.whitePlayerId || playerId,
+              userId2: gameUpdate.blackPlayerId || opponentId,
+            });
+            setCurrentPlayerValue(gameUpdate.gameState.currentTurn);
+            if (gameUpdate.gameResult) {
+              setGameResult(gameUpdate.gameResult);
+              setShowGameEndModal(true);
+              if (onGameEnd) onGameEnd(gameUpdate.gameResult);
+            }
+          })
+        );
+
+        subscriptions.push(
+          client.subscribe(`/user/queue/game/${gameId}/move-validation`, (message) => {
+            const validation = JSON.parse(message.body);
+            if (!validation.valid) {
+              toast({
+                title: "Invalid Move",
+                description: validation.message || "Move not allowed",
+                variant: "destructive",
+              });
+              resetSelection();
+            }
+          })
+        );
+
+        setIsInitialized(true);
       } catch (error) {
         console.error("Failed to load game:", error);
         toast({
@@ -197,12 +202,26 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         navigate("/lobby");
       }
     };
+
     initializeGame();
 
     return () => {
       subscriptions.forEach((sub) => sub.unsubscribe());
     };
-  }, [gameId, client, isConnected, navigate]);
+  }, [gameId, client, isConnected, navigate, playerId, color, opponentId]);
+
+  useEffect(() => {
+    // Log board state after boardHistory changes
+    const hasPieces = boardHistory[0].some(row => row.some(cell => cell !== null));
+    console.log("Board has pieces:", hasPieces);
+    if (!hasPieces) {
+      console.error("Board is empty!");
+    }
+  }, [boardHistory]);
+
+  if (!isConnected || !isInitialized) {
+    return <div>Loading game...</div>;
+  }
 
   const resetSelection = () => {
     setSelectedPiece(null);
@@ -216,11 +235,17 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     validMoves.some((move) => move.row === row && move.col === col);
 
   const handleSquareClick = async (row: number, col: number) => {
-    if (isProcessingRef.current || gameState.isCheckmate || gameState.isDraw) return;
+    console.log("Square clicked:", { row, col, playerColor, currentPlayer });
+    if (isProcessingRef.current || gameState23.isCheckmate || gameState23.isDraw) {
+      console.log("Processing or game over");
+      return;
+    }
     isProcessingRef.current = true;
 
     try {
+      console.log("Checking turn:", { currentPlayer, playerColor });
       if (currentPlayer !== playerColor) {
+        console.log("Not your turn");
         toast({
           title: "Not Your Turn",
           description: "Please wait for your opponent.",
@@ -231,10 +256,14 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
       }
 
       const currentBoard = boardHistory[currentMoveIndex];
+      console.log("Full board state:", currentBoard);
+      console.log("Board state at click:", currentBoard[row][col]);
 
       if (!selectedPiece) {
         const piece = currentBoard[row][col];
+        console.log("Piece at position:", piece);
         if (!piece || piece.color !== playerColor) {
+          console.log("Invalid selection:", !piece ? "No piece" : "Wrong color");
           toast({
             title: "Invalid Selection",
             description: "Please select your own piece.",
@@ -247,12 +276,13 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
           { row, col },
           currentBoard,
           playerColor,
-          gameState.gameSessionId,
+          gameState23.gameSessionId,
           "CLASSIC_MULTIPLAYER",
           8,
           true,
-          gameState.enPassantTarget
+          gameState23.enPassantTarget
         );
+        console.log("Valid moves:", moves);
         setValidMoves(moves);
         return;
       }
@@ -264,11 +294,11 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
           { row, col },
           currentBoard,
           playerColor,
-          gameState.gameSessionId,
+          gameState23.gameSessionId,
           "CLASSIC_MULTIPLAYER",
           8,
           true,
-          gameState.enPassantTarget
+          gameState23.enPassantTarget
         );
         setValidMoves(moves);
         return;
@@ -286,8 +316,8 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         gameId,
       };
 
-      // Update this condition to check both client and isConnected
       if (client && isConnected) {
+        console.log("Sending move:", move);
         client.publish({
           destination: "/app/game/move",
           body: JSON.stringify(move),
@@ -320,6 +350,8 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     }
   };
 
+  const ChessSquareComponent = ChessSquare; // Removed memo to test if it affects behavior
+
   const renderBoard = () => {
     const displayBoard = boardHistory[currentMoveIndex];
     const boardToRender = flipped ? [...displayBoard].reverse().map((row) => [...row].reverse()) : displayBoard;
@@ -330,25 +362,21 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         <div key={rowIndex} className="flex">
           {row.map((piece, colIndex) => {
             const actualColIndex = flipped ? 7 - colIndex : colIndex;
-            const isLight = (actualRowIndex + actualColIndex) % 2 === 0;
             const isSelected = isSelectedPiece(actualRowIndex, actualColIndex);
-            const isValidMoveSquare = isValidMove(actualRowIndex, actualColIndex);
-            const isCheck = gameState.isCheck && piece?.type === "king" && piece?.color === gameState.checkedPlayer;
-
             return (
-              <ChessSquare
+              <ChessSquareComponent
                 key={`${actualRowIndex}-${actualColIndex}`}
                 row={actualRowIndex}
                 col={actualColIndex}
                 piece={piece}
-                isLight={isLight}
+                isLight={(actualRowIndex + actualColIndex) % 2 === 0}
                 isSelected={isSelected}
-                isValidMove={isValidMoveSquare}
-                isCheck={isCheck}
+                isValidMove={isValidMove(actualRowIndex, actualColIndex)}
+                isCheck={gameState23.isCheck && piece?.type === "king" && piece?.color === gameState23.checkedPlayer}
                 actualRowIndex={actualRowIndex}
                 actualColIndex={actualColIndex}
                 onClick={handleSquareClick}
-                gameId={gameState.gameSessionId}
+                gameId={gameState23.gameSessionId}
                 gameMode="CLASSIC_MULTIPLAYER"
                 playerId={playerId}
               />
@@ -364,9 +392,9 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
       <div className="rounded-md overflow-hidden shadow-lg border border-accent/20">
         {renderBoard()}
       </div>
-      {gameState.isCheck && !gameState.isCheckmate && (
+      {gameState23.isCheck && !gameState23.isCheckmate && (
         <div className="mt-4 p-2 bg-red-100 text-red-800 rounded-md">
-          {gameState.checkedPlayer === playerColor
+          {gameState23.checkedPlayer === playerColor
             ? "Your king is in check! You must respond."
             : "Opponent's king is in check."}
         </div>
@@ -386,4 +414,4 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
   );
 };
 
-export default memo(ChessBoardPvP);
+export default ChessBoardPvP;

@@ -34,6 +34,12 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
   };
 
   const handleClick = (e: React.MouseEvent) => {
+    // For classic pieces in classic modes, do nothing and let the event bubble up
+    if (isClassicPiece(piece) && (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
+      return; // No e.stopPropagation() and no action, preserving selection via square
+    }
+
+    // For RPG modes, stop propagation and handle specific logic
     e.stopPropagation();
     if (!gameId || !playerId) {
       console.warn('Click ignored: Missing gameId or playerId', { gameId, playerId });
@@ -43,18 +49,10 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
       console.warn('Click ignored: No piece provided');
       return;
     }
-    if (isClassicPiece(piece) &&
-      (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
-      onClick(piece, piece.Position || { row: -1, col: -1 });
-    }
 
     try {
       setError(null);
-      if (isClassicPiece(piece) && (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
-        if (onClick) {
-          onClick(piece, { row: piece.Position?.row ?? -1, col: piece.Position?.col ?? -1 });
-        }
-      } else if (isRPGPiece(piece) && (gameMode === 'SINGLE_PLAYER_RPG' || gameMode === 'MULTIPLAYER_RPG')) {
+      if (isRPGPiece(piece) && (gameMode === 'SINGLE_PLAYER_RPG' || gameMode === 'MULTIPLAYER_RPG')) {
         rpgGameService.addPieceToArmy(gameId, piece, playerId)
           .then(() => console.log('Piece added to army'))
           .catch(err => {
@@ -77,7 +75,6 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
 
   const renderClassicPiece = (p: Piece) => {
     const { type, color } = p;
-    // Capitalize color and type for image file names
     const colorCapitalized = color.charAt(0).toUpperCase() + color.slice(1);
     const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
     const imagePath = `/chessassets/${colorCapitalized}-${typeCapitalized}.png`;

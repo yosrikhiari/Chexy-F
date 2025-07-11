@@ -10,7 +10,7 @@ import {UserService, userService} from "@/services/UserService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { JwtService } from "@/services/JwtService.ts";
 import { authService } from "@/services/AuthService.ts";
-import ChessBoardPvP from "@/components/InterfacesService/PvPChessBoard.tsx";
+import ChessBoardPvP from "@/components/InterfacesService/ChessBoardPvP.tsx";
 
 interface ChessGameLayoutPvPProps {
   className?: string;

@@ -7,6 +7,21 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8082,
+    // Add proxy configuration to forward API requests to your Spring backend
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8081', // Your Spring backend URL
+        changeOrigin: true,
+        secure: false,
+        ws: true, // Enable WebSocket proxying
+      },
+      '/ws': {
+        target: 'http://localhost:8081', // Your Spring backend URL for WebSocket
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      }
+    }
   },
   plugins: [
     react(),

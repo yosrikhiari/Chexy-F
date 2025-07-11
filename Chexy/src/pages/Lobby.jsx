@@ -7,6 +7,7 @@ import { friendshipService } from "@/services/FriendshipService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { userService } from "@/services/UserService.ts";
+import { JwtService } from "@/services/JwtService.ts"; // Add this import
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/WebSocket/WebSocketContext.tsx";
 
@@ -31,7 +32,9 @@ const Lobby = () => {
   const [matchFoundData, setMatchFoundData] = useState(null);
   const [showAcceptDialog, setShowAcceptDialog] = useState(false);
   const [acceptanceTimeLeft, setAcceptanceTimeLeft] = useState(30);
+  const [subscriptions, setSubscriptions] = useState([]);
 
+  // WebSocket subscription setup
   useEffect(() => {
     if (!user) {
       navigate("/login");
@@ -45,123 +48,130 @@ const Lobby = () => {
     }
 
     console.log("Setting up WebSocket subscriptions...");
-    const subscriptions = [];
+    const newSubscriptions = [];
 
     try {
-      subscriptions.push(
-        client.subscribe("/topic/matchmaking/status", (message) => {
-          try {
-            const data = JSON.parse(message.body);
-            console.log("Queue status updated:", data);
-            setQueueStatus(data);
-          } catch (error) {
-            console.error("Error parsing queue status:", error);
-          }
-        })
-      );
+      // Queue status subscription
+      const queueStatusSub = client.subscribe("/topic/matchmaking/status", (message) => {
+        try {
+          const data = JSON.parse(message.body);
+          console.log("Queue status updated:", data);
+          setQueueStatus(data);
+        } catch (error) {
+          console.error("Error parsing queue status:", error);
+        }
+      });
+      newSubscriptions.push(queueStatusSub);
 
-      subscriptions.push(
-        client.subscribe(`/queue/matchmaking/matchFound/${user.id}`, (message) => {
-          try {
-            const matchData = JSON.parse(message.body);
-            console.log("Match found:", matchData);
-            setMatchFoundData(matchData);
-            setShowAcceptDialog(true);
-            setAcceptanceTimeLeft(30);
+      // Match found subscription
+      const matchFoundSub = client.subscribe(`/queue/matchmaking/matchFound/${user.id}`, (message) => {
+        try {
+          const matchData = JSON.parse(message.body);
+          console.log("Match found:", matchData);
+          setMatchFoundData(matchData);
+          setShowAcceptDialog(true);
+          setAcceptanceTimeLeft(30);
 
-            const timer = setInterval(() => {
-              setAcceptanceTimeLeft((prev) => {
-                if (prev <= 1) {
-                  clearInterval(timer);
-                  setShowAcceptDialog(false);
-                  return 0;
-                }
-                return prev - 1;
-              });
-            }, 1000);
-          } catch (error) {
-            console.error("Error parsing match found data:", error);
-          }
-        })
-      );
-
-      subscriptions.push(
-        client.subscribe(`/queue/matchmaking/gameReady/${user.id}`, (message) => {
-          try {
-            const gameData = JSON.parse(message.body);
-            console.log("Game ready:", gameData);
-            setInQueue(false);
-            setShowAcceptDialog(false);
-            navigate(`/game/${gameData.gameId}`, {
-              state: {
-                playerId: user.id,
-                color: gameData.color,
-                opponentId: gameData.opponentId
+          const timer = setInterval(() => {
+            setAcceptanceTimeLeft((prev) => {
+              if (prev <= 1) {
+                clearInterval(timer);
+                setShowAcceptDialog(false);
+                return 0;
               }
+              return prev - 1;
             });
-          } catch (error) {
-            console.error("Error parsing game ready data:", error);
-          }
-        })
-      );
+          }, 1000);
+        } catch (error) {
+          console.error("Error parsing match found data:", error);
+        }
+      });
+      newSubscriptions.push(matchFoundSub);
 
-      subscriptions.push(
-        client.subscribe(`/queue/matchmaking/matchCancelled/${user.id}`, (message) => {
-          try {
-            const data = JSON.parse(message.body);
-            console.log("Match cancelled:", data);
-            setShowAcceptDialog(false);
-
-            if (data.leftQueue === true) {
-              setInQueue(false);
-              toast({
-                title: "Match Cancelled",
-                description: data.message,
-                variant: "destructive"
-              });
-            } else if (data.leftQueue === false) {
-              setInQueue(true);
-              toast({
-                title: "Match Cancelled",
-                description: data.message,
-                variant: "destructive"
-              });
-            } else {
-              setInQueue(false);
-              toast({
-                title: "Match Cancelled",
-                description: data.message,
-                variant: "destructive"
-              });
+      // Game ready subscription
+      const gameReadySub = client.subscribe(`/queue/matchmaking/gameReady/${user.id}`, (message) => {
+        try {
+          const gameData = JSON.parse(message.body);
+          console.log("Game ready:", gameData);
+          setInQueue(false);
+          setShowAcceptDialog(false);
+          navigate(`/game/${gameData.gameId}`, {
+            state: {
+              playerId: user.id,
+              color: gameData.color,
+              opponentId: gameData.opponentId
             }
-          } catch (error) {
-            console.error("Error parsing match cancelled data:", error);
-          }
-        })
-      );
+          });
+        } catch (error) {
+          console.error("Error parsing game ready data:", error);
+        }
+      });
+      newSubscriptions.push(gameReadySub);
 
-      subscriptions.push(
-        client.subscribe(`/queue/matchmaking/error/${user.id}`, (message) => {
-          try {
-            const data = JSON.parse(message.body);
-            console.log("Matchmaking error:", data);
+      // Match cancelled subscription
+      const matchCancelledSub = client.subscribe(`/queue/matchmaking/matchCancelled/${user.id}`, (message) => {
+        try {
+          const data = JSON.parse(message.body);
+          console.log("Match cancelled:", data);
+          setShowAcceptDialog(false);
+
+          if (data.leftQueue === true) {
+            setInQueue(false);
             toast({
-              title: "Error",
+              title: "Match Cancelled",
               description: data.message,
               variant: "destructive"
             });
-          } catch (error) {
-            console.error("Error parsing error data:", error);
+          } else if (data.leftQueue === false) {
+            setInQueue(true);
+            toast({
+              title: "Match Cancelled",
+              description: data.message,
+              variant: "destructive"
+            });
+          } else {
+            setInQueue(false);
+            toast({
+              title: "Match Cancelled",
+              description: data.message,
+              variant: "destructive"
+            });
           }
-        })
-      );
+        } catch (error) {
+          console.error("Error parsing match cancelled data:", error);
+        }
+      });
+      newSubscriptions.push(matchCancelledSub);
 
+      // Error subscription
+      const errorSub = client.subscribe(`/queue/matchmaking/error/${user.id}`, (message) => {
+        try {
+          const data = JSON.parse(message.body);
+          console.log("Matchmaking error:", data);
+          toast({
+            title: "Error",
+            description: data.message,
+            variant: "destructive"
+          });
+        } catch (error) {
+          console.error("Error parsing error data:", error);
+        }
+      });
+      newSubscriptions.push(errorSub);
+
+      setSubscriptions(newSubscriptions);
       console.log("WebSocket subscriptions set up successfully");
     } catch (error) {
       console.error("Error setting up WebSocket subscriptions:", error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to matchmaking service",
+        variant: "destructive"
+      });
     }
 
     return () => {
+      // Cleanup function
       if (inQueue && client && isConnected) {
         try {
           client.publish({
@@ -172,15 +182,83 @@ const Lobby = () => {
           console.error("Error leaving queue on cleanup:", error);
         }
       }
-      subscriptions.forEach(sub => {
+
+      // Unsubscribe from all subscriptions
+      newSubscriptions.forEach(sub => {
         try {
-          sub.unsubscribe();
+          if (sub && typeof sub.unsubscribe === 'function') {
+            sub.unsubscribe();
+          }
         } catch (error) {
           console.error("Error unsubscribing:", error);
         }
       });
     };
-  }, [user, navigate, toast, client, isConnected, inQueue]);
+  }, [user, navigate, toast, client, isConnected]);
+
+// Replace the existing fetchQueueStatus function in your Lobby component with this:
+
+// Replace your existing fetchQueueStatus useEffect with this improved version:
+
+  useEffect(() => {
+    const fetchQueueStatus = async () => {
+      try {
+        // Fix the base URL logic - you likely want the opposite condition
+        const baseUrl = import.meta.env.DEV ? 'http://localhost:8081' : '';
+
+        const response = await fetch(`${baseUrl}/game-session/api/matchmaking/status`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${JwtService.getToken()}`,
+            'Content-Type': 'application/json'
+          },
+        });
+
+        // Log the response for debugging
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+
+        // Check if response is ok
+        if (!response.ok) {
+          // Log the actual response text for debugging
+          const errorText = await response.text();
+          console.error(`HTTP ${response.status} error:`, errorText);
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Non-JSON response:', text);
+          throw new Error('Server returned non-JSON response');
+        }
+
+        const data = await response.json();
+        console.log('Queue status data:', data);
+        setQueueStatus(data);
+      } catch (error) {
+        console.error("Failed to fetch queue status:", error);
+
+        // Only show toast for critical errors, not on initial load
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          toast({
+            title: "Connection Error",
+            description: "Failed to connect to matchmaking service. Please check your connection.",
+            variant: "destructive"
+          });
+        }
+
+        // Set a default queue status to prevent UI issues
+        setQueueStatus({ playersInQueue: 0 });
+      }
+    };
+
+    // Add a small delay before making the request to ensure services are ready
+    const timer = setTimeout(fetchQueueStatus, 1000);
+
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // Fetch lobby data independently of WebSocket connection
   useEffect(() => {
@@ -245,10 +323,7 @@ const Lobby = () => {
         });
       } else {
         navigate(`/game/${session.gameId}`, {
-          state: {
-            playerId: user.id,
-            color: "white"
-          }
+          state: { playerId: user.id, color: "white", opponentId: session.blackPlayer?.userId }
         });
       }
     } catch (error) {
@@ -265,10 +340,7 @@ const Lobby = () => {
     try {
       const session = await gameSessionService.joinGame(gameId, user.id);
       navigate(`/game/${session.gameId}`, {
-        state: {
-          playerId: user.id,
-          color: "black"
-        }
+        state: { playerId: user.id, color: "black", opponentId: session.whitePlayer?.userId }
       });
     } catch (error) {
       console.error("Error joining game:", error);
@@ -281,10 +353,28 @@ const Lobby = () => {
   };
 
   const joinQueue = () => {
-    if (!client || !isConnected || inQueue || matchFoundData) {
+    if (!client || !isConnected) {
       toast({
-        title: "Error",
-        description: inQueue ? "Already in queue" : !isConnected ? "Not connected to server" : "Match in progress",
+        title: "Connection Error",
+        description: "Not connected to server. Please refresh the page.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (inQueue) {
+      toast({
+        title: "Already in Queue",
+        description: "You are already in the matchmaking queue",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (matchFoundData) {
+      toast({
+        title: "Match in Progress",
+        description: "You have a pending match request",
         variant: "destructive"
       });
       return;
@@ -300,11 +390,15 @@ const Lobby = () => {
         }),
       });
       setInQueue(true);
+      toast({
+        title: "Joined Queue",
+        description: "Looking for opponents...",
+      });
     } catch (error) {
       console.error("Error joining queue:", error);
       toast({
         title: "Error",
-        description: "Failed to join queue",
+        description: "Failed to join queue. Please try again.",
         variant: "destructive"
       });
     }
@@ -312,6 +406,11 @@ const Lobby = () => {
 
   const leaveQueue = () => {
     if (!client || !isConnected) {
+      toast({
+        title: "Connection Error",
+        description: "Not connected to server",
+        variant: "destructive"
+      });
       return;
     }
 
@@ -322,13 +421,27 @@ const Lobby = () => {
         body: JSON.stringify({ userId: user.id }),
       });
       setInQueue(false);
+      toast({
+        title: "Left Queue",
+        description: "You have left the matchmaking queue",
+      });
     } catch (error) {
       console.error("Error leaving queue:", error);
+      toast({
+        title: "Error",
+        description: "Failed to leave queue",
+        variant: "destructive"
+      });
     }
   };
 
   const acceptMatch = () => {
     if (!client || !isConnected || !matchFoundData) {
+      toast({
+        title: "Connection Error",
+        description: "Cannot accept match at this time",
+        variant: "destructive"
+      });
       return;
     }
 
@@ -342,8 +455,17 @@ const Lobby = () => {
         }),
       });
       setShowAcceptDialog(false);
+      toast({
+        title: "Match Accepted",
+        description: "Waiting for opponent...",
+      });
     } catch (error) {
       console.error("Error accepting match:", error);
+      toast({
+        title: "Error",
+        description: "Failed to accept match",
+        variant: "destructive"
+      });
     }
   };
 
@@ -363,8 +485,18 @@ const Lobby = () => {
       });
       setShowAcceptDialog(false);
       setInQueue(false);
+      setMatchFoundData(null);
+      toast({
+        title: "Match Declined",
+        description: "You have declined the match",
+      });
     } catch (error) {
       console.error("Error declining match:", error);
+      toast({
+        title: "Error",
+        description: "Failed to decline match",
+        variant: "destructive"
+      });
     }
   };
 
@@ -389,6 +521,21 @@ const Lobby = () => {
           </div>
         </div>
 
+        {/* Connection Status */}
+        {!isConnected && (
+          <div className="mb-6">
+            <Card className="border-orange-500/50 bg-orange-50 dark:bg-orange-900/20">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-center space-x-2 text-orange-600 dark:text-orange-400">
+                  <Clock className="h-5 w-5 animate-pulse" />
+                  <span>Connecting to game server...</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Match Found Dialog */}
         {showAcceptDialog && matchFoundData && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20 shadow-lg max-w-md w-full mx-4 animate-float">
@@ -399,6 +546,9 @@ const Lobby = () => {
                 <CardTitle className="text-2xl text-primary">
                   Match Found!
                 </CardTitle>
+                <CardDescription>
+                  Opponent: {matchFoundData.opponentPoints} points
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="text-center">
@@ -434,6 +584,7 @@ const Lobby = () => {
           </div>
         )}
 
+        {/* Matchmaking Section */}
         <div className="mb-8">
           <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
             <CardHeader className="text-center">
@@ -472,17 +623,13 @@ const Lobby = () => {
                   </Button>
                 </div>
               )}
-
-              {!isConnected && (
-                <div className="mt-4 text-sm text-orange-600">
-                  Connecting to game server...
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>
 
+        {/* Game Cards Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Available Games */}
           <Card className="hover:border-primary/50 transition-all">
             <CardHeader>
               <div className="flex items-center space-x-3">
@@ -527,7 +674,7 @@ const Lobby = () => {
                           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                             <UserIcon className="h-4 w-4 text-primary" />
                           </div>
-                          <span className="font-medium">{game.whitePlayer.username}'s Game</span>
+                          <span className="font-medium">{game.whitePlayer?.username || "Unknown"}'s Game</span>
                         </div>
                         <Button
                           onClick={() => joinGame(game.gameId)}
@@ -559,6 +706,7 @@ const Lobby = () => {
             </CardContent>
           </Card>
 
+          {/* Friends */}
           <Card className="hover:border-primary/50 transition-all">
             <CardHeader>
               <div className="flex items-center space-x-3">
@@ -607,6 +755,7 @@ const Lobby = () => {
             </CardContent>
           </Card>
 
+          {/* Recent Opponents */}
           <Card className="hover:border-primary/50 transition-all">
             <CardHeader>
               <div className="flex items-center space-x-3">

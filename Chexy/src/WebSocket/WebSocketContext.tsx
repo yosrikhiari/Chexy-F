@@ -18,13 +18,21 @@ export const WebSocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    const socket = new SockJS(`http://localhost:8081/ws?token=${JwtService.getToken()}`);
+    // Use relative URL for WebSocket connection - Vite proxy will handle it
+    const wsUrl = import.meta.env.DEV
+      ? `/ws?token=${JwtService.getToken()}`
+      : `http://localhost:8081/ws?token=${JwtService.getToken()}`;
+
+    const socket = new SockJS(wsUrl);
     const stompClient = new Client({
       webSocketFactory: () => socket,
       connectHeaders: { Authorization: `Bearer ${JwtService.getToken()}` },
       reconnectDelay: 5000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
+      debug: (str) => {
+        console.log('STOMP Debug:', str);
+      },
       onConnect: () => {
         console.log("Global WebSocket connected");
         setClient(stompClient);
@@ -38,6 +46,10 @@ export const WebSocketProvider = ({ children }) => {
         console.log("Global WebSocket disconnected");
         setIsConnected(false);
       },
+      onWebSocketError: (error) => {
+        console.error("WebSocket connection error:", error);
+        setIsConnected(false);
+      }
     });
 
     stompClient.activate();

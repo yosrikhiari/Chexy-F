@@ -11,7 +11,7 @@ import BotSelect from "@/pages/BotSelect.tsx";
 import Lobby from "@/pages/Lobby.jsx";
 import Register from "@/pages/Register.tsx";
 import ForgotPassword from "@/pages/ForgotPassword.tsx";
-import ChessBoardPvP from "@/components/InterfacesService/PvPChessBoard.tsx";
+import ChessBoardPvP from "@/components/InterfacesService/ChessBoardPvP.tsx";
 import { WebSocketProvider } from "./WebSocket/WebSocketContext";
 import ChessGameLayoutPvP from "@/components/InterfacesService/ChessGameLayoutPvP.tsx";
 
