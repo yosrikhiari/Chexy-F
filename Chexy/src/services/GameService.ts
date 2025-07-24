@@ -3,12 +3,12 @@ import { JwtService } from "./JwtService";
 
 export class GameService {
   baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
-  // In GameService.ts
+
   async executeMove(gameId: string, move: {
     from: { row: number; col: number };
     to: { row: number; col: number }
   }): Promise<GameStateData> {
-    // Convert to backend format
+    // Convert to backend format - your backend expects row, col, torow, tocol
     const backendMove = {
       row: move.from.row,
       col: move.from.col,
@@ -23,6 +23,8 @@ export class GameService {
     }
 
     try {
+      console.log("[DEBUG] Sending HTTP move request:", { gameId, backendMove });
+
       const response = await fetch(`${this.baseUrl}/games/${gameId}/moves`, {
         method: "POST",
         headers: {
@@ -34,10 +36,12 @@ export class GameService {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || "Failed to execute move");
+        throw new Error(errorData.message || `HTTP ${response.status}: Failed to execute move`);
       }
 
-      return await response.json();
+      const result = await response.json();
+      console.log("[DEBUG] HTTP move response:", result);
+      return result;
     } catch (error) {
       console.error("Move execution failed:", error);
       throw error;
@@ -47,6 +51,7 @@ export class GameService {
   private isValidCoordinate(row: number, col: number): boolean {
     return row >= 0 && row < 8 && col >= 0 && col < 8;
   }
+
 }
 
 export const gameService = new GameService();

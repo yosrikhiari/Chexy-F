@@ -131,15 +131,11 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
     );
   };
 
-  if (!piece) {
-    console.warn('Received null piece prop');
-    return null;
-  }
+  if (!piece) return null;
 
   if (isClassicPiece(piece) && (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
     return renderClassicPiece(piece);
   } else if (isRPGPiece(piece) || isEnhancedRPGPiece(piece)) {
-    console.log('ChessPiece props:', { gameId, playerId });
     return renderRPGPiece(piece);
   } else {
     console.warn('Invalid piece type for rendering:', piece);

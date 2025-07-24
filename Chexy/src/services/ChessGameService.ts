@@ -1,9 +1,6 @@
 import { JwtService } from "./JwtService";
-import {BoardPosition, Move, Piece, PieceColor} from '@/Interfaces/types/chess.ts';
-import {RPGPiece} from '@/Interfaces/types/rpgChess.ts';
-import {gameSessionService} from '@/services/GameSessionService.ts';
-import {calculateValidMoves} from '@/utils/chessUtils.ts';
-import {EnhancedRPGPiece} from '@/Interfaces/types/enhancedRpgChess.ts';
+import { Move, PieceColor} from '@/Interfaces/types/chess.ts';
+
 
 export class ChessGameService {
   baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
@@ -13,7 +10,6 @@ export class ChessGameService {
       console.error("Game ID is required");
       return false;
     }
-
     try {
       const response = await fetch(`${this.baseUrl}/api/games/chess/${gameId}/validate-move`, {
         method: "POST",

@@ -1,4 +1,4 @@
-
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=MedievalSharp&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -90,8 +90,7 @@
   background: linear-gradient(135deg, hsl(var(--background)), hsl(260 30% 15%));
 }
 
-/* RPG-style enhancements */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=MedievalSharp&display=swap');
+
 
 .font-medieval {
   font-family: 'MedievalSharp', cursive;

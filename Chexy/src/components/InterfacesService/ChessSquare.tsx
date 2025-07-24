@@ -98,6 +98,7 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
       // Call parent onClick handler
       onClick(row, col);
     } catch (err) {
+
       const errorMsg = `Failed to process ${specialEffect || 'click'}: ${(err as Error).message}`;
       setLocalError(errorMsg);
       onError?.(errorMsg);
