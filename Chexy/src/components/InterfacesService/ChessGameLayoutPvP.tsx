@@ -31,6 +31,25 @@ type ExtendedPlayerAction = {
   resultsInStalemate?: boolean;
 };
 
+// Helper function to normalize player data
+const normalizePlayerData = (playerData: any) => {
+  if (!playerData) return null;
+
+  // If it's an array, take the first element
+  if (Array.isArray(playerData)) {
+    console.log("Player data is array, taking first element:", playerData);
+    return playerData.length > 0 ? playerData[0] : null;
+  }
+
+  // If it's already an object, return as is
+  if (typeof playerData === 'object') {
+    return playerData;
+  }
+
+  console.warn("Unexpected player data format:", playerData);
+  return null;
+};
+
 const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                                                                  className = "",
                                                                  isRankedMatch = false,
@@ -90,7 +109,6 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   useEffect(() => {
     const initializeGame = async () => {
       try {
-
         let session;
         let retries = 0;
         const maxRetries = 5;
@@ -109,25 +127,69 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           throw new Error("Game state not initialized after multiple attempts");
         }
 
-        const myColor = session.whitePlayer.userId === (await userService.getCurrentUser(JwtService.getKeycloakId())).id ? "white" : "black";
+        // Normalize player data - THIS IS THE KEY FIX
+        const normalizedWhitePlayer = normalizePlayerData(session.whitePlayer);
+        const normalizedBlackPlayer = normalizePlayerData(session.blackPlayer);
+
+        // Debug the session data
+        console.log("=== SESSION DEBUG ===");
+        console.log("Full session:", JSON.stringify(session, null, 2));
+        console.log("Raw white player:", session.whitePlayer);
+        console.log("Raw black player:", session.blackPlayer);
+        console.log("Normalized white player:", normalizedWhitePlayer);
+        console.log("Normalized black player:", normalizedBlackPlayer);
+        console.log("White player username:", normalizedWhitePlayer?.username);
+        console.log("Black player username:", normalizedBlackPlayer?.username);
+        console.log("Game status:", session.status);
+        console.log("===================");
+
+        // Check if white player exists
+        if (!normalizedWhitePlayer) {
+          throw new Error("White player data is missing");
+        }
+
+        const currentUserId = (await userService.getCurrentUser(JwtService.getKeycloakId())).id;
+        const myColor = normalizedWhitePlayer.userId === currentUserId ? "white" : "black";
+
         setPlayerColor(myColor);
+        setPlayerId(currentUserId);
         setFlipped(myColor === "black");
+
         setGameState({
           ...session.gameState,
           gameSessionId: gameId,
-          userId1: session.whitePlayer.userId,
-          userId2: session.blackPlayer.userId,
+          userId1: normalizedWhitePlayer.userId,
+          userId2: normalizedBlackPlayer?.userId || "", // Handle null/undefined blackPlayer
         });
+
         setCurrentPlayer(session.gameState.currentTurn);
+
+        // Handle the case where blackPlayer might not exist yet
         setPlayerStats({
-          white: { playerId: session.whitePlayer.userId, name: session.whitePlayer.username || "White", points: 0 },
-          black: { playerId: session.blackPlayer.userId, name: session.blackPlayer.username || "Black", points: 0 },
+          white: {
+            playerId: normalizedWhitePlayer.userId,
+            name: normalizedWhitePlayer.username || "White Player",
+            points: 0
+          },
+          black: {
+            playerId: normalizedBlackPlayer?.userId || "",
+            name: normalizedBlackPlayer?.username || "Waiting for player...", // Default name when no black player
+            points: 0
+          },
         });
+
         setTimers({
-          white: { timeLeft: session.timers?.white?.timeLeft ?? 600, active: session.gameState.currentTurn === "white" },
-          black: { timeLeft: session.timers?.black?.timeLeft ?? 600, active: session.gameState.currentTurn === "black" },
+          white: {
+            timeLeft: session.timers?.white?.timeLeft ?? 600,
+            active: session.gameState.currentTurn === "white"
+          },
+          black: {
+            timeLeft: session.timers?.black?.timeLeft ?? 600,
+            active: session.gameState.currentTurn === "black"
+          },
           defaultTime: session.timers?.defaultTime ?? 600,
         });
+
       } catch (error) {
         console.error("Error initializing game:", error);
         toast({ title: "Error", description: "Failed to load game.", variant: "destructive" });
@@ -136,8 +198,60 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         setIsLoading(false);
       }
     };
+
     initializeGame();
   }, [gameId, navigate]);
+
+  // Poll for player updates - especially for when the second player joins
+  useEffect(() => {
+    if (!gameId || isLoading) return;
+
+    const pollForPlayers = setInterval(async () => {
+      try {
+        const session = await gameSessionService.getGameSession(gameId);
+
+        // Normalize the black player data
+        const normalizedBlackPlayer = normalizePlayerData(session.blackPlayer);
+
+        // Check if we now have both players and update accordingly
+        if (normalizedBlackPlayer && playerStats.black.name === "Waiting for player...") {
+          console.log("Black player joined:", normalizedBlackPlayer);
+
+          setPlayerStats(prev => ({
+            ...prev,
+            black: {
+              playerId: normalizedBlackPlayer.userId,
+              name: normalizedBlackPlayer.username || "Black Player",
+              points: 0
+            }
+          }));
+
+          // Update game state if needed
+          setGameState(prev => ({
+            ...prev,
+            userId2: normalizedBlackPlayer.userId
+          }));
+
+          toast({
+            title: "Player Joined",
+            description: `${normalizedBlackPlayer.username || "Black player"} has joined the game!`,
+            duration: 3000
+          });
+        }
+
+        // Stop polling once both players are present
+        const normalizedWhitePlayer = normalizePlayerData(session.whitePlayer);
+        if (normalizedWhitePlayer && normalizedBlackPlayer) {
+          clearInterval(pollForPlayers);
+        }
+
+      } catch (error) {
+        console.error("Error polling for players:", error);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    return () => clearInterval(pollForPlayers);
+  }, [gameId, isLoading, playerStats.black.name]);
 
   const handleGameEnd = (result: GameResult) => {
     setGameResult(result);
@@ -183,8 +297,6 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     };
     setLocalMoveHistory(prev => [...prev, newAction]);
   };
-
-
 
   if (isLoading || !timers) {
     return <div className="text-center p-4">Loading game...</div>;
