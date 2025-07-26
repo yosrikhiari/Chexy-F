@@ -8,45 +8,34 @@ import { PieceColor, GameTimers, GameState, GameResult, PlayerStats, PieceType, 
 import { toast } from "@/components/ui/use-toast.tsx";
 import {UserService, userService} from "@/services/UserService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
+import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { JwtService } from "@/services/JwtService.ts";
 import { authService } from "@/services/AuthService.ts";
 import ChessBoardPvP from "@/components/InterfacesService/ChessBoardPvP.tsx";
+import { PlayerAction } from "@/Interfaces/services/PlayerAction.ts";
+import { chessGameService } from "@/services/ChessGameService.ts";
 
 interface ChessGameLayoutPvPProps {
   className?: string;
   isRankedMatch?: boolean;
 }
 
-type ExtendedPlayerAction = {
-  gameId: string;
-  playerId: string;
-  actionType: "move" | "capture";
-  from: [number, number];
-  to: [number, number];
-  timestamp: number;
-  sequenceNumber: number;
+type ExtendedPlayerAction = PlayerAction & {
   pieceType: PieceType;
+  playerColor: PieceColor;
   resultsInCheck?: boolean;
   resultsInCheckmate?: boolean;
   resultsInStalemate?: boolean;
 };
 
-// Helper function to normalize player data
 const normalizePlayerData = (playerData: any) => {
   if (!playerData) return null;
-
-  // If it's an array, take the first element
   if (Array.isArray(playerData)) {
-    console.log("Player data is array, taking first element:", playerData);
     return playerData.length > 0 ? playerData[0] : null;
   }
-
-  // If it's already an object, return as is
   if (typeof playerData === 'object') {
     return playerData;
   }
-
-  console.warn("Unexpected player data format:", playerData);
   return null;
 };
 
@@ -91,19 +80,206 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   const [flipped, setFlipped] = useState(false);
 
   const moveToAlgebraicNotation = (action: ExtendedPlayerAction): string => {
+    if (!action || !action.from || !action.to ||
+      !Array.isArray(action.from) || !Array.isArray(action.to) ||
+      action.from.length !== 2 || action.to.length !== 2) {
+      return "Move";
+    }
+
     const pieceMap: { [key: string]: string } = {
       king: "K", queen: "Q", rook: "R", bishop: "B", knight: "N", pawn: "",
     };
+
     const fromCol = String.fromCharCode(97 + action.from[1]);
     const toCol = String.fromCharCode(97 + action.to[1]);
     const toRow = 8 - action.to[0];
     const pieceType = action.pieceType || "pawn";
     const isCapture = action.actionType === "capture";
-    let notation = pieceType === "pawn" && isCapture ? `${fromCol}x${toCol}${toRow}` : `${pieceMap[pieceType]}${isCapture ? "x" : ""}${toCol}${toRow}`;
+
+    let notation = '';
+    if (pieceType === 'pawn') {
+      if (isCapture) {
+        notation = `${fromCol}x${toCol}${toRow}`;
+      } else {
+        notation = `${toCol}${toRow}`;
+      }
+    } else {
+      notation = `${pieceMap[pieceType]}${isCapture ? 'x' : ''}${toCol}${toRow}`;
+    }
+
     if (action.resultsInCheckmate) notation += "#";
     else if (action.resultsInCheck) notation += "+";
     else if (action.resultsInStalemate) notation += " (stalemate)";
     return notation;
+  };
+
+  const determinePlayerColor = (actionPlayerId: string): PieceColor => {
+    if (actionPlayerId === playerStats.white.playerId) {
+      return "white";
+    } else if (actionPlayerId === playerStats.black.playerId) {
+      return "black";
+    }
+    if (actionPlayerId === gameState.userId1) {
+      return "white";
+    } else if (actionPlayerId === gameState.userId2) {
+      return "black";
+    }
+    return "white";
+  };
+
+  const determinePieceType = (actionType: string, fromX: number, fromY: number, toX: number, toY: number): PieceType => {
+    if (actionType === "DOUBLE_PAWN_PUSH") {
+      return "pawn";
+    }
+
+    const rowDiff = Math.abs(toX - fromX);
+    const colDiff = Math.abs(toY - fromY);
+
+    if (colDiff === 0 && (rowDiff === 1 || rowDiff === 2)) {
+      return "pawn";
+    }
+
+    if (rowDiff === 1 && colDiff === 1 && actionType === "CAPTURE") {
+      return "pawn";
+    }
+
+    if ((rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2)) {
+      return "knight";
+    }
+
+    if (rowDiff === colDiff && rowDiff > 0) {
+      return "bishop";
+    }
+
+    if ((rowDiff === 0 && colDiff > 0) || (colDiff === 0 && rowDiff > 0)) {
+      return "rook";
+    }
+
+    if (rowDiff <= 1 && colDiff <= 1 && (rowDiff + colDiff) > 0) {
+      return "king";
+    }
+
+    if ((rowDiff === colDiff) || (rowDiff === 0) || (colDiff === 0)) {
+      return "queen";
+    }
+
+    return "pawn";
+  };
+
+  interface ServerPlayerAction {
+    gameSessionId: string;
+    playerId: string;
+    actionType: string; // "CAPTURE", "MOVE", etc.
+    fromX: number;
+    fromY: number;
+    toX: number;
+    toY: number;
+    timestamp: string | number;
+    sequenceNumber?: number;
+    pieceType?: PieceType;
+    resultsInCheck?: boolean;
+    resultsInCheckmate?: boolean;
+    resultsInStalemate?: boolean;
+  }
+
+  const loadMoveHistoryFromServer = async () => {
+    if (!gameId) return;
+
+    try {
+      // Cast the response to handle both server and client formats
+      const playerActions = await gameHistoryService.getPlayerActions(gameId) as (ServerPlayerAction | ExtendedPlayerAction)[];
+
+      const extendedActions: ExtendedPlayerAction[] = playerActions
+        .filter(action => {
+          // Check if action has the expected server format (fromX, fromY, toX, toY)
+          // OR the client format (from, to arrays)
+          const hasServerFormat = action &&
+            'fromX' in action && 'fromY' in action && 'toX' in action && 'toY' in action &&
+            typeof (action as ServerPlayerAction).fromX === 'number' &&
+            typeof (action as ServerPlayerAction).fromY === 'number' &&
+            typeof (action as ServerPlayerAction).toX === 'number' &&
+            typeof (action as ServerPlayerAction).toY === 'number';
+
+          const hasClientFormat = action &&
+            'from' in action && 'to' in action &&
+            Array.isArray((action as ExtendedPlayerAction).from) && (action as ExtendedPlayerAction).from.length === 2 &&
+            Array.isArray((action as ExtendedPlayerAction).to) && (action as ExtendedPlayerAction).to.length === 2;
+
+          return (hasServerFormat || hasClientFormat) &&
+            action.playerId &&
+            ('gameSessionId' in action || 'gameId' in action);
+        })
+        .map(action => {
+          // Handle both server format (fromX, fromY, toX, toY) and client format (from[], to[])
+          let fromCoords: [number, number];
+          let toCoords: [number, number];
+          let actionType: "move" | "capture" | "ability";
+          let gameId: string;
+
+          if ('fromX' in action) {
+            // Server format
+            const serverAction = action as ServerPlayerAction;
+            fromCoords = [serverAction.fromX, serverAction.fromY];
+            toCoords = [serverAction.toX, serverAction.toY];
+            actionType = serverAction.actionType === "capture" ? "capture" : "move";
+            gameId = serverAction.gameSessionId;
+          } else {
+            // Client format (already in correct format)
+            const clientAction = action as ExtendedPlayerAction;
+            fromCoords = clientAction.from;
+            toCoords = clientAction.to;
+            actionType = clientAction.actionType;
+            gameId = clientAction.gameId;
+          }
+
+          const convertedAction: ExtendedPlayerAction = {
+            gameId: gameId,
+            playerId: action.playerId,
+            playerColor: determinePlayerColor(action.playerId),
+            actionType: actionType,
+            from: fromCoords,
+            to: toCoords,
+            timestamp: typeof action.timestamp === 'number' ? action.timestamp : new Date(action.timestamp).getTime(),
+            sequenceNumber: ('sequenceNumber' in action && action.sequenceNumber) ? action.sequenceNumber : 0,
+            pieceType: ('pieceType' in action && action.pieceType) ? action.pieceType : determinePieceType(
+              actionType === "capture" ? "CAPTURE" : "MOVE",
+              fromCoords[0],
+              fromCoords[1],
+              toCoords[0],
+              toCoords[1]
+            ),
+            resultsInCheck: ('resultsInCheck' in action && action.resultsInCheck) || false,
+            resultsInCheckmate: ('resultsInCheckmate' in action && action.resultsInCheckmate) || false,
+            resultsInStalemate: ('resultsInStalemate' in action && action.resultsInStalemate) || false,
+          };
+
+          return convertedAction;
+        });
+
+      extendedActions.sort((a, b) => a.timestamp - b.timestamp);
+      setLocalMoveHistory(extendedActions);
+      localStorage.setItem(`moveHistory_${gameId}`, JSON.stringify(extendedActions));
+
+    } catch (error) {
+      console.warn("Failed to load move history from server:", error);
+      const savedMoveHistory = localStorage.getItem(`moveHistory_${gameId}`);
+      if (savedMoveHistory) {
+        try {
+          const parsedHistory = JSON.parse(savedMoveHistory);
+          const filteredHistory = parsedHistory.filter((action: any) => {
+            return action &&
+              action.from && Array.isArray(action.from) && action.from.length === 2 &&
+              action.to && Array.isArray(action.to) && action.to.length === 2 &&
+              action.playerColor;
+          });
+          setLocalMoveHistory(filteredHistory);
+        } catch (parseError) {
+          setLocalMoveHistory([]);
+        }
+      } else {
+        setLocalMoveHistory([]);
+      }
+    }
   };
 
   useEffect(() => {
@@ -118,8 +294,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           if (session.gameState) {
             break;
           }
-          console.warn(`Game state null for gameId: ${gameId}, retrying (${retries + 1}/${maxRetries})`);
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+          await new Promise(resolve => setTimeout(resolve, 1000));
           retries++;
         }
 
@@ -127,23 +302,9 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           throw new Error("Game state not initialized after multiple attempts");
         }
 
-        // Normalize player data - THIS IS THE KEY FIX
         const normalizedWhitePlayer = normalizePlayerData(session.whitePlayer);
         const normalizedBlackPlayer = normalizePlayerData(session.blackPlayer);
 
-        // Debug the session data
-        console.log("=== SESSION DEBUG ===");
-        console.log("Full session:", JSON.stringify(session, null, 2));
-        console.log("Raw white player:", session.whitePlayer);
-        console.log("Raw black player:", session.blackPlayer);
-        console.log("Normalized white player:", normalizedWhitePlayer);
-        console.log("Normalized black player:", normalizedBlackPlayer);
-        console.log("White player username:", normalizedWhitePlayer?.username);
-        console.log("Black player username:", normalizedBlackPlayer?.username);
-        console.log("Game status:", session.status);
-        console.log("===================");
-
-        // Check if white player exists
         if (!normalizedWhitePlayer) {
           throw new Error("White player data is missing");
         }
@@ -159,12 +320,11 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           ...session.gameState,
           gameSessionId: gameId,
           userId1: normalizedWhitePlayer.userId,
-          userId2: normalizedBlackPlayer?.userId || "", // Handle null/undefined blackPlayer
+          userId2: normalizedBlackPlayer?.userId || "",
         });
 
         setCurrentPlayer(session.gameState.currentTurn);
 
-        // Handle the case where blackPlayer might not exist yet
         setPlayerStats({
           white: {
             playerId: normalizedWhitePlayer.userId,
@@ -173,7 +333,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           },
           black: {
             playerId: normalizedBlackPlayer?.userId || "",
-            name: normalizedBlackPlayer?.username || "Waiting for player...", // Default name when no black player
+            name: normalizedBlackPlayer?.username || "Waiting for player...",
             points: 0
           },
         });
@@ -190,6 +350,8 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           defaultTime: session.timers?.defaultTime ?? 600,
         });
 
+        await loadMoveHistoryFromServer();
+
       } catch (error) {
         console.error("Error initializing game:", error);
         toast({ title: "Error", description: "Failed to load game.", variant: "destructive" });
@@ -202,21 +364,17 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     initializeGame();
   }, [gameId, navigate]);
 
-  // Poll for player updates - especially for when the second player joins
   useEffect(() => {
     if (!gameId || isLoading) return;
 
-    const pollForPlayers = setInterval(async () => {
+    const pollForUpdates = setInterval(async () => {
       try {
         const session = await gameSessionService.getGameSession(gameId);
 
-        // Normalize the black player data
+        const normalizedWhitePlayer = normalizePlayerData(session.whitePlayer);
         const normalizedBlackPlayer = normalizePlayerData(session.blackPlayer);
 
-        // Check if we now have both players and update accordingly
         if (normalizedBlackPlayer && playerStats.black.name === "Waiting for player...") {
-          console.log("Black player joined:", normalizedBlackPlayer);
-
           setPlayerStats(prev => ({
             ...prev,
             black: {
@@ -226,7 +384,6 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
             }
           }));
 
-          // Update game state if needed
           setGameState(prev => ({
             ...prev,
             userId2: normalizedBlackPlayer.userId
@@ -239,19 +396,20 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           });
         }
 
-        // Stop polling once both players are present
-        const normalizedWhitePlayer = normalizePlayerData(session.whitePlayer);
-        if (normalizedWhitePlayer && normalizedBlackPlayer) {
-          clearInterval(pollForPlayers);
+        if (session.gameState.currentTurn !== currentPlayer) {
+          setCurrentPlayer(session.gameState.currentTurn);
+          await loadMoveHistoryFromServer();
         }
 
-      } catch (error) {
-        console.error("Error polling for players:", error);
-      }
-    }, 2000); // Poll every 2 seconds
+        setGameState(session.gameState);
 
-    return () => clearInterval(pollForPlayers);
-  }, [gameId, isLoading, playerStats.black.name]);
+      } catch (error) {
+        console.error("Error polling for updates:", error);
+      }
+    }, 2000);
+
+    return () => clearInterval(pollForUpdates);
+  }, [gameId, isLoading, playerStats.black.name, currentPlayer]);
 
   const handleGameEnd = (result: GameResult) => {
     setGameResult(result);
@@ -265,6 +423,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   };
 
   const resetGame = () => {
+    localStorage.removeItem(`moveHistory_${gameId}`);
     navigate("/lobby");
   };
 
@@ -284,19 +443,106 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     to: BoardPosition;
     actionType: "move" | "capture";
     pieceType: PieceType;
+    resultsInCheck?: boolean;
+    resultsInCheckmate?: boolean;
+    resultsInStalemate?: boolean;
   }) => {
+    const movingPlayerColor = currentPlayer;
+    const movingPlayerId = currentPlayer === "white" ? gameState.userId1 : gameState.userId2;
+
     const newAction: ExtendedPlayerAction = {
       gameId: gameState.gameSessionId,
-      playerId: currentPlayer === "white" ? gameState.userId1 : gameState.userId2,
+      playerId: movingPlayerId,
+      playerColor: movingPlayerColor,
       actionType: move.actionType,
       from: [move.from.row, move.from.col],
       to: [move.to.row, move.to.col],
       timestamp: Date.now(),
       sequenceNumber: localMoveHistory.length + 1,
       pieceType: move.pieceType,
+      resultsInCheck: move.resultsInCheck,
+      resultsInCheckmate: move.resultsInCheckmate,
+      resultsInStalemate: move.resultsInStalemate,
     };
-    setLocalMoveHistory(prev => [...prev, newAction]);
+
+    setLocalMoveHistory(prev => {
+      const existingMove = prev.find(m => {
+        if (!m.from || !m.to || !Array.isArray(m.from) || !Array.isArray(m.to) ||
+          !newAction.from || !newAction.to || !Array.isArray(newAction.from) || !Array.isArray(newAction.to)) {
+          return false;
+        }
+
+        return m.from[0] === newAction.from[0] &&
+          m.from[1] === newAction.from[1] &&
+          m.to[0] === newAction.to[0] &&
+          m.to[1] === newAction.to[1] &&
+          m.playerColor === newAction.playerColor;
+      });
+
+      if (existingMove) {
+        return prev;
+      }
+
+      const newHistory = [...prev, newAction];
+      localStorage.setItem(`moveHistory_${gameState.gameSessionId}`, JSON.stringify(newHistory));
+      return newHistory;
+    });
+
+    setTimeout(async () => {
+      await loadMoveHistoryFromServer();
+    }, 1000);
   };
+
+  const checkForGameEnd = async () => {
+    if (!gameState.gameSessionId) return;
+
+    try {
+      // Check for checkmate
+      const isWhiteCheckmate = await chessGameService.isCheckmate(gameState.gameSessionId, "white");
+      const isBlackCheckmate = await chessGameService.isCheckmate(gameState.gameSessionId, "black");
+
+      // Check for draw
+      const isWhiteDraw = await chessGameService.isDraw(gameState.gameSessionId, "white");
+      const isBlackDraw = await chessGameService.isDraw(gameState.gameSessionId, "black");
+
+      if (isWhiteCheckmate) {
+        handleGameEnd({
+          winner: "black",
+          winnerName: playerStats.black.name,
+          pointsAwarded: isRankedMatch ? 15 : 0,
+          gameEndReason: "checkmate",
+          gameid: gameState.gameSessionId,
+          winnerid: gameState.userId2,
+        });
+      } else if (isBlackCheckmate) {
+        handleGameEnd({
+          winner: "white",
+          winnerName: playerStats.white.name,
+          pointsAwarded: isRankedMatch ? 15 : 0,
+          gameEndReason: "checkmate",
+          gameid: gameState.gameSessionId,
+          winnerid: gameState.userId1,
+        });
+      } else if (isWhiteDraw || isBlackDraw) {
+        handleGameEnd({
+          winner: "draw" as any,
+          winnerName: "Draw",
+          pointsAwarded: 0,
+          gameEndReason: "checkmate", // Will be handled as draw
+          gameid: gameState.gameSessionId,
+          winnerid: "",
+        });
+      }
+    } catch (error) {
+      console.error("Error checking game end conditions:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!isLoading && gameState.gameSessionId) {
+      checkForGameEnd();
+    }
+  }, [localMoveHistory.length, gameState.currentTurn]);
 
   if (isLoading || !timers) {
     return <div className="text-center p-4">Loading game...</div>;
@@ -423,17 +669,35 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                     <p className="text-sm text-muted-foreground">No moves yet</p>
                   ) : (
                     <ul className="text-sm space-y-1">
-                      {localMoveHistory.reduce((acc: JSX.Element[], action, index) => {
-                        if (index % 2 === 0) {
-                          acc.push(
-                            <li key={action.sequenceNumber}>
-                              {Math.floor(index / 2) + 1}. White: {moveToAlgebraicNotation(action)}{" "}
-                              {localMoveHistory[index + 1] ? `Black: ${moveToAlgebraicNotation(localMoveHistory[index + 1])}` : ""}
+                      {(() => {
+                        const whiteMoves = localMoveHistory.filter(move =>
+                          move && move.playerColor === "white" &&
+                          move.from && move.to &&
+                          Array.isArray(move.from) && Array.isArray(move.to)
+                        );
+                        const blackMoves = localMoveHistory.filter(move =>
+                          move && move.playerColor === "black" &&
+                          move.from && move.to &&
+                          Array.isArray(move.from) && Array.isArray(move.to)
+                        );
+
+                        const maxTurns = Math.max(whiteMoves.length, blackMoves.length);
+                        const pairs: JSX.Element[] = [];
+
+                        for (let turnNum = 1; turnNum <= maxTurns; turnNum++) {
+                          const whiteMove = whiteMoves[turnNum - 1];
+                          const blackMove = blackMoves[turnNum - 1];
+
+                          pairs.push(
+                            <li key={turnNum}>
+                              {turnNum}.
+                              {whiteMove ? ` White: ${moveToAlgebraicNotation(whiteMove)}` : " White: ..."}
+                              {blackMove ? ` Black: ${moveToAlgebraicNotation(blackMove)}` : ""}
                             </li>
                           );
                         }
-                        return acc;
-                      }, [])}
+                        return pairs;
+                      })()}
                     </ul>
                   )}
                 </div>

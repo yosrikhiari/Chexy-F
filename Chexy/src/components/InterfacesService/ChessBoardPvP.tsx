@@ -23,7 +23,6 @@ const ensureClassicBoard = (board: any): Piece[][] => {
     console.warn("Invalid board structure received from server, reverting to initialBoard");
     return initialBoard;
   }
-  console.log("[DEBUG] Raw server board:", JSON.stringify(board));
   const normalizedBoard = board.map((row: any[], rowIdx: number) =>
     row.map((cell: any, colIdx: number) => {
       if (!cell) return null;
@@ -37,11 +36,9 @@ const ensureClassicBoard = (board: any): Piece[][] => {
           return { type: normalizedType, color: normalizedColor, hasMoved: cell.hasMoved ?? false };
         }
       }
-      console.warn(`[DEBUG] Invalid cell at [${rowIdx}][${colIdx}]:`, cell);
       return null;
     })
   );
-  console.log("[DEBUG] Normalized board:", JSON.stringify(normalizedBoard));
   return normalizedBoard;
 };
 
@@ -66,6 +63,8 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
   const location = useLocation();
   const navigate = useNavigate();
   const { playerId, color, opponentId } = location.state || {};
+
+  // ALL STATE DECLARATIONS
   const [boardHistory, setBoardHistory] = useState<Piece[][][]>([initialBoard]);
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
   const [selectedPiece, setSelectedPiece] = useState<BoardPosition | null>(null);
@@ -179,7 +178,10 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
           setCurrentPlayerValue(session.gameState.currentTurn);
 
           // Reset selection when board updates
-          resetSelection();
+          if (selectedPiece) {
+            setSelectedPiece(null);
+            setValidMoves([]);
+          }
 
           toast({
             title: "Board Updated",
@@ -190,14 +192,10 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
       } catch (error) {
         console.error("[ERROR] Failed to poll game state:", error);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 2000);
 
     return () => clearInterval(pollInterval);
-  }, [isInitialized, gameId, boardHistory, currentMoveIndex, playerColor]);
-
-  if (!isInitialized) {
-    return <div>Loading game...</div>;
-  }
+  }, [isInitialized, gameId, boardHistory, currentMoveIndex, playerColor, selectedPiece]);
 
   const resetSelection = () => {
     console.log("[DEBUG] Resetting selection");
@@ -364,6 +362,46 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (!isInitialized || !gameState) return;
+
+    if (gameState.isCheckmate || gameState.isDraw) {
+      let winner: PieceColor;
+      let winnerName: string;
+      let gameEndReason: "checkmate" | "timeout" | "resignation" | "draw";
+
+      if (gameState.isCheckmate) {
+        winner = gameState.checkedPlayer === "white" ? "black" : "white";
+        winnerName = winner === "white" ? (player1Name || "White") : (player2Name || "Black");
+        gameEndReason = "checkmate";
+      } else {
+        winner = "white"; // Placeholder
+        winnerName = "Draw";
+        gameEndReason = "draw";
+      }
+
+      const gameResult: GameResult = {
+        winner: gameState.isDraw ? "draw" : winner,
+        winnerName: gameState.isDraw ? "Draw" : winnerName,
+        pointsAwarded: 0,
+        gameEndReason: gameState.isDraw ? "draw" : gameEndReason,
+        gameid: gameState.gameSessionId,
+        winnerid: gameState.isDraw ? "" : (winner === "white" ? gameState.userId1 : gameState.userId2),
+      };
+
+      setGameResult(gameResult);
+      setShowGameEndModal(true);
+
+      if (onGameEnd) {
+        onGameEnd(gameResult);
+      }
+    }
+  }, [gameState?.isCheckmate, gameState?.isDraw, isInitialized, player1Name, player2Name, gameState?.gameSessionId, gameState?.userId1, gameState?.userId2, gameState?.checkedPlayer, onGameEnd]);
+
+  // NOW EARLY RETURNS CAN GO HERE
+  if (!isInitialized) {
+    return <div>Loading game...</div>;
+  }
   const renderBoard = () => {
     const displayBoard = boardHistory[currentMoveIndex];
     const boardToRender = flipped ? [...displayBoard].reverse().map((row) => [...row].reverse()) : displayBoard;
@@ -398,6 +436,7 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
       );
     });
   };
+
 
 
   return (

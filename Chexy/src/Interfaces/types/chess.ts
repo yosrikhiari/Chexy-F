@@ -64,7 +64,7 @@ export interface PlayerStats {
 export type GameEndReason = 'checkmate' | 'timeout' | 'resignation' | 'draw' | 'tie_resolved';
 
 export interface GameResult {
-  winner: PieceColor;
+  winner: PieceColor | "draw" | "";
   winnerName: string;
   pointsAwarded: number;
   gameEndReason: GameEndReason;

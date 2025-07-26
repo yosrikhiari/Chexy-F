@@ -110,7 +110,7 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
           </div>
 
           <h2 className="text-xl font-bold text-center">
-            {winnerName} wins {reasonText[gameEndReason]}!
+            {winner === "draw" ? "Game ended in a draw!" : `${winnerName} wins ${reasonText[gameEndReason]}!`}
           </h2>
 
           <div className="bg-muted p-4 rounded-md w-full text-center">

@@ -1,3 +1,5 @@
+import {PieceType} from '@/Interfaces/types/chess.ts';
+
 export interface PlayerAction {
   gameId: string;
   playerId: string;
@@ -7,3 +9,5 @@ export interface PlayerAction {
   timestamp: number;
   sequenceNumber: number;
 }
+
+
