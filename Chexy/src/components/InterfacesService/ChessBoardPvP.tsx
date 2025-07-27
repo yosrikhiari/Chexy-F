@@ -166,19 +166,32 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         const session = await gameSessionService.getGameSession(gameId);
         const serverBoard = ensureClassicBoard(session.board);
 
-        // Only update if the board actually changed
-        const currentBoard = boardHistory[currentMoveIndex];
+        // Only update if the board actually changed and we're at the latest move
+        const currentBoard = boardHistory[boardHistory.length - 1];
         const boardChanged = JSON.stringify(serverBoard) !== JSON.stringify(currentBoard);
 
         if (boardChanged) {
-          console.log("[DEBUG] Board changed, updating...");
-          setBoardHistory([serverBoard]);
-          setCurrentMoveIndex(0);
+          console.log("[DEBUG] Board changed, updating history...");
+          setBoardHistory(prev => {
+            const newHistory = [...prev, serverBoard];
+            // Save to localStorage like in the original ChessBoard
+            localStorage.setItem(`boardHistory_${gameId}`, JSON.stringify(newHistory));
+            return newHistory;
+          });
+
+          // Only auto-advance to latest move if we were already at the latest
+          setCurrentMoveIndex(prev => {
+            if (prev === boardHistory.length - 1) {
+              return boardHistory.length; // Will be the new latest after boardHistory updates
+            }
+            return prev; // Keep current position if reviewing
+          });
+
           setGameStateValue(session.gameState);
           setCurrentPlayerValue(session.gameState.currentTurn);
 
-          // Reset selection when board updates
-          if (selectedPiece) {
+          // Reset selection when board updates from opponent move
+          if (selectedPiece && currentMoveIndex === boardHistory.length - 1) {
             setSelectedPiece(null);
             setValidMoves([]);
           }
@@ -197,6 +210,24 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     return () => clearInterval(pollInterval);
   }, [isInitialized, gameId, boardHistory, currentMoveIndex, playerColor, selectedPiece]);
 
+  // Load saved board history on initialization
+  useEffect(() => {
+    if (!gameId || !isInitialized) return;
+
+    const savedHistory = localStorage.getItem(`boardHistory_${gameId}`);
+    if (savedHistory) {
+      try {
+        const parsedHistory = JSON.parse(savedHistory);
+        if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
+          setBoardHistory(parsedHistory);
+          setCurrentMoveIndex(parsedHistory.length - 1);
+        }
+      } catch (error) {
+        console.error("[ERROR] Failed to parse saved board history:", error);
+      }
+    }
+  }, [gameId, isInitialized]);
+
   const resetSelection = () => {
     console.log("[DEBUG] Resetting selection");
     setSelectedPiece(null);
@@ -212,6 +243,16 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
   const handleSquareClick = async (row: number, col: number) => {
     if (isProcessingRef.current || gameState.isCheckmate || gameState.isDraw) {
       console.log("[DEBUG] Click ignored: Processing or game over");
+      return;
+    }
+
+    // Check if we're reviewing moves (not at the latest position)
+    if (currentMoveIndex < boardHistory.length - 1) {
+      toast({
+        title: "Review Mode",
+        description: "Please go to the latest move to continue playing.",
+        variant: "default",
+      });
       return;
     }
 
@@ -341,8 +382,12 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         try {
           const session = await gameSessionService.getGameSession(gameId!);
           const serverBoard = ensureClassicBoard(session.board);
-          setBoardHistory([serverBoard]);
-          setCurrentMoveIndex(0);
+          setBoardHistory(prev => {
+            const newHistory = [...prev, serverBoard];
+            localStorage.setItem(`boardHistory_${gameId}`, JSON.stringify(newHistory));
+            return newHistory;
+          });
+          setCurrentMoveIndex(prev => prev + 1);
           setGameStateValue(session.gameState);
           setCurrentPlayerValue(session.gameState.currentTurn);
         } catch (error) {
@@ -402,6 +447,7 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
   if (!isInitialized) {
     return <div>Loading game...</div>;
   }
+
   const renderBoard = () => {
     const displayBoard = boardHistory[currentMoveIndex];
     const boardToRender = flipped ? [...displayBoard].reverse().map((row) => [...row].reverse()) : displayBoard;
@@ -437,15 +483,45 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     });
   };
 
-
-
   return (
     <div className="flex flex-col items-center">
       <div className="rounded-md overflow-hidden shadow-lg border border-accent/20">
         {renderBoard()}
       </div>
 
-
+      {/* Navigation buttons - copied from ChessBoard */}
+      <div className="flex justify-center space-x-4 mt-4">
+        <button
+          onClick={() => {
+            setCurrentMoveIndex(prev => {
+              const newIndex = Math.max(0, prev - 1);
+              return newIndex;
+            });
+          }}
+          disabled={currentMoveIndex === 0}
+          className="p-2 rounded-full text-primary hover:bg-primary/10 disabled:opacity-50"
+          aria-label="Previous move"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <button
+          onClick={() => {
+            setCurrentMoveIndex(prev => {
+              const newIndex = Math.min(boardHistory.length - 1, prev + 1);
+              return newIndex;
+            });
+          }}
+          disabled={currentMoveIndex === boardHistory.length - 1}
+          className="p-2 rounded-full text-primary hover:bg-primary/10 disabled:opacity-50"
+          aria-label="Next move"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
 
       {gameState.isCheck && !gameState.isCheckmate && (
         <div className="mt-4 p-2 bg-red-100 text-red-800 rounded-md">

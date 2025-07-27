@@ -549,22 +549,71 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   }
 
   return (
-    <div className={`${className}`}>
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="lg:col-span-3">
-          <div className="flex flex-col-reverse md:flex-col gap-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <PlayerInfo
-                name={playerStats.black.name}
-                points={playerStats.black.points}
-                color="black"
-                isCurrentPlayer={currentPlayer === "black"}
-              />
-              <ChessTimer
-                timers={timers}
-                setTimers={setTimers}
+    <>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #555;
+        }
+      `}</style>
+      <div className={`${className}`}>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <div className="lg:col-span-3">
+            <div className="flex flex-col-reverse md:flex-col gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <PlayerInfo
+                  name={playerStats.black.name}
+                  points={playerStats.black.points}
+                  color="black"
+                  isCurrentPlayer={currentPlayer === "black"}
+                />
+                <ChessTimer
+                  timers={timers}
+                  setTimers={setTimers}
+                  currentPlayer={currentPlayer}
+                  isGameOver={isGameOver}
+                  onTimeout={(color) => {
+                    const winner = color === "white" ? "black" : "white";
+                    handleGameEnd({
+                      winner,
+                      winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
+                      pointsAwarded: isRankedMatch ? 15 : 0,
+                      gameEndReason: "timeout",
+                      gameid: gameState.gameSessionId,
+                      winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
+                    });
+                  }}
+                  gameId={gameId}
+                  playerId={playerId}
+                />
+                <PlayerInfo
+                  name={playerStats.white.name}
+                  points={playerStats.white.points}
+                  color="white"
+                  isCurrentPlayer={currentPlayer === "white"}
+                />
+              </div>
+
+              <ChessBoardPvP
+                flipped={flipped}
                 currentPlayer={currentPlayer}
-                isGameOver={isGameOver}
+                onMove={handlePlayerChange}
+                onGameEnd={handleGameEnd}
+                gameState={gameState}
+                onGameStateChange={setGameState}
+                playerColor={playerColor}
+                timers={timers}
+                onTimeUpdate={setTimers}
                 onTimeout={(color) => {
                   const winner = color === "white" ? "black" : "white";
                   handleGameEnd({
@@ -576,147 +625,114 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                     winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
                   });
                 }}
-                gameId={gameId}
-                playerId={playerId}
+                player1Name={playerStats.white.name}
+                player2Name={playerStats.black.name}
+                onResetGame={resetGame}
+                onMoveMade={handleMoveMade}
               />
-              <PlayerInfo
-                name={playerStats.white.name}
-                points={playerStats.white.points}
-                color="white"
-                isCurrentPlayer={currentPlayer === "white"}
+
+              <GameControls
+                onResign={() => {
+                  const winner = currentPlayer === "white" ? "black" : "white";
+                  handleGameEnd({
+                    winner,
+                    winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
+                    pointsAwarded: isRankedMatch ? 10 : 0,
+                    gameEndReason: "resignation",
+                    gameid: gameState.gameSessionId,
+                    winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
+                  });
+                }}
+                onReset={resetGame}
+                gameState={gameState}
+                currentPlayer={currentPlayer}
               />
             </div>
-
-            <ChessBoardPvP
-              flipped={flipped}
-              currentPlayer={currentPlayer}
-              onMove={handlePlayerChange}
-              onGameEnd={handleGameEnd}
-              gameState={gameState}
-              onGameStateChange={setGameState}
-              playerColor={playerColor}
-              timers={timers}
-              onTimeUpdate={setTimers}
-              onTimeout={(color) => {
-                const winner = color === "white" ? "black" : "white";
-                handleGameEnd({
-                  winner,
-                  winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
-                  pointsAwarded: isRankedMatch ? 15 : 0,
-                  gameEndReason: "timeout",
-                  gameid: gameState.gameSessionId,
-                  winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
-                });
-              }}
-              player1Name={playerStats.white.name}
-              player2Name={playerStats.black.name}
-              onResetGame={resetGame}
-              onMoveMade={handleMoveMade}
-            />
-
-            <GameControls
-              onResign={() => {
-                const winner = currentPlayer === "white" ? "black" : "white";
-                handleGameEnd({
-                  winner,
-                  winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
-                  pointsAwarded: isRankedMatch ? 10 : 0,
-                  gameEndReason: "resignation",
-                  gameid: gameState.gameSessionId,
-                  winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
-                });
-              }}
-              onReset={resetGame}
-              gameState={gameState}
-              currentPlayer={currentPlayer}
-            />
           </div>
-        </div>
 
-        <div className="lg:col-span-1">
-          <div className="bg-muted p-4 rounded-lg h-full">
-            <h3 className="font-bold text-xl mb-4">Game Info</h3>
-            <div className="space-y-4">
-              <div>
-                <h4 className="font-medium mb-1">Game Type</h4>
-                <p className="text-sm bg-primary/10 text-primary font-medium px-2 py-1 rounded inline-block">
-                  {isRankedMatch ? "Ranked Match" : "Normal Match"}
-                </p>
-              </div>
-              <div>
-                <h4 className="font-medium mb-1">Current Turn</h4>
-                <div className="flex items-center gap-2">
-                  <div className={`w-4 h-4 rounded-full ${currentPlayer === "white" ? "bg-white border border-black/20" : "bg-black"}`}></div>
-                  <span className="capitalize">{currentPlayer}</span>
-                </div>
-              </div>
-              <div>
-                <h4 className="font-medium mb-1">Game Status</h4>
+          <div className="lg:col-span-1">
+            <div className="bg-muted p-4 rounded-lg h-full">
+              <h3 className="font-bold text-xl mb-4">Game Info</h3>
+              <div className="space-y-4">
                 <div>
-                  {isGameOver ? (
-                    <p className="text-red-600 font-medium">Game Over</p>
-                  ) : gameState.isCheck ? (
-                    <p className="text-amber-600 font-medium">Check!</p>
-                  ) : (
-                    <p className="text-green-600 font-medium">In Progress</p>
+                  <h4 className="font-medium mb-1">Game Type</h4>
+                  <p className="text-sm bg-primary/10 text-primary font-medium px-2 py-1 rounded inline-block">
+                    {isRankedMatch ? "Ranked Match" : "Normal Match"}
+                  </p>
+                </div>
+                <div>
+                  <h4 className="font-medium mb-1">Current Turn</h4>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded-full ${currentPlayer === "white" ? "bg-white border border-black/20" : "bg-black"}`}></div>
+                    <span className="capitalize">{currentPlayer}</span>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-medium mb-1">Game Status</h4>
+                  <div>
+                    {isGameOver ? (
+                      <p className="text-red-600 font-medium">Game Over</p>
+                    ) : gameState.isCheck ? (
+                      <p className="text-amber-600 font-medium">Check!</p>
+                    ) : gameState.isCheckmate ? (
+                      <p className="text-red-600 font-medium">Checkmate!</p>
+                    ) : (
+                      <p className="text-green-600 font-medium">In Progress</p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-medium mb-1">Points at Stake</h4>
+                  <p className="text-lg font-bold text-primary">
+                    {isRankedMatch ? "25" : "0"}
+                  </p>
+                  {!isRankedMatch && (
+                    <p className="text-xs text-muted-foreground">
+                      Casual match - no points awarded
+                    </p>
                   )}
                 </div>
-              </div>
-              <div>
-                <h4 className="font-medium mb-1">Move History</h4>
-                <div className="max-h-48 overflow-y-auto">
-                  {localMoveHistory.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No moves yet</p>
-                  ) : (
-                    <ul className="text-sm space-y-1">
-                      {(() => {
-                        const whiteMoves = localMoveHistory.filter(move =>
-                          move && move.playerColor === "white" &&
-                          move.from && move.to &&
-                          Array.isArray(move.from) && Array.isArray(move.to)
-                        );
-                        const blackMoves = localMoveHistory.filter(move =>
-                          move && move.playerColor === "black" &&
-                          move.from && move.to &&
-                          Array.isArray(move.from) && Array.isArray(move.to)
-                        );
+                <div>
+                  <h4 className="font-medium mb-1">Move History</h4>
+                  <div className="max-h-48 overflow-y-auto custom-scrollbar">
+                    {localMoveHistory.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No moves yet</p>
+                    ) : (
+                      <ul className="text-sm space-y-1">
+                        {localMoveHistory.reduce((acc: JSX.Element[], action, index) => {
+                          if (index % 2 === 0) {
+                            const whiteMove = action;
+                            const blackMove = localMoveHistory[index + 1];
 
-                        const maxTurns = Math.max(whiteMoves.length, blackMoves.length);
-                        const pairs: JSX.Element[] = [];
-
-                        for (let turnNum = 1; turnNum <= maxTurns; turnNum++) {
-                          const whiteMove = whiteMoves[turnNum - 1];
-                          const blackMove = blackMoves[turnNum - 1];
-
-                          pairs.push(
-                            <li key={turnNum}>
-                              {turnNum}.
-                              {whiteMove ? ` White: ${moveToAlgebraicNotation(whiteMove)}` : " White: ..."}
-                              {blackMove ? ` Black: ${moveToAlgebraicNotation(blackMove)}` : ""}
-                            </li>
-                          );
-                        }
-                        return pairs;
-                      })()}
-                    </ul>
-                  )}
+                            acc.push(
+                              <li key={whiteMove.sequenceNumber || index}>
+                                {Math.floor(index / 2) + 1}. White: {moveToAlgebraicNotation(whiteMove)}{' '}
+                                {blackMove ? `Black: ${moveToAlgebraicNotation(blackMove)}` : ''}
+                              </li>
+                            );
+                          }
+                          return acc;
+                        }, [])}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <GameEndModal
-        open={isModalOpen}
-        gameResult={gameResult}
-        onClose={() => setIsModalOpen(false)}
-        onPlayAgain={resetGame}
-        onReviewGame={() => setIsModalOpen(false)}
-        onBackToMenu={() => navigate("/")}
-        isRankedMatch={isRankedMatch}
-      />
-    </div>
+        <GameEndModal
+          open={isModalOpen}
+          gameResult={gameResult}
+          onClose={() => setIsModalOpen(false)}
+          onPlayAgain={resetGame}
+          onReviewGame={() => setIsModalOpen(false)}
+          onBackToMenu={() => navigate("/")}
+          isRankedMatch={isRankedMatch}
+        />
+      </div>
+    </>
   );
 };
 
