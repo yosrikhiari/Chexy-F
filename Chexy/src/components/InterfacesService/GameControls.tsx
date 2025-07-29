@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import {
@@ -17,18 +18,47 @@ import {JwtService} from "@/services/JwtService.ts";
 import {userService} from "@/services/UserService.ts";
 import {gameHistoryService} from "@/services/GameHistoryService.ts";
 
-const GameControls: React.FC<GameControlsProps> = ({
-                                                     onReset,
-                                                     onFlipBoard,
-                                                     onChangePlayerNames,
-                                                     onResign,
-                                                     gameState,
-                                                     currentPlayer,
-                                                   }) => {
+// Updated interface to include additional game state props
+interface ExtendedGameControlsProps extends GameControlsProps {
+  onBackToLobby?: () => void;
+  isGameOver?: boolean; // Add explicit game over prop
+  gameResult?: GameResult | null; // Add game result prop
+  isReviewMode?: boolean; // Add review mode prop
+}
+
+const GameControls: React.FC<ExtendedGameControlsProps> = ({
+                                                             onReset,
+                                                             onFlipBoard,
+                                                             onChangePlayerNames,
+                                                             onResign,
+                                                             gameState,
+                                                             currentPlayer,
+                                                             onBackToLobby,
+                                                             isGameOver: propIsGameOver,
+                                                             gameResult,
+                                                             isReviewMode = false,
+                                                           }) => {
+  const navigate = useNavigate();
   const [player1Name, setPlayer1Name] = useState("Player 1");
   const [player2Name, setPlayer2Name] = useState("Player 2");
   const [open, setOpen] = useState(false);
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
+  const [drawOfferSent, setDrawOfferSent] = useState(false);
+  const [drawOfferReceived, setDrawOfferReceived] = useState(false);
+  const [pendingDrawOffer, setPendingDrawOffer] = useState<string | null>(null);
+
+  // Comprehensive game over check
+  const isGameOver = propIsGameOver ||
+    gameState?.isCheckmate ||
+    gameState?.isDraw ||
+    gameResult !== null ||
+    (gameResult && [
+      "checkmate",
+      "timeout",
+      "resignation",
+      "draw",
+      "tie_resolved"
+    ].includes(gameResult.gameEndReason));
 
   // Fetch game session and initial player names
   useEffect(() => {
@@ -106,52 +136,9 @@ const GameControls: React.FC<GameControlsProps> = ({
     }
   };
 
-  const handleReset = async () => {
-    if (!gameState?.gameSessionId || !gameSession) {
-      toast({
-        title: "Error",
-        description: "Game session not loaded.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const keycloakId = JwtService.getKeycloakId();
-      if (!keycloakId) throw new Error("User not authenticated");
-
-      // End current game session
-      await gameSessionService.endGame(gameState.gameSessionId);
-
-      // Create new game session
-      const newSession = await gameSessionService.createGameSession(
-        keycloakId,
-        gameSession.gameMode,
-        gameSession.isPrivate,
-        gameSession.inviteCode
-      );
-
-      // Update local game state
-      if (onReset) {
-        onReset();
-      }
-
-      // Update game session
-      setGameSession(newSession);
-      setPlayer1Name(newSession.whitePlayer.username || "Player 1");
-      setPlayer2Name(newSession.blackPlayer.username || "Player 2");
-
-      toast({
-        title: "Success",
-        description: "New game started.",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to start new game.",
-        variant: "destructive",
-      });
-    }
+  const handleNewGame = () => {
+    // Simply navigate to lobby instead of creating a new game session
+    navigate("/lobby");
   };
 
   const handleResign = async () => {
@@ -202,16 +189,81 @@ const GameControls: React.FC<GameControlsProps> = ({
     }
   };
 
+  const handleBackToLobby = () => {
+    if (onBackToLobby) {
+      onBackToLobby();
+    } else {
+      navigate("/lobby");
+    }
+  };
+
+  const handleDrawOffer = async () => {
+    if (!gameSession || !currentPlayer) return;
+
+    try {
+      const currentUserId = JwtService.getKeycloakId();
+      if (!currentUserId) throw new Error("User not authenticated");
+
+      const currentUser = await userService.getCurrentUser(currentUserId);
+
+      // For now, simulate immediate acceptance (both players agree to draw)
+      // In a real implementation, you'd send this to the other player and wait for response
+      const drawResult: GameResult = {
+        winner: "draw" as any,
+        winnerName: "Draw by agreement",
+        pointsAwarded: 0,
+        gameEndReason: "draw",
+        gameid: gameState.gameSessionId,
+        winnerid: "",
+      };
+
+      // Call the parent's onResign function to trigger game end
+      if (onResign) {
+        onResign(drawResult);
+      }
+
+      toast({
+        title: "Draw Agreed",
+        description: "Both players agreed to a draw.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to process draw offer.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // If game is over or in review mode, only show New Game button
+  if (isGameOver || isReviewMode) {
+    return (
+      <div className="flex flex-wrap gap-3 justify-center mt-4">
+        <Button
+          onClick={handleNewGame}
+          variant="outline"
+          className="border-primary/50 hover:bg-primary/10"
+        >
+          New Game
+        </Button>
+
+        {/* Optional: Keep flip board functionality in review mode */}
+        {onFlipBoard && (
+          <Button
+            onClick={onFlipBoard}
+            variant="outline"
+            className="border-primary/50 hover:bg-primary/10"
+          >
+            Flip Board
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  // Active game controls (when game is still in progress)
   return (
     <div className="flex flex-wrap gap-3 justify-center mt-4">
-      <Button
-        onClick={handleReset}
-        variant="outline"
-        className="border-primary/50 hover:bg-primary/10"
-      >
-        New Game
-      </Button>
-
       {onFlipBoard && (
         <Button
           onClick={onFlipBoard}
@@ -265,6 +317,19 @@ const GameControls: React.FC<GameControlsProps> = ({
         </Dialog>
       )}
 
+      {/* Draw offer button - only shown when game is active */}
+      {onResign && (
+        <Button
+          onClick={handleDrawOffer}
+          variant="outline"
+          className="border-blue-500/50 hover:bg-blue-500/10 text-blue-600"
+          disabled={drawOfferSent}
+        >
+          {drawOfferSent ? "Draw Offered" : "Offer Draw"}
+        </Button>
+      )}
+
+      {/* Resign button - only shown when game is active */}
       {onResign && (
         <Button
           onClick={handleResign}

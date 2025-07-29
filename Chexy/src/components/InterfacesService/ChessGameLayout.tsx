@@ -596,25 +596,19 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
               <GameControls
                 onResign={() => {
                   const winner = currentPlayer === "white" ? "black" : "white";
-                  const winnerName =
-                    winner === "white"
-                      ? playerStats.white.name
-                      : playerStats.black.name;
-                  const winnerId =
-                    winner === "white" ? gameState.userId1 : gameState.userId2;
-
                   handleGameEnd({
                     winner,
-                    winnerName,
+                    winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
                     pointsAwarded: isRankedMatch ? 10 : 0,
                     gameEndReason: "resignation",
                     gameid: gameState.gameSessionId,
-                    winnerid: winnerId || "",
+                    winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
                   });
                 }}
                 onReset={resetGame}
                 gameState={gameState}
                 currentPlayer={currentPlayer}
+                onBackToLobby={() => navigate("/lobby")}
               />
             </div>
           </div>
@@ -722,9 +716,15 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
           open={isModalOpen}
           gameResult={gameResult}
           onClose={() => setIsModalOpen(false)}
-          onPlayAgain={resetGame}
+          onPlayAgain={() => {
+            setIsModalOpen(false);
+            navigate("/lobby");
+          }}
           onReviewGame={() => setIsModalOpen(false)}
-          onBackToMenu={handleBackToMenu}
+          onBackToMenu={() => {
+            setIsModalOpen(false);
+            navigate("/lobby");
+          }}
           isRankedMatch={isRankedMatch}
         />
       </div>

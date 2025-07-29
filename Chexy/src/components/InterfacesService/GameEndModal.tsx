@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Trophy } from "lucide-react";
 import {
   Dialog,
@@ -12,6 +13,7 @@ import { authService } from "@/services/AuthService.ts";
 import { JwtService } from "@/services/JwtService.ts";
 import { userService } from "@/services/UserService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
+import { gameSessionService } from "@/services/GameSessionService.ts";
 
 // Update the props interface to include onReviewGame and onBackToMenu
 interface ExtendedGameEndModalProps extends GameEndModalProps {
@@ -28,6 +30,7 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
                                                              onBackToMenu,
                                                              isRankedMatch = false,
                                                            }) => {
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
   // Extract properties safely with default values
@@ -44,6 +47,7 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
     checkmate: "by checkmate",
     timeout: "by timeout",
     resignation: "by resignation",
+    draw: "in a draw",
   };
 
   // Update user points and game history on the backend
@@ -90,6 +94,24 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
     updateBackend();
   }, [gameResult, isRankedMatch, winnerName, pointsAwarded, gameid]);
 
+  const handlePlayAgain = async () => {
+    try {
+      // Navigate to lobby to create a new game or join another one
+      navigate("/lobby");
+      onClose();
+    } catch (error) {
+      console.error("Error starting new game:", error);
+      // Fallback to just navigating to lobby
+      navigate("/lobby");
+      onClose();
+    }
+  };
+
+  const handleBackToMenu = () => {
+    navigate("/lobby"); // Changed from "/" to "/lobby" as requested
+    onClose();
+  };
+
   if (!gameResult) return null;
 
   return (
@@ -110,9 +132,16 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
           </div>
 
           <h2 className="text-xl font-bold text-center">
-            {winner === "draw" ? "Game ended in a draw!" : `${winnerName} wins ${reasonText[gameEndReason]}!`}
+            {winner === "draw"
+              ? "Game ended in a draw!"
+              : `${winnerName} wins ${reasonText[gameEndReason] || reasonText.checkmate}!`
+            }
           </h2>
-
+          {gameEndReason === "timeout" && (
+            <p className="text-sm text-muted-foreground text-center mt-2">
+              The opponent ran out of time.
+            </p>
+          )}
           <div className="bg-muted p-4 rounded-md w-full text-center">
             <p className="text-sm text-muted-foreground mb-1">
               {isRankedMatch ? "Ranked Points Awarded" : "Casual Match - No Points Awarded"}
@@ -128,8 +157,8 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
 
           <div className="flex flex-col sm:flex-row gap-2 w-full mt-4">
             <button
-              className="flex-1 bg-primary/10 hover:bg-primary/20 text-primary font-medium py-2 rounded-md transition-colors"
-              onClick={onPlayAgain}
+              className="flex-1 bg-primary text-primary-foreground font-medium py-2 rounded-md hover:bg-primary/90 transition-colors"
+              onClick={handlePlayAgain}
             >
               Play Again
             </button>
@@ -140,8 +169,8 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
               Review Game
             </button>
             <button
-              className="flex-1 bg-primary text-primary-foreground font-medium py-2 rounded-md hover:bg-primary/90 transition-colors"
-              onClick={onBackToMenu}
+              className="flex-1 bg-primary/10 hover:bg-primary/20 text-primary font-medium py-2 rounded-md transition-colors"
+              onClick={handleBackToMenu}
             >
               Back to Menu
             </button>

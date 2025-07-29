@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { friendshipService } from "@/services/FriendshipService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { userService } from "@/services/UserService.ts";
-import { JwtService } from "@/services/JwtService.ts"; // Add this import
+import { JwtService } from "@/services/JwtService.ts";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/WebSocket/WebSocketContext.tsx";
 
@@ -33,8 +33,169 @@ const Lobby = () => {
   const [showAcceptDialog, setShowAcceptDialog] = useState(false);
   const [acceptanceTimeLeft, setAcceptanceTimeLeft] = useState(30);
   const [subscriptions, setSubscriptions] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingError, setLoadingError] = useState(null);
 
-  // WebSocket subscription setup
+  // Refs to prevent multiple simultaneous requests
+  const isLoadingLobbyData = useRef(false);
+  const isLoadingQueueStatus = useRef(false);
+  const lastQueueStatusFetch = useRef(0);
+  const hasInitializedData = useRef(false);
+  const hasInitializedQueue = useRef(false);
+
+  // Optimized queue status fetching with throttling - removed dependencies that cause re-renders
+  const fetchQueueStatus = useCallback(async () => {
+    const now = Date.now();
+
+    // Throttle requests to maximum once every 5 seconds
+    if (isLoadingQueueStatus.current || (now - lastQueueStatusFetch.current) < 5000) {
+      return;
+    }
+
+    isLoadingQueueStatus.current = true;
+    lastQueueStatusFetch.current = now;
+
+    try {
+      const baseUrl = import.meta.env.DEV ? 'http://localhost:8081' : '';
+
+      const response = await fetch(`${baseUrl}/game-session/api/matchmaking/status`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${JwtService.getToken()}`,
+          'Content-Type': 'application/json'
+        },
+        // Add request timeout
+        signal: AbortSignal.timeout(10000) // 10 second timeout
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`HTTP ${response.status} error:`, errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error('Server returned non-JSON response');
+      }
+
+      const data = await response.json();
+      console.log('Queue status data:', data);
+      setQueueStatus(data);
+    } catch (error) {
+      console.error("Failed to fetch queue status:", error);
+
+      // Only show toast for critical connection errors
+      if (error.name === 'AbortError') {
+        console.warn("Queue status request timed out");
+      } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        // Only show toast if it's not already shown
+        if (!document.querySelector('[data-sonner-toast]')) {
+          toast({
+            title: "Connection Error",
+            description: "Failed to connect to matchmaking service. Please check your connection.",
+            variant: "destructive"
+          });
+        }
+      }
+
+      setQueueStatus({ playersInQueue: 0 });
+    } finally {
+      isLoadingQueueStatus.current = false;
+    }
+  }, []); // Remove all dependencies to prevent re-creation
+
+  // Optimized lobby data fetching - removed dependencies that cause re-renders
+  const fetchLobbyData = useCallback(async () => {
+    if (isLoadingLobbyData.current) {
+      console.log("Lobby data fetch already in progress, skipping...");
+      return;
+    }
+
+    isLoadingLobbyData.current = true;
+    setIsLoading(true);
+    setLoadingError(null);
+
+    try {
+      console.log("Starting lobby data fetch...");
+
+      // Execute requests with error handling for each
+      const results = await Promise.allSettled([
+        gameSessionService.getAvailableGames(),
+        friendshipService.getFriends(user.id),
+        gameHistoryService.getGameHistoriesByUser(user.id),
+      ]);
+
+      // Handle available games
+      if (results[0].status === 'fulfilled') {
+        const games = results[0].value;
+        setAvailableGames(games.filter(g =>
+          g.gameMode === "CLASSIC_MULTIPLAYER" &&
+          g.status === "WAITING_FOR_PLAYERS"
+        ));
+      } else {
+        console.error("Failed to fetch available games:", results[0].reason);
+        setAvailableGames([]);
+      }
+
+      // Handle friends
+      if (results[1].status === 'fulfilled') {
+        setFriends(results[1].value);
+      } else {
+        console.error("Failed to fetch friends:", results[1].reason);
+        setFriends([]);
+      }
+
+      // Handle game histories and recent opponents
+      if (results[2].status === 'fulfilled') {
+        const histories = results[2].value;
+
+        const opponentIds = histories
+          .flatMap(h => h.userIds.filter(id => id !== user.id))
+          .slice(0, 5);
+
+        const uniqueOpponentIds = [...new Set(opponentIds)]
+          .filter(id => id !== "BOT" && id !== "bot" && !id.toLowerCase().includes("bot"));
+
+        // Fetch opponent details with individual error handling
+        const opponentPromises = uniqueOpponentIds.map(async (opponentId) => {
+          try {
+            return await userService.getByUserId(opponentId);
+          } catch (error) {
+            console.error(`Error fetching user data for ID ${opponentId}:`, error);
+            return { id: opponentId, username: `User ${opponentId}` };
+          }
+        });
+
+        const opponents = await Promise.all(opponentPromises);
+        setRecentOpponents(opponents);
+      } else {
+        console.error("Failed to fetch game histories:", results[2].reason);
+        setRecentOpponents([]);
+      }
+
+      console.log("Lobby data fetch completed successfully");
+    } catch (error) {
+      console.error("Error loading lobby data:", error);
+      setLoadingError(error.message);
+
+      // Only show toast if it's not already shown
+      if (!document.querySelector('[data-sonner-toast]')) {
+        toast({
+          title: "Error",
+          description: "Failed to load some lobby data. Please try refreshing the page.",
+          variant: "destructive"
+        });
+      }
+    } finally {
+      setIsLoading(false);
+      isLoadingLobbyData.current = false;
+    }
+  }, []); // Remove all dependencies to prevent re-creation
+
+  // WebSocket subscription setup - stabilized dependencies
   useEffect(() => {
     if (!user) {
       navigate("/login");
@@ -194,118 +355,31 @@ const Lobby = () => {
         }
       });
     };
-  }, [user, navigate, toast, client, isConnected]);
+  }, [client, isConnected, user.id, navigate]); // Keep only essential dependencies
 
-// Replace the existing fetchQueueStatus function in your Lobby component with this:
-
-// Replace your existing fetchQueueStatus useEffect with this improved version:
-
+  // Initial queue status fetch - use ref to prevent multiple calls
   useEffect(() => {
-    const fetchQueueStatus = async () => {
-      try {
-        // Fix the base URL logic - you likely want the opposite condition
-        const baseUrl = import.meta.env.DEV ? 'http://localhost:8081' : '';
+    if (hasInitializedQueue.current) return;
 
-        const response = await fetch(`${baseUrl}/game-session/api/matchmaking/status`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${JwtService.getToken()}`,
-            'Content-Type': 'application/json'
-          },
-        });
-
-        // Log the response for debugging
-        console.log('Response status:', response.status);
-        console.log('Response headers:', response.headers);
-
-        // Check if response is ok
-        if (!response.ok) {
-          // Log the actual response text for debugging
-          const errorText = await response.text();
-          console.error(`HTTP ${response.status} error:`, errorText);
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        // Check if response is JSON
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await response.text();
-          console.error('Non-JSON response:', text);
-          throw new Error('Server returned non-JSON response');
-        }
-
-        const data = await response.json();
-        console.log('Queue status data:', data);
-        setQueueStatus(data);
-      } catch (error) {
-        console.error("Failed to fetch queue status:", error);
-
-        // Only show toast for critical errors, not on initial load
-        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-          toast({
-            title: "Connection Error",
-            description: "Failed to connect to matchmaking service. Please check your connection.",
-            variant: "destructive"
-          });
-        }
-
-        // Set a default queue status to prevent UI issues
-        setQueueStatus({ playersInQueue: 0 });
-      }
-    };
-
-    // Add a small delay before making the request to ensure services are ready
-    const timer = setTimeout(fetchQueueStatus, 1000);
+    const timer = setTimeout(() => {
+      hasInitializedQueue.current = true;
+      fetchQueueStatus();
+    }, 2000);
 
     return () => clearTimeout(timer);
-  }, [toast]);
+  }, []); // No dependencies
 
-  // Fetch lobby data independently of WebSocket connection
+  // Initial lobby data fetch - use ref to prevent multiple calls
   useEffect(() => {
-    fetchLobbyData();
-  }, [user]);
+    if (hasInitializedData.current) return;
 
-  const fetchLobbyData = async () => {
-    try {
-      const [games, friendsList, histories] = await Promise.all([
-        gameSessionService.getAvailableGames(),
-        friendshipService.getFriends(user.id),
-        gameHistoryService.getGameHistoriesByUser(user.id),
-      ]);
+    const timer = setTimeout(() => {
+      hasInitializedData.current = true;
+      fetchLobbyData();
+    }, 1000);
 
-      setAvailableGames(games.filter(g =>
-        g.gameMode === "CLASSIC_MULTIPLAYER" &&
-        g.status === "WAITING_FOR_PLAYERS"
-      ));
-      setFriends(friendsList);
-
-      const opponentIds = histories
-        .flatMap(h => h.userIds.filter(id => id !== user.id))
-        .slice(0, 5);
-
-      const uniqueOpponentIds = [...new Set(opponentIds)]
-        .filter(id => id !== "BOT" && id !== "bot" && !id.toLowerCase().includes("bot"));
-
-      const opponentPromises = uniqueOpponentIds.map(async (opponentId) => {
-        try {
-          return await userService.getByUserId(opponentId);
-        } catch (error) {
-          console.error(`Error fetching user data for ID ${opponentId}:`, error);
-          return { id: opponentId, username: `User ${opponentId}` };
-        }
-      });
-
-      const opponents = await Promise.all(opponentPromises);
-      setRecentOpponents(opponents);
-    } catch (error) {
-      console.error("Error loading lobby data:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load lobby data",
-        variant: "destructive"
-      });
-    }
-  };
+    return () => clearTimeout(timer);
+  }, []); // No dependencies
 
   const createGame = async (isPrivate) => {
     try {
@@ -330,7 +404,7 @@ const Lobby = () => {
       console.error("Error creating game:", error);
       toast({
         title: "Error",
-        description: "Failed to create game",
+        description: "Failed to create game. Please try again.",
         variant: "destructive"
       });
     }
@@ -346,7 +420,7 @@ const Lobby = () => {
       console.error("Error joining game:", error);
       toast({
         title: "Error",
-        description: "Failed to join game",
+        description: "Failed to join game. It may have already started.",
         variant: "destructive"
       });
     }
@@ -500,6 +574,12 @@ const Lobby = () => {
     }
   };
 
+  // Manual refresh function for retry button
+  const handleRetry = () => {
+    hasInitializedData.current = false;
+    fetchLobbyData();
+  };
+
   if (!user) {
     return null;
   }
@@ -529,6 +609,41 @@ const Lobby = () => {
                 <div className="flex items-center justify-center space-x-2 text-orange-600 dark:text-orange-400">
                   <Clock className="h-5 w-5 animate-pulse" />
                   <span>Connecting to game server...</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Loading Status */}
+        {isLoading && (
+          <div className="mb-6">
+            <Card className="border-blue-500/50 bg-blue-50 dark:bg-blue-900/20">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-center space-x-2 text-blue-600 dark:text-blue-400">
+                  <Clock className="h-5 w-5 animate-pulse" />
+                  <span>Loading lobby data...</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Error Status */}
+        {loadingError && (
+          <div className="mb-6">
+            <Card className="border-red-500/50 bg-red-50 dark:bg-red-900/20">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-center space-x-2 text-red-600 dark:text-red-400">
+                  <span>Failed to load some data. Please try refreshing the page.</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRetry}
+                    disabled={isLoading}
+                  >
+                    Retry
+                  </Button>
                 </div>
               </CardContent>
             </Card>

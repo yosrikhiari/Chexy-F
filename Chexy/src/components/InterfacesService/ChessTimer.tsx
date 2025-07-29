@@ -6,6 +6,7 @@ import { GameResult, GameTimers, PieceColor } from '@/Interfaces/types/chess.ts'
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { webSocketService } from '@/services/WebSocketService.ts';
+import { toast } from "@/components/ui/use-toast.tsx";
 
 const ChessTimer: React.FC<ChessTimerProps> = ({
                                                  timers,
@@ -22,15 +23,19 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
   const [whitePlayerName, setWhitePlayerName] = useState<string>('White');
   const [blackPlayerName, setBlackPlayerName] = useState<string>('Black');
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
+  const [hasTimedOut, setHasTimedOut] = useState(false);
 
   // Use refs to track the current values for cleanup
   const gameIdRef = useRef(gameId);
   const isGameOverRef = useRef(isGameOver);
+  const hasTimedOutRef = useRef(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     gameIdRef.current = gameId;
     isGameOverRef.current = isGameOver;
-  }, [gameId, isGameOver]);
+    hasTimedOutRef.current = hasTimedOut;
+  }, [gameId, isGameOver, hasTimedOut]);
 
   const formatTime = (seconds: number): string => {
     const minutes = Math.floor(seconds / 60);
@@ -45,17 +50,198 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
     onError?.(error);
   };
 
+  // In ChessTimer.tsx, update the handleTimerUpdate function:
   const handleTimerUpdate = (updatedTimers: GameTimers) => {
-    // Only update if the game is still active
-    if (!isGameOverRef.current) {
+    // Only update if the game is still active and hasn't timed out
+    if (!isGameOverRef.current && !hasTimedOutRef.current) {
       setTimers(updatedTimers);
       setConnectionStatus('connected');
+
+      // Check for timeout conditions
+      if (updatedTimers.white.timeLeft <= 0 && updatedTimers.white.active) {
+        handleTimeoutInternal('white');
+      } else if (updatedTimers.black.timeLeft <= 0 && updatedTimers.black.active) {
+        handleTimeoutInternal('black');
+      }
+
       // Clear any previous errors when receiving updates
       if (localError) {
         setLocalError(null);
       }
+    } else {
+      // Game is over, disconnect WebSocket to stop further updates
+      console.log('[TIMER] Game is over, disconnecting WebSocket');
+      webSocketService.disconnect();
     }
   };
+
+// Also update the local timer countdown effect to properly check game state:
+  useEffect(() => {
+    // Stop timer if game is over
+    if (isGameOver || hasTimedOut || !timers) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      // Disconnect WebSocket when game ends
+      if (isGameOver) {
+        webSocketService.disconnect();
+      }
+      return;
+    }
+
+    // Rest of the timer logic...
+  }, [timers?.white.active, timers?.black.active, isGameOver, hasTimedOut]);
+
+  const handleTimeoutInternal = async (color: PieceColor) => {
+    if (hasTimedOutRef.current || isGameOverRef.current) {
+      return; // Prevent multiple timeout handling
+    }
+
+    console.log(`[TIMEOUT] ${color} player timed out`);
+    setHasTimedOut(true);
+    hasTimedOutRef.current = true;
+
+    // Stop the timer immediately
+    setTimers(prev => prev ? {
+      ...prev,
+      white: { ...prev.white, active: false, timeLeft: Math.max(0, prev.white.timeLeft) },
+      black: { ...prev.black, active: false, timeLeft: Math.max(0, prev.black.timeLeft) }
+    } : prev);
+
+    if (!gameId || !playerId) {
+      const errorMsg = "Game ID or Player ID missing";
+      setLocalError(errorMsg);
+      onError?.(errorMsg);
+      return;
+    }
+
+    try {
+      const session = await gameSessionService.getGameSession(gameId);
+      const winner = color === "white" ? "black" : "white";
+      let winnerId: string;
+      let winnerName: string;
+
+      // Determine winner details - Fixed to use proper player object properties
+      if (winner === "white") {
+        winnerId = session.whitePlayer?.userId || "";
+        winnerName = session.whitePlayer?.username || whitePlayerName;
+      } else {
+        winnerId = session.blackPlayer?.userId || "BOT";
+        winnerName = session.blackPlayer?.username || blackPlayerName;
+      }
+
+      // Handle bot games
+      if (gameMode === "CLASSIC_SINGLE_PLAYER") {
+        if (winner === "black") {
+          winnerId = "BOT";
+          winnerName = "Bot";
+        }
+      }
+
+      const gameResult: GameResult = {
+        winner,
+        winnerName,
+        pointsAwarded: session.isRankedMatch ? 15 : 0, // Points for timeout victory
+        gameEndReason: "timeout",
+        gameid: gameId,
+        winnerid: winnerId,
+      };
+
+      // End the game session if it's still active
+      if (session.status === "ACTIVE") {
+        await gameSessionService.endGame(gameId, winnerId, false);
+
+        // Complete game history if it exists
+        if (session.gameHistoryId) {
+          await gameHistoryService.completeGameHistory(session.gameHistoryId, gameResult);
+        }
+      }
+
+      // Show timeout notification
+      toast({
+        title: "Time's Up!",
+        description: `${color === "white" ? whitePlayerName : blackPlayerName} ran out of time. ${winnerName} wins!`,
+        variant: "default",
+      });
+
+      // Trigger the timeout callback to parent component
+      onTimeout(color);
+
+    } catch (err) {
+      const errorMsg = `Failed to handle timeout: ${(err as Error).message}`;
+      setLocalError(errorMsg);
+      onError?.(errorMsg);
+      console.error(errorMsg);
+    }
+  };
+
+  // Local timer countdown for backup (in case WebSocket fails)
+  useEffect(() => {
+    if (isGameOver || hasTimedOut || !timers) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
+
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+
+    // Start local countdown as backup
+    intervalRef.current = setInterval(() => {
+      if (isGameOverRef.current || hasTimedOutRef.current) {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        return;
+      }
+
+      setTimers(prev => {
+        if (!prev) return prev;
+
+        const newTimers = { ...prev };
+
+        // Countdown for active player
+        if (prev.white.active && prev.white.timeLeft > 0) {
+          newTimers.white = {
+            ...prev.white,
+            timeLeft: Math.max(0, prev.white.timeLeft - 1)
+          };
+
+          // Check if white timed out
+          if (newTimers.white.timeLeft === 0) {
+            setTimeout(() => handleTimeoutInternal('white'), 0);
+          }
+        }
+
+        if (prev.black.active && prev.black.timeLeft > 0) {
+          newTimers.black = {
+            ...prev.black,
+            timeLeft: Math.max(0, prev.black.timeLeft - 1)
+          };
+
+          // Check if black timed out
+          if (newTimers.black.timeLeft === 0) {
+            setTimeout(() => handleTimeoutInternal('black'), 0);
+          }
+        }
+
+        return newTimers;
+      });
+    }, 1000);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [timers?.white.active, timers?.black.active, isGameOver, hasTimedOut]);
 
   useEffect(() => {
     if (!gameId || isGameOver) {
@@ -118,56 +304,16 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
     // Cleanup function
     return () => {
       mounted = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
       // Only disconnect if this is the component that initiated the connection
       if (gameIdRef.current === gameId) {
         webSocketService.disconnect();
       }
     };
-  }, [gameId, isGameOver]); // Remove other dependencies to prevent unnecessary reconnections
-
-  const handleTimeout = async (color: PieceColor) => {
-    if (!gameId || !playerId) {
-      const errorMsg = "Game ID or Player ID missing";
-      setLocalError(errorMsg);
-      onError?.(errorMsg);
-      return;
-    }
-
-    try {
-      const session = await gameSessionService.getGameSession(gameId);
-      let winnerId: string | null = color === "white" ? session.blackPlayer?.userId : session.whitePlayer?.userId;
-
-      if (gameMode === "CLASSIC_SINGLE_PLAYER" && color === "white") {
-        winnerId = "BOT";
-      }
-
-      const gameResult: GameResult = {
-        winner: color === "white" ? "black" : "white",
-        winnerName:
-          color === "white"
-            ? (session.blackPlayer?.username || "Bot")
-            : (session.whitePlayer?.username || "White"),
-        pointsAwarded: session.isRankedMatch ? 100 : 50,
-        gameEndReason: "timeout",
-        gameid: gameId,
-        winnerid: winnerId || "",
-      };
-
-      if (session.status === "ACTIVE") {
-        await gameSessionService.endGame(gameId, winnerId || null, false);
-        if (session.gameHistoryId) {
-          await gameHistoryService.completeGameHistory(session.gameHistoryId, gameResult);
-        }
-      }
-
-      onTimeout(color);
-    } catch (err) {
-      const errorMsg = `Failed to handle timeout: ${(err as Error).message}`;
-      setLocalError(errorMsg);
-      onError?.(errorMsg);
-      console.error(errorMsg);
-    }
-  };
+  }, [gameId, isGameOver]);
 
   if (!timers || !timers.white || !timers.black) {
     return (
@@ -196,25 +342,49 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
         <div
           className={cn(
             'flex items-center gap-2 rounded-md p-2',
-            timers.white.active && !isGameOver ? 'bg-primary/10 animate-pulse' : 'bg-muted/30',
-            timers.white.timeLeft < 30 && timers.white.active && !isGameOver ? 'text-destructive font-bold' : ''
+            timers.white.active && !isGameOver && !hasTimedOut ? 'bg-primary/10 animate-pulse' : 'bg-muted/30',
+            timers.white.timeLeft < 30 && timers.white.active && !isGameOver ? 'text-destructive font-bold' : '',
+            timers.white.timeLeft === 0 ? 'bg-red-100 border-2 border-red-500' : ''
           )}
         >
-          <Timer className={cn('h-5 w-5', timers.white.active && !isGameOver ? 'animate-spin' : '')} />
-          <div className="text-sm sm:text-base font-medium">{formatTime(timers.white.timeLeft)}</div>
+          <Timer className={cn(
+            'h-5 w-5',
+            timers.white.active && !isGameOver && !hasTimedOut ? 'animate-spin' : ''
+          )} />
+          <div className={cn(
+            'text-sm sm:text-base font-medium',
+            timers.white.timeLeft === 0 ? 'text-red-600 font-bold' : ''
+          )}>
+            {formatTime(timers.white.timeLeft)}
+          </div>
           <div className="text-xs text-muted-foreground">{whitePlayerName} (white)</div>
+          {timers.white.timeLeft === 0 && (
+            <div className="text-xs text-red-600 font-bold">TIME OUT</div>
+          )}
         </div>
 
         <div
           className={cn(
             'flex items-center gap-2 rounded-md p-2',
-            timers.black.active && !isGameOver ? 'bg-primary/10 animate-pulse' : 'bg-muted/30',
-            timers.black.timeLeft < 30 && timers.black.active && !isGameOver ? 'text-destructive font-bold' : ''
+            timers.black.active && !isGameOver && !hasTimedOut ? 'bg-primary/10 animate-pulse' : 'bg-muted/30',
+            timers.black.timeLeft < 30 && timers.black.active && !isGameOver ? 'text-destructive font-bold' : '',
+            timers.black.timeLeft === 0 ? 'bg-red-100 border-2 border-red-500' : ''
           )}
         >
-          <Timer className={cn('h-5 w-5', timers.black.active && !isGameOver ? 'animate-spin' : '')} />
-          <div className="text-sm sm:text-base font-medium">{formatTime(timers.black.timeLeft)}</div>
+          <Timer className={cn(
+            'h-5 w-5',
+            timers.black.active && !isGameOver && !hasTimedOut ? 'animate-spin' : ''
+          )} />
+          <div className={cn(
+            'text-sm sm:text-base font-medium',
+            timers.black.timeLeft === 0 ? 'text-red-600 font-bold' : ''
+          )}>
+            {formatTime(timers.black.timeLeft)}
+          </div>
           <div className="text-xs text-muted-foreground">{blackPlayerName} (black)</div>
+          {timers.black.timeLeft === 0 && (
+            <div className="text-xs text-red-600 font-bold">TIME OUT</div>
+          )}
         </div>
 
         {localError && (
