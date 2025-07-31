@@ -53,7 +53,6 @@ export class WebSocketService {
     // Disable debug in production
     this.stompClient.debug = (str) => {
       if (process.env.NODE_ENV === 'development') {
-        console.log('[STOMP Debug]:', str);
       }
     };
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, {useState, useEffect, useRef, useCallback} from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast.tsx";
 import {
@@ -45,24 +45,22 @@ const ensureClassicBoard = (board: any): Piece[][] => {
 const ChessBoardPvP: React.FC<ChessBoardProps> = ({
                                                     flipped = false,
                                                     onPlayerChange,
-                                                    timers,
-                                                    onTimeUpdate,
-                                                    onTimeout,
                                                     player1Name,
                                                     player2Name,
-                                                    onResetGame,
                                                     currentPlayer: propCurrentPlayer,
                                                     onMove,
                                                     onGameEnd,
                                                     gameState: propGameState,
                                                     onGameStateChange,
                                                     onMoveMade,
-                                                    playerColor: propPlayerColor,
                                                   }) => {
   const { gameId } = useParams<{ gameId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
   const { playerId, color, opponentId } = location.state || {};
+
+
+
 
   // ALL STATE DECLARATIONS
   const [boardHistory, setBoardHistory] = useState<Piece[][][]>([initialBoard]);
@@ -86,6 +84,8 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     canBlackCastleKingSide: true,
     canBlackCastleQueenSide: true,
   });
+
+  const [isLocalGameOver] = useState(false);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [showGameEndModal, setShowGameEndModal] = useState(false);
   const [playerColor, setPlayerColor] = useState<PieceColor>(color || "white");
@@ -94,7 +94,14 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
 
   const currentPlayer = propCurrentPlayer || internalCurrentPlayer;
   const gameState = propGameState || internalGameState;
-
+  const isGameActuallyOver = useCallback(() => {
+    return (
+      isLocalGameOver ||
+      gameState?.isCheckmate ||
+      gameState?.isDraw ||
+      gameResult !== null
+    );
+  }, [isLocalGameOver, gameState, gameResult]);
   const setGameStateValue = (newState: GameState) => {
     console.log("[DEBUG] Updating game state:", newState);
     if (onGameStateChange) onGameStateChange(newState);
@@ -241,6 +248,11 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     validMoves.some((move) => move.row === row && move.col === col);
 
   const handleSquareClick = async (row: number, col: number) => {
+    if (isGameActuallyOver()) {
+      console.log("[DEBUG] Click ignored: Game is over");
+      return;
+    }
+
     if (isProcessingRef.current || gameState.isCheckmate || gameState.isDraw) {
       console.log("[DEBUG] Click ignored: Processing or game over");
       return;

@@ -21,13 +21,13 @@ import {gameHistoryService} from "@/services/GameHistoryService.ts";
 // Updated interface to include additional game state props
 interface ExtendedGameControlsProps extends GameControlsProps {
   onBackToLobby?: () => void;
-  isGameOver?: boolean; // Add explicit game over prop
-  gameResult?: GameResult | null; // Add game result prop
-  isReviewMode?: boolean; // Add review mode prop
+  isGameOver?: boolean;
+  gameResult?: GameResult | null;
+  isReviewMode?: boolean;
+  isRankedMatch?: boolean; // <-- Add this line
 }
 
 const GameControls: React.FC<ExtendedGameControlsProps> = ({
-                                                             onReset,
                                                              onFlipBoard,
                                                              onChangePlayerNames,
                                                              onResign,
@@ -37,15 +37,15 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
                                                              isGameOver: propIsGameOver,
                                                              gameResult,
                                                              isReviewMode = false,
+                                                             isRankedMatch = false, // <-- Add this line with default value
                                                            }) => {
   const navigate = useNavigate();
   const [player1Name, setPlayer1Name] = useState("Player 1");
   const [player2Name, setPlayer2Name] = useState("Player 2");
   const [open, setOpen] = useState(false);
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
-  const [drawOfferSent, setDrawOfferSent] = useState(false);
-  const [drawOfferReceived, setDrawOfferReceived] = useState(false);
-  const [pendingDrawOffer, setPendingDrawOffer] = useState<string | null>(null);
+  const [drawOfferSent] = useState(false);
+  const [isResigning, setIsResigning] = useState(false); // Add resign state
 
   // Comprehensive game over check
   const isGameOver = propIsGameOver ||
@@ -142,60 +142,81 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
   };
 
   const handleResign = async () => {
-    if (!gameState?.gameSessionId || !gameSession || !currentPlayer) {
+    if (!gameState?.gameSessionId || !gameSession || !currentPlayer || isResigning) {
       toast({
         title: "Error",
-        description: "Game session not loaded",
+        description: "Game session not loaded or already resigning",
         variant: "destructive",
       });
       return;
     }
 
+    // Prevent multiple resignations
+    setIsResigning(true);
+
     try {
+      console.log("[DEBUG] Starting resignation process...");
+
       const winnerColor = currentPlayer === "white" ? "black" : "white";
       const winnerId = winnerColor === "white" ? gameState.userId1 : gameState.userId2;
 
-      // End the game session
-      await gameSessionService.endGame(gameState.gameSessionId, winnerId);
-
-      // Create game result
+      // Create game result FIRST
       const gameResult: GameResult = {
         winner: winnerColor,
         winnerName: winnerColor === "white" ? player1Name : player2Name,
-        pointsAwarded: 0,
-        gameEndReason: "resignation", // Lowercase
+        pointsAwarded: isRankedMatch ? 15 : 0, // <-- Use isRankedMatch prop
+        gameEndReason: "resignation",
         gameid: gameState.gameSessionId,
         winnerid: winnerId,
       };
 
-      // Complete game history
-      if (gameSession.gameHistoryId) {
-        await gameHistoryService.completeGameHistory(gameSession.gameHistoryId, gameResult);
+      console.log("[DEBUG] Created game result:", gameResult);
+
+      // Call parent's onResign IMMEDIATELY to stop polling and set game over state
+      if (onResign) {
+        console.log("[DEBUG] Calling parent onResign...");
+        onResign(gameResult);
       }
 
-      // Notify parent
-      onResign?.();
+      // Then handle backend cleanup asynchronously
+      try {
+        console.log("[DEBUG] Ending game session on backend...");
+
+        // IMPORTANT: Update the game session status to COMPLETED first
+        await gameSessionService.updateGameStatus(gameState.gameSessionId, "COMPLETED");
+
+        // Then end the game
+        await gameSessionService.endGame(gameState.gameSessionId, winnerId);
+
+        // Complete game history if it exists
+        if (gameSession.gameHistoryId) {
+          console.log("[DEBUG] Completing game history...");
+          await gameHistoryService.completeGameHistory(gameSession.gameHistoryId, gameResult);
+        }
+
+        console.log("[DEBUG] Backend cleanup completed");
+      } catch (backendError) {
+        console.error("[ERROR] Backend cleanup failed (but game already ended locally):", backendError);
+        // Don't show error to user since the game end was already processed
+      }
 
       toast({
         title: "Game Resigned",
         description: `${currentPlayer === "white" ? player1Name : player2Name} has resigned.`,
       });
+
     } catch (error) {
+      console.error("[ERROR] Resignation failed:", error);
       toast({
         title: "Error",
         description: "Failed to process resignation",
         variant: "destructive",
       });
+    } finally {
+      setIsResigning(false);
     }
   };
 
-  const handleBackToLobby = () => {
-    if (onBackToLobby) {
-      onBackToLobby();
-    } else {
-      navigate("/lobby");
-    }
-  };
 
   const handleDrawOffer = async () => {
     if (!gameSession || !currentPlayer) return;
@@ -204,14 +225,10 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       const currentUserId = JwtService.getKeycloakId();
       if (!currentUserId) throw new Error("User not authenticated");
 
-      const currentUser = await userService.getCurrentUser(currentUserId);
-
-      // For now, simulate immediate acceptance (both players agree to draw)
-      // In a real implementation, you'd send this to the other player and wait for response
       const drawResult: GameResult = {
         winner: "draw" as any,
         winnerName: "Draw by agreement",
-        pointsAwarded: 0,
+        pointsAwarded: 0, // Draws typically don't award points
         gameEndReason: "draw",
         gameid: gameState.gameSessionId,
         winnerid: "",
@@ -335,8 +352,9 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
           onClick={handleResign}
           variant="destructive"
           className="hover:bg-destructive/90"
+          disabled={isResigning}
         >
-          Resign
+          {isResigning ? "Resigning..." : "Resign"}
         </Button>
       )}
     </div>

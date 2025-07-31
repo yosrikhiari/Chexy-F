@@ -17,7 +17,7 @@ import { chessGameService } from "@/services/ChessGameService.ts";
 
 interface ChessGameLayoutPvPProps {
   className?: string;
-  isRankedMatch?: boolean;
+  isRankedMatch: boolean;
 }
 
 type ExtendedPlayerAction = PlayerAction & {
@@ -41,7 +41,7 @@ const normalizePlayerData = (playerData: any) => {
 
 const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                                                                  className = "",
-                                                                 isRankedMatch = false,
+                                                                 isRankedMatch,
                                                                }) => {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
@@ -66,7 +66,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [isGameOver, setIsGameOver] = useState(false);
-  const [isReviewMode, setIsReviewMode] = useState(false); // Add review mode state
+  const [isReviewMode] = useState(false); // Add review mode state
   const [playerStats, setPlayerStats] = useState<{
     white: PlayerStats;
     black: PlayerStats;
@@ -286,25 +286,27 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   useEffect(() => {
     const initializeGame = async () => {
       try {
-        let session;
-        let retries = 0;
-        const maxRetries = 5;
+        setIsLoading(true);
+        const session = await gameSessionService.getGameSession(gameId);
 
-        while (retries < maxRetries) {
-          session = await gameSessionService.getGameSession(gameId);
-          if (session.gameState) {
-            break;
-          }
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          retries++;
+        // Check if the game is already completed
+        if (session.status === 'COMPLETED' || session.status === 'TIMEOUT') {
+          toast({
+            title: "Game Over",
+            description: "This game has already ended.",
+            variant: "destructive",
+          });
+          navigate("/lobby");
+          return;
         }
 
-        if (!session.gameState) {
-          throw new Error("Game state not initialized after multiple attempts");
-        }
-
-        const normalizedWhitePlayer = normalizePlayerData(session.whitePlayer);
-        const normalizedBlackPlayer = normalizePlayerData(session.blackPlayer);
+        // FIX: Properly normalize player data
+        const normalizedWhitePlayer = Array.isArray(session.whitePlayer)
+          ? session.whitePlayer[0]
+          : session.whitePlayer;
+        const normalizedBlackPlayer = Array.isArray(session.blackPlayer)
+          ? (session.blackPlayer.length > 0 ? session.blackPlayer[0] : null)
+          : session.blackPlayer;
 
         if (!normalizedWhitePlayer) {
           throw new Error("White player data is missing");
@@ -317,42 +319,44 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         setPlayerId(currentUserId);
         setFlipped(myColor === "black");
 
+        // FIX: Properly set game state with both user IDs
         setGameState({
           ...session.gameState,
           gameSessionId: gameId,
           userId1: normalizedWhitePlayer.userId,
-          userId2: normalizedBlackPlayer?.userId || "",
+          userId2: normalizedBlackPlayer?.userId || "", // Ensure this is set
         });
 
         setCurrentPlayer(session.gameState.currentTurn);
 
+        // FIX: Set player stats with proper data
         setPlayerStats({
           white: {
             playerId: normalizedWhitePlayer.userId,
             name: normalizedWhitePlayer.username || "White Player",
-            points: 0
+            points: 0,
           },
           black: {
             playerId: normalizedBlackPlayer?.userId || "",
             name: normalizedBlackPlayer?.username || "Waiting for player...",
-            points: 0
+            points: 0,
           },
         });
 
+        // Set timers with proper initialization
         setTimers({
           white: {
             timeLeft: session.timers?.white?.timeLeft ?? 600,
-            active: session.gameState.currentTurn === "white"
+            active: session.gameState.currentTurn === "white",
           },
           black: {
             timeLeft: session.timers?.black?.timeLeft ?? 600,
-            active: session.gameState.currentTurn === "black"
+            active: session.gameState.currentTurn === "black",
           },
           defaultTime: session.timers?.defaultTime ?? 600,
         });
 
         await loadMoveHistoryFromServer();
-
       } catch (error) {
         console.error("Error initializing game:", error);
         toast({ title: "Error", description: "Failed to load game.", variant: "destructive" });
@@ -365,14 +369,15 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     initializeGame();
   }, [gameId, navigate]);
 
-// Update the polling useEffect in ChessGameLayoutPvP.tsx:
   useEffect(() => {
-    // Stop polling if game is over or still loading or in review mode
-    if (!gameId || isLoading || isGameOver || isReviewMode) return;
+    // Stop polling if game is over, still loading, in review mode, OR if we have a game result
+    if (!gameId || isLoading || isGameOver || isReviewMode || gameResult !== null) {
+      return;
+    }
 
     const pollForUpdates = setInterval(async () => {
       // Double-check game over state before making API call
-      if (isGameOver || isReviewMode) {
+      if (isGameOver || isReviewMode || gameResult !== null) {
         clearInterval(pollForUpdates);
         return;
       }
@@ -380,9 +385,74 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       try {
         const session = await gameSessionService.getGameSession(gameId);
 
-        // If session status is completed/ended, stop polling
+        // IMPORTANT: Check if session status indicates game ended
         if (session.status === 'COMPLETED' || session.status === 'TIMEOUT') {
           clearInterval(pollForUpdates);
+          console.log("[DEBUG] Game session completed, processing game end...");
+
+          // Determine the winner from the session or game state
+          let winner: PieceColor;
+          let winnerName: string;
+          let winnerId: string;
+          let gameEndReason: "checkmate" | "timeout" | "resignation" | "draw" = "resignation"; // Default to resignation for COMPLETED status
+
+          // Check if it's a draw first
+          if (session.gameState?.isDraw) {
+            winner = "draw" as any;
+            winnerName = "Draw";
+            winnerId = "";
+            gameEndReason = "draw";
+          }
+          // Check for checkmate
+          else if (session.gameState?.isCheckmate) {
+            winner = session.gameState.checkedPlayer === "white" ? "black" : "white";
+            winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
+            winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
+            gameEndReason = "checkmate";
+          }
+          // Check for timeout
+          else if (session.status === 'TIMEOUT') {
+            // Determine winner based on whose timer ran out - this might need backend support
+            // For now, assume the current player lost on time
+            winner = currentPlayer === "white" ? "black" : "white";
+            winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
+            winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
+            gameEndReason = "timeout";
+          }
+          // Default case - assume resignation or other completion
+          else {
+            // Try to determine winner from game state or assume current player resigned
+            winner = currentPlayer === "white" ? "black" : "white";
+            winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
+            winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
+            gameEndReason = "resignation";
+          }
+
+          const detectedGameResult: GameResult = {
+            winner: winner,
+            winnerName: winnerName,
+            pointsAwarded: isRankedMatch ? 15 : 0,
+            gameEndReason: gameEndReason,
+            gameid: gameState.gameSessionId,
+            winnerid: winnerId,
+          };
+
+          // End the game locally
+          handleGameEnd(detectedGameResult);
+
+          // Show notification to opponent
+          toast({
+            title: "Game Ended",
+            description: gameEndReason === "resignation"
+              ? "Your opponent has resigned"
+              : gameEndReason === "timeout"
+                ? "Game ended due to timeout"
+                : gameEndReason === "draw"
+                  ? "Game ended in a draw"
+                  : "Game ended in checkmate",
+            duration: 5000,
+          });
+
           return;
         }
 
@@ -426,30 +496,24 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     }, 2000);
 
     return () => clearInterval(pollForUpdates);
-  }, [gameId, isLoading, playerStats.black.name, currentPlayer, isGameOver, isReviewMode]);
+  }, [gameId, isLoading, playerStats.black.name, currentPlayer, isGameOver, isReviewMode, gameResult]);
 
 
-  const checkIsGameOver = () => {
-    return isGameOver || gameState?.isCheckmate || gameState?.isDraw ||
-      (gameResult !== null && [
-        "checkmate", "timeout", "resignation", "draw", "tie_resolved"
-      ].includes(gameResult.gameEndReason));
-  };
 
 
   const handleGameEnd = async (result: GameResult) => {
     console.log("[DEBUG] Game ended:", result);
 
     // Prevent multiple game end calls
-    if (isGameOver) {
+    if (isGameOver || gameResult !== null) {
       console.log("[DEBUG] Game already ended, ignoring");
       return;
     }
 
-    // Set the game result and show modal
+    // IMMEDIATELY set game over states to stop polling
     setGameResult(result);
-    setIsModalOpen(true);
     setIsGameOver(true);
+    setIsModalOpen(true);
 
     // Stop all timers immediately
     setTimers((prev) => prev && ({
@@ -458,27 +522,14 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       black: { ...prev.black, active: false },
     }));
 
-    // Update game state to reflect game over status
+    // DON'T call backend here - let GameEndModal handle it
+    // Just update local UI state
     setGameState(prev => ({
       ...prev,
       isCheckmate: result.gameEndReason === "checkmate",
-      isDraw: result.winner === "draw" || result.gameEndReason === "draw" || result.gameEndReason === "tie_resolved",
-      currentTurn: prev.currentTurn // Keep current turn as is
+      isDraw: result.winner === "draw" || result.gameEndReason === "draw",
+      currentTurn: prev.currentTurn
     }));
-
-    // END THE GAME SESSION ON BACKEND
-    try {
-      if (gameState.gameSessionId) {
-        await gameSessionService.endGame(
-          gameState.gameSessionId,
-          result.winnerid || "",
-          result.winner === "draw" || result.gameEndReason === "draw" || result.gameEndReason === "tie_resolved"
-        );
-        console.log("[DEBUG] Game session ended on backend");
-      }
-    } catch (error) {
-      console.error("Failed to end game session:", error);
-    }
   };
 
   const resetGame = () => {
@@ -609,16 +660,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     }
   }, [localMoveHistory.length, gameState.currentTurn, isReviewMode]);
 
-  // Handle review game functionality
-  const handleReviewGame = () => {
-    setIsModalOpen(false);
-    setIsReviewMode(true);
-    toast({
-      title: "Review Mode",
-      description: "Game is now in review mode. You can study the moves but cannot make new ones.",
-      duration: 3000,
-    });
-  };
+
 
   // Handle board flip functionality
   const handleFlipBoard = () => {
@@ -742,6 +784,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 onMoveMade={handleMoveMade}
               />
 
+
               <GameControls
                 onResign={(customResult?: GameResult) => {
                   // Don't allow resign in review mode
@@ -753,14 +796,17 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                   } else {
                     // Normal resignation logic
                     const winner = currentPlayer === "white" ? "black" : "white";
-                    handleGameEnd({
+                    const resignationResult: GameResult = {
                       winner,
                       winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
-                      pointsAwarded: isRankedMatch ? 10 : 0,
+                      pointsAwarded: isRankedMatch ? 10 : 0, // <-- This should use isRankedMatch
                       gameEndReason: "resignation",
                       gameid: gameState.gameSessionId,
                       winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
-                    });
+                    };
+
+                    // Immediately end the game locally
+                    handleGameEnd(resignationResult);
                   }
                 }}
                 onReset={resetGame}
@@ -769,7 +815,8 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 currentPlayer={currentPlayer}
                 isGameOver={isGameOver}
                 gameResult={gameResult}
-                isReviewMode={isReviewMode} // Pass review mode to GameControls
+                isReviewMode={isReviewMode}
+                isRankedMatch={isRankedMatch} // <-- Add this line
               />
             </div>
           </div>
@@ -852,7 +899,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           onClose={() => setIsModalOpen(false)}
           onPlayAgain={() => navigate("/lobby")}
           onReviewGame={() => setIsModalOpen(false)}
-          onBackToMenu={() => navigate("/")}
+          onBackToMenu={() => navigate("/game-select")}
           isRankedMatch={isRankedMatch}
         />
       </div>

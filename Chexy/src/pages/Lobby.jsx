@@ -194,7 +194,29 @@ const Lobby = () => {
       isLoadingLobbyData.current = false;
     }
   }, []); // Remove all dependencies to prevent re-creation
+  useEffect(() => {
+    const refreshUserData = async () => {
+      try {
+        const keycloakId = JwtService.getKeycloakId();
+        if (keycloakId) {
+          const updatedUser = await userService.getCurrentUser(keycloakId);
+          localStorage.setItem("user", JSON.stringify(updatedUser));
+          console.log("[DEBUG] User data refreshed in lobby:", updatedUser.points);
+        }
+      } catch (error) {
+        console.error("Failed to refresh user data in lobby:", error);
+        // Don't show toast as this is a background operation
+      }
+    };
 
+    // Only refresh if we don't have fresh data
+    const lastRefresh = localStorage.getItem("lastUserRefresh");
+    const now = Date.now();
+    if (!lastRefresh || (now - parseInt(lastRefresh)) > 30000) { // 30 seconds
+      refreshUserData();
+      localStorage.setItem("lastUserRefresh", now.toString());
+    }
+  }, []);
   // WebSocket subscription setup - stabilized dependencies
   useEffect(() => {
     if (!user) {
@@ -573,7 +595,10 @@ const Lobby = () => {
       });
     }
   };
-
+  const handleBackToGameSelection = () => {
+    // Navigate to a proper game selection screen instead of going back in history
+    navigate("/game-select"); // or navigate("/game-modes") or whatever your main menu route is
+  };
   // Manual refresh function for retry button
   const handleRetry = () => {
     hasInitializedData.current = false;
@@ -919,8 +944,12 @@ const Lobby = () => {
         </div>
 
         <div className="mt-8 text-center">
-          <Button variant="ghost" onClick={() => navigate(-1)} className="hover:bg-primary/10">
-            ← Back to Game Selection
+          <Button
+            variant="ghost"
+            onClick={handleBackToGameSelection}
+            className="hover:bg-primary/10"
+          >
+            ← Back to Main Menu
           </Button>
         </div>
       </div>
