@@ -158,16 +158,60 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       console.log("[DEBUG] Starting resignation process...");
 
       const winnerColor = currentPlayer === "white" ? "black" : "white";
-      const winnerId = winnerColor === "white" ? gameState.userId1 : gameState.userId2;
 
-      // Create game result FIRST
+      // FIX: Get actual player IDs from the gameSession object, not gameState
+      let winnerId: string;
+      let winnerName: string;
+
+      if (winnerColor === "white") {
+        // Winner is white player - get from gameSession
+        const whitePlayer = Array.isArray(gameSession.whitePlayer)
+          ? gameSession.whitePlayer[0]
+          : gameSession.whitePlayer;
+        winnerId = whitePlayer?.userId || whitePlayer?.id || gameState.userId1;
+        winnerName = whitePlayer?.username || player1Name;
+      } else {
+        // Winner is black player - get from gameSession
+        const blackPlayer = Array.isArray(gameSession.blackPlayer)
+          ? gameSession.blackPlayer[0]
+          : gameSession.blackPlayer;
+        winnerId = blackPlayer?.userId || blackPlayer?.id || gameState.userId2;
+        winnerName = blackPlayer?.username || player2Name;
+      }
+
+      console.log("[DEBUG] Winner determined:", {
+        winnerColor,
+        winnerId,
+        winnerName,
+        gameSession: gameSession,
+        gameState: gameState
+      });
+
+      // FIX: Validate that we actually have a winnerId
+      if (!winnerId) {
+        console.error("[ERROR] Could not determine winnerId from game session:", {
+          gameSession: gameSession,
+          whitePlayer: gameSession.whitePlayer,
+          blackPlayer: gameSession.blackPlayer,
+          gameState: gameState
+        });
+
+        // Fallback to any available ID
+        winnerId = winnerColor === "white"
+          ? (gameState.userId1 || "unknown")
+          : (gameState.userId2 || "unknown");
+
+        console.log("[DEBUG] Using fallback winnerId:", winnerId);
+      }
+
+      // Create game result with validated winnerId
       const gameResult: GameResult = {
         winner: winnerColor,
-        winnerName: winnerColor === "white" ? player1Name : player2Name,
-        pointsAwarded: isRankedMatch ? 15 : 0, // <-- Use isRankedMatch prop
+        winnerName: winnerName,
+        pointsAwarded: 0, // FIX: Always 0 for resignations in casual games
         gameEndReason: "resignation",
         gameid: gameState.gameSessionId,
-        winnerid: winnerId,
+        winnerid: winnerId, // FIX: Now properly validated
       };
 
       console.log("[DEBUG] Created game result:", gameResult);
@@ -178,21 +222,15 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
         onResign(gameResult);
       }
 
-      // Then handle backend cleanup asynchronously
+      // FIX: Call backend endGame with the proper winnerId
       try {
-        console.log("[DEBUG] Ending game session on backend...");
+        console.log("[DEBUG] Ending game session on backend with winnerId:", winnerId);
 
-        // IMPORTANT: Update the game session status to COMPLETED first
+        // Update the game session status to COMPLETED first
         await gameSessionService.updateGameStatus(gameState.gameSessionId, "COMPLETED");
 
-        // Then end the game
+        // Then end the game with the proper winnerId
         await gameSessionService.endGame(gameState.gameSessionId, winnerId);
-
-        // Complete game history if it exists
-        if (gameSession.gameHistoryId) {
-          console.log("[DEBUG] Completing game history...");
-          await gameHistoryService.completeGameHistory(gameSession.gameHistoryId, gameResult);
-        }
 
         console.log("[DEBUG] Backend cleanup completed");
       } catch (backendError) {

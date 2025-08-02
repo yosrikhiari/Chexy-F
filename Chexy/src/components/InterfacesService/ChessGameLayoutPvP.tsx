@@ -394,7 +394,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           let winner: PieceColor;
           let winnerName: string;
           let winnerId: string;
-          let gameEndReason: "checkmate" | "timeout" | "resignation" | "draw" = "resignation"; // Default to resignation for COMPLETED status
+          let gameEndReason: "checkmate" | "timeout" | "resignation" | "draw" = "resignation";
 
           // Check if it's a draw first
           if (session.gameState?.isDraw) {
@@ -407,23 +407,24 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           else if (session.gameState?.isCheckmate) {
             winner = session.gameState.checkedPlayer === "white" ? "black" : "white";
             winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
+            // FIX: Properly set winnerId
             winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
             gameEndReason = "checkmate";
           }
           // Check for timeout
           else if (session.status === 'TIMEOUT') {
-            // Determine winner based on whose timer ran out - this might need backend support
-            // For now, assume the current player lost on time
+            // Determine winner based on whose timer ran out
             winner = currentPlayer === "white" ? "black" : "white";
             winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
+            // FIX: Properly set winnerId
             winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
             gameEndReason = "timeout";
           }
           // Default case - assume resignation or other completion
           else {
-            // Try to determine winner from game state or assume current player resigned
             winner = currentPlayer === "white" ? "black" : "white";
             winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
+            // FIX: Properly set winnerId
             winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
             gameEndReason = "resignation";
           }
@@ -431,12 +432,11 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           const detectedGameResult: GameResult = {
             winner: winner,
             winnerName: winnerName,
-            pointsAwarded: isRankedMatch ? 15 : 0,
+            pointsAwarded: 0, // FIX: Always start with 0, let GameEndModal calculate if ranked
             gameEndReason: gameEndReason,
             gameid: gameState.gameSessionId,
-            winnerid: winnerId,
+            winnerid: winnerId, // FIX: Now properly set
           };
-
           // End the game locally
           handleGameEnd(detectedGameResult);
 
@@ -510,8 +510,27 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       return;
     }
 
+    // FIX: Ensure winnerId is properly set before processing
+    let correctedResult = { ...result };
+
+    if (!correctedResult.winnerid && correctedResult.winner !== "draw") {
+      // Determine winnerId from winner color and game state
+      if (correctedResult.winner === "white") {
+        correctedResult.winnerid = gameState.userId1;
+      } else if (correctedResult.winner === "black") {
+        correctedResult.winnerid = gameState.userId2;
+      }
+      console.log("[DEBUG] Fixed missing winnerId:", correctedResult.winnerid);
+    }
+
+    // FIX: Ensure points are 0 for non-ranked matches
+    if (!isRankedMatch) {
+      correctedResult.pointsAwarded = 0;
+      console.log("[DEBUG] Non-ranked match - points set to 0");
+    }
+
     // IMMEDIATELY set game over states to stop polling
-    setGameResult(result);
+    setGameResult(correctedResult);
     setIsGameOver(true);
     setIsModalOpen(true);
 
@@ -522,14 +541,15 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       black: { ...prev.black, active: false },
     }));
 
-    // DON'T call backend here - let GameEndModal handle it
-    // Just update local UI state
+    // Update local UI state
     setGameState(prev => ({
       ...prev,
-      isCheckmate: result.gameEndReason === "checkmate",
-      isDraw: result.winner === "draw" || result.gameEndReason === "draw",
+      isCheckmate: correctedResult.gameEndReason === "checkmate",
+      isDraw: correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw",
       currentTurn: prev.currentTurn
     }));
+
+    console.log("[DEBUG] Game end processing completed locally");
   };
 
   const resetGame = () => {
