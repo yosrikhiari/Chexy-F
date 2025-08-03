@@ -14,4 +14,10 @@ export interface User {
   role: 'USER' | 'ADMIN';
   playerProfileId?: string;
   isActive: boolean;
+  gameStats?: {  // ADD THIS
+    currentStreak: number;
+    totalGamesPlayed: number;
+    totalGamesWon: number;
+    winRate: number;
+  };
 }

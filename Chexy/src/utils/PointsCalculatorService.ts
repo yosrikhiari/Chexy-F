@@ -1,0 +1,168 @@
+import {JwtService} from '@/services/JwtService.ts';
+import {userService} from '@/services/UserService.ts';
+
+
+export interface StreakBasedPoints {
+  pointsAwarded: number;
+  newStreak: number;
+  streakType: 'winning' | 'losing' | 'neutral';
+  basePoints: number;
+  streakBonus: number;
+}
+
+export class PointCalculationService {
+
+  /**
+   * Calculate points based on game outcome and current streak
+   * @param isWinner - Whether the player won
+   * @param isDraw - Whether the game was a draw
+   * @param currentStreak - Player's current streak (positive for winning, negative for losing)
+   * @param isRankedMatch - Whether this was a ranked match
+   * @returns StreakBasedPoints object with calculation details
+   */
+  static calculateStreakBasedPoints(
+    isWinner: boolean,
+    isDraw: boolean,
+    currentStreak: number,
+    isRankedMatch: boolean
+  ): StreakBasedPoints {
+
+    if (!isRankedMatch) {
+      return {
+        pointsAwarded: 0,
+        newStreak: 0,
+        streakType: 'neutral',
+        basePoints: 0,
+        streakBonus: 0
+      };
+    }
+
+    let basePoints = 0;
+    let newStreak = 0;
+    let streakType: 'winning' | 'losing' | 'neutral' = 'neutral';
+
+    // Determine base points and new streak
+    if (isWinner) {
+      basePoints = 15; // Base points for winning
+      newStreak = currentStreak >= 0 ? currentStreak + 1 : 1; // Reset negative streak or continue positive
+      streakType = 'winning';
+    } else if (isDraw) {
+      basePoints = 5; // Base points for draw
+      newStreak = 0; // Draw resets streak
+      streakType = 'neutral';
+    } else {
+      basePoints = -8; // Base points for losing
+      newStreak = currentStreak <= 0 ? currentStreak - 1 : -1; // Continue negative streak or start new one
+      streakType = 'losing';
+    }
+
+    // Calculate streak bonus/penalty
+    let streakBonus = 0;
+
+    if (isWinner && newStreak > 1) {
+      // Winning streak bonus: +2 points per win after the first
+      streakBonus = Math.min((newStreak - 1) * 2, 10); // Cap at 10 bonus points
+    } else if (!isWinner && !isDraw && Math.abs(newStreak) > 1) {
+      // Losing streak penalty: -1 additional point per loss after the first
+      streakBonus = -Math.min((Math.abs(newStreak) - 1) * 1, 5); // Cap at -5 penalty points
+    }
+
+    const totalPoints = basePoints + streakBonus;
+
+    return {
+      pointsAwarded: totalPoints,
+      newStreak,
+      streakType,
+      basePoints,
+      streakBonus
+    };
+  }
+
+  /**
+   * Apply calculated points to user account
+   * @param userId - User ID to update
+   * @param pointsToAdd - Points to add (can be negative)
+   */
+  static async applyPointsToUser(userId: string, pointsToAdd: number): Promise<void> {
+    if (pointsToAdd === 0) return;
+
+    try {
+      await userService.updateUserPoints(userId, pointsToAdd);
+      console.log(`[POINTS] Applied ${pointsToAdd} points to user ${userId}`);
+    } catch (error) {
+      console.error(`[POINTS] Failed to apply ${pointsToAdd} points to user ${userId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get current user's streak from their game stats
+   * @returns Current streak value
+   */
+  static async getCurrentUserStreak(): Promise<number> {
+    try {
+      const keycloakId = JwtService.getKeycloakId();
+      if (!keycloakId) throw new Error("User not authenticated");
+
+      const user = await userService.getCurrentUser(keycloakId);
+      return user.gameStats?.currentStreak || 0;
+    } catch (error) {
+      console.error("[POINTS] Failed to get current user streak:", error);
+      return 0;
+    }
+  }
+
+  /**
+   * Calculate and apply points for a game result
+   * @param gameResult - The game result
+   * @param currentUserStreak - Current user's streak
+   * @param isRankedMatch - Whether this was a ranked match
+   * @returns Updated GameResult with calculated points
+   */
+  static async processGameResultPoints(
+    gameResult: any,
+    currentUserStreak: number,
+    isRankedMatch: boolean
+  ): Promise<{ gameResult: any; pointsCalculation: StreakBasedPoints }> {
+
+    const keycloakId = JwtService.getKeycloakId();
+    if (!keycloakId) {
+      return { gameResult, pointsCalculation: this.calculateStreakBasedPoints(false, false, 0, false) };
+    }
+
+    const currentUser = await userService.getCurrentUser(keycloakId);
+    const isWinner = gameResult.winnerid === currentUser.id;
+    const isDraw = gameResult.winner === "draw" || gameResult.gameEndReason === "draw";
+
+    // Calculate points based on streak
+    const pointsCalculation = this.calculateStreakBasedPoints(
+      isWinner,
+      isDraw,
+      currentUserStreak,
+      isRankedMatch
+    );
+
+    // Apply points to user account
+    if (pointsCalculation.pointsAwarded !== 0) {
+      await this.applyPointsToUser(currentUser.id, pointsCalculation.pointsAwarded);
+    }
+
+    // Update game result with calculated points
+    const updatedGameResult = {
+      ...gameResult,
+      pointsAwarded: pointsCalculation.pointsAwarded
+    };
+
+    console.log(`[POINTS] Game result processed:`, {
+      isWinner,
+      isDraw,
+      oldStreak: currentUserStreak,
+      newStreak: pointsCalculation.newStreak,
+      basePoints: pointsCalculation.basePoints,
+      streakBonus: pointsCalculation.streakBonus,
+      totalPoints: pointsCalculation.pointsAwarded
+    });
+
+    return { gameResult: updatedGameResult, pointsCalculation };
+  }
+}

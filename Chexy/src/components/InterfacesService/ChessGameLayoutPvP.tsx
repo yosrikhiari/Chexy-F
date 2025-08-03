@@ -14,7 +14,8 @@ import { JwtService } from "@/services/JwtService.ts";
 import ChessBoardPvP from "@/components/InterfacesService/ChessBoardPvP.tsx";
 import { PlayerAction } from "@/Interfaces/services/PlayerAction.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
-import {PointCalculationService} from "@/services/PointsCalculatorService.tsx";
+import {PointCalculationService} from "@/utils/PointsCalculatorService.ts";
+
 
 interface ChessGameLayoutPvPProps {
   className?: string;
@@ -500,6 +501,8 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
 
 
+// Key changes for ChessGameLayoutPvP.tsx - Replace the handleGameEnd function:
+
   const handleGameEnd = async (result: GameResult) => {
     console.log("[DEBUG] Game ended:", result);
 
@@ -510,6 +513,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
     let correctedResult = { ...result };
 
+    // Fix missing winnerId
     if (!correctedResult.winnerid && correctedResult.winner !== "draw") {
       if (correctedResult.winner === "white") {
         correctedResult.winnerid = gameState.userId1;
@@ -519,42 +523,33 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       console.log("[DEBUG] Fixed missing winnerId:", correctedResult.winnerid);
     }
 
-    if (!isRankedMatch) {
-      correctedResult.pointsAwarded = 0;
-      console.log("[DEBUG] Non-ranked match - points set to 0");
-    }
-// Calculate and set points for display
-    if (isRankedMatch && correctedResult.winnerid) {
+    // NEW: Calculate points based on streak for ranked matches
+    if (isRankedMatch) {
       try {
-        const keycloakId = JwtService.getKeycloakId();
-        if (keycloakId) {
-          const currentUser = await userService.getCurrentUser(keycloakId);
-          const isCurrentUserWinner = correctedResult.winnerid === currentUser.id;
+        const currentStreak = await PointCalculationService.getCurrentUserStreak();
+        const { gameResult: updatedResult, pointsCalculation } = await PointCalculationService.processGameResultPoints(
+          correctedResult,
+          currentStreak,
+          isRankedMatch
+        );
 
-          if (isCurrentUserWinner) {
-            // Calculate points for winner
-            const calculatedPoints = await PointCalculationService.calculatePoints(
-              currentUser.id,
-              true,
-              correctedResult.winner === "draw",
-              isRankedMatch
-            );
-            correctedResult.pointsAwarded = calculatedPoints;
-          } else {
-            // Show negative points for loser
-            const calculatedPoints = await PointCalculationService.calculatePoints(
-              correctedResult.winnerid,
-              true,
-              correctedResult.winner === "draw",
-              isRankedMatch
-            );
-            correctedResult.pointsAwarded = -calculatedPoints;
-          }
-        }
+        correctedResult = updatedResult;
+
+        console.log("[DEBUG] Points calculated based on streak:", {
+          streak: currentStreak,
+          newStreak: pointsCalculation.newStreak,
+          pointsAwarded: pointsCalculation.pointsAwarded,
+          streakType: pointsCalculation.streakType
+        });
       } catch (error) {
-        console.error("Failed to calculate points:", error);
+        console.error("[DEBUG] Failed to calculate streak-based points:", error);
+        correctedResult.pointsAwarded = 0;
       }
+    } else {
+      correctedResult.pointsAwarded = 0;
     }
+
+    // Set local game state immediately
     setGameResult(correctedResult);
     setIsGameOver(true);
     setIsModalOpen(true);
@@ -572,15 +567,20 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       currentTurn: prev.currentTurn
     }));
 
-    const keycloakId = JwtService.getKeycloakId();
-    if (keycloakId) {
-      try {
-        const updatedUser = await userService.getCurrentUser(keycloakId);
-        setTotalPoints(updatedUser.points);
-      } catch (error) {
-        console.error("Failed to fetch updated user:", error);
+    // Refresh user data after points calculation
+    setTimeout(async () => {
+      const keycloakId = JwtService.getKeycloakId();
+      if (keycloakId) {
+        try {
+          const updatedUser = await userService.getCurrentUser(keycloakId);
+          setTotalPoints(updatedUser.points);
+          localStorage.setItem("user", JSON.stringify(updatedUser));
+          console.log("[DEBUG] User data refreshed after game end:", updatedUser.points);
+        } catch (error) {
+          console.error("Failed to fetch updated user:", error);
+        }
       }
-    }
+    }, 1000); // Reduced timeout since we're not waiting for backend
 
     console.log("[DEBUG] Game end processing completed locally");
   };
@@ -896,11 +896,15 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 <div>
                   <h4 className="font-medium mb-1">Points at Stake</h4>
                   <p className="text-lg font-bold text-primary">
-                    {isRankedMatch ? "12-25" : "0"}
+                    {isRankedMatch ? "Streak-Based" : "0"}
                   </p>
-                  {!isRankedMatch && (
+                  {!isRankedMatch ? (
                     <p className="text-xs text-muted-foreground">
                       Casual match - no points awarded
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Win: 15 + streak bonus | Draw: 5 | Loss: -8 + streak penalty
                     </p>
                   )}
                 </div>

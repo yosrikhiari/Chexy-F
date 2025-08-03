@@ -16,7 +16,6 @@ import {GameResult} from "@/Interfaces/types/chess.ts";
 import {gameSessionService} from "@/services/GameSessionService.ts";
 import {JwtService} from "@/services/JwtService.ts";
 import {userService} from "@/services/UserService.ts";
-import {PointCalculationService} from "@/services/PointsCalculatorService.tsx";
 
 // Updated interface to include additional game state props
 interface ExtendedGameControlsProps extends GameControlsProps {
@@ -142,6 +141,8 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
     navigate("/lobby");
   };
 
+// Key changes for GameControls.tsx - Replace the handleResign function:
+
   const handleResign = async () => {
     if (!gameState?.gameSessionId || !gameSession || !currentPlayer || isResigning) {
       toast({
@@ -188,34 +189,11 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
         winnerColor = "white";
       }
 
-      // Calculate points for both players if ranked match
-      let winnerPoints = 0;
-      let loserPoints = 0;
-
-      if (isRankedMatch) {
-        // Calculate winner points
-        winnerPoints = await PointCalculationService.calculatePoints(
-          winnerId,
-          true, // is winner
-          false, // not a draw
-          isRankedMatch
-        );
-
-        // Calculate loser points (the one who resigned)
-        loserPoints = -(await PointCalculationService.calculatePoints(
-          resigningUserId,
-          false, // is loser
-          false, // not a draw
-          isRankedMatch
-        ));
-
-        console.log("[DEBUG] Calculated points - Winner:", winnerPoints, "Loser:", loserPoints);
-      }
-
+      // Create game result - points will be calculated by parent component
       const gameResult: GameResult = {
         winner: winnerColor,
         winnerName: winnerName,
-        pointsAwarded: winnerPoints, // Store winner points for history
+        pointsAwarded: 0, // Will be calculated by parent based on streak
         gameEndReason: "resignation",
         gameid: gameState.gameSessionId,
         winnerid: winnerId,
@@ -229,7 +207,7 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
         onResign(gameResult);
       }
 
-      // Backend cleanup
+      // Backend cleanup - no point calculations
       try {
         await gameSessionService.updateGameStatus(gameState.gameSessionId, "COMPLETED");
         await gameSessionService.endGame(gameState.gameSessionId, winnerId);

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clock, Gamepad2, Sword, Trophy, User as UserIcon, UserPlus, Users } from "lucide-react";
+import { Clock, Gamepad2, Sword, Trophy, User as UserIcon, UserPlus, Users, RefreshCw } from "lucide-react";
 import { friendshipService } from "@/services/FriendshipService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
@@ -15,7 +15,15 @@ const Lobby = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const user = location.state?.user || JSON.parse(localStorage.getItem("user"));
+  // FIX: Initialize user from localStorage but always refresh from server
+  const [user, setUser] = useState(() => {
+    const storedUser = localStorage.getItem("user");
+    return storedUser ? JSON.parse(storedUser) : location.state?.user;
+  });
+
+  // FIX: Add user points state that updates independently
+  const [userPoints, setUserPoints] = useState(user?.points || 0);
+
   if (!user) {
     navigate("/login");
     return;
@@ -42,6 +50,59 @@ const Lobby = () => {
   const lastQueueStatusFetch = useRef(0);
   const hasInitializedData = useRef(false);
   const hasInitializedQueue = useRef(false);
+  const isRefreshingUser = useRef(false); // FIX: Add ref to prevent multiple user refreshes
+
+  // FIX: Add dedicated function to refresh user data and points
+  const refreshUserData = useCallback(async () => {
+    if (isRefreshingUser.current) {
+      console.log("User data refresh already in progress, skipping...");
+      return;
+    }
+
+    isRefreshingUser.current = true;
+
+    try {
+      const keycloakId = JwtService.getKeycloakId();
+      if (!keycloakId) {
+        console.error("No keycloak ID available for user refresh");
+        return;
+      }
+
+      console.log("[DEBUG] Refreshing user data in lobby...");
+      const updatedUser = await userService.getCurrentUser(keycloakId);
+
+      // Update both state and localStorage
+      setUser(updatedUser);
+      setUserPoints(updatedUser.points || 0);
+      localStorage.setItem("user", JSON.stringify(updatedUser));
+
+      console.log("[DEBUG] User data refreshed in lobby:", {
+        username: updatedUser.username,
+        points: updatedUser.points,
+        id: updatedUser.id
+      });
+    } catch (error) {
+      console.error("Failed to refresh user data in lobby:", error);
+      // Don't show toast for user data refresh failures in lobby
+    } finally {
+      isRefreshingUser.current = false;
+    }
+  }, []);
+
+  // FIX: Always refresh user data when component mounts
+  useEffect(() => {
+    // Always refresh user data when entering lobby
+    refreshUserData();
+  }, []); // Run once on mount
+
+  // FIX: Also refresh when explicitly requested
+  useEffect(() => {
+    if (location.state?.forceRefresh) {
+      refreshUserData();
+      // Clear the state to prevent future refreshes
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state?.forceRefresh, refreshUserData]);
 
   // Optimized queue status fetching with throttling - removed dependencies that cause re-renders
   const fetchQueueStatus = useCallback(async () => {
@@ -194,28 +255,6 @@ const Lobby = () => {
       isLoadingLobbyData.current = false;
     }
   }, []); // Remove all dependencies to prevent re-creation
-  useEffect(() => {
-    const refreshUserData = async () => {
-      try {
-        const keycloakId = JwtService.getKeycloakId();
-        if (keycloakId) {
-          console.log("[DEBUG] Refreshing user data in lobby...");
-          const updatedUser = await userService.getCurrentUser(keycloakId);
-
-          // Update both localStorage and component state
-          localStorage.setItem("user", JSON.stringify(updatedUser));
-
-          console.log("[DEBUG] User data refreshed in lobby:", updatedUser.points);
-        }
-      } catch (error) {
-        console.error("Failed to refresh user data in lobby:", error);
-      }
-    };
-
-    // Always refresh when entering lobby (don't check lastRefresh)
-    refreshUserData();
-  }, []);
-
 
   useEffect(() => {
     // Override beforeunload to prevent reload warning in lobby
@@ -231,6 +270,7 @@ const Lobby = () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, []);
+
   // WebSocket subscription setup - stabilized dependencies
   useEffect(() => {
     if (!user) {
@@ -510,7 +550,7 @@ const Lobby = () => {
         destination: "/app/matchmaking/join",
         body: JSON.stringify({
           userId: user.id,
-          points: user.points || 0
+          points: userPoints || 0 // FIX: Use userPoints state instead of user.points
         }),
       });
       setInQueue(true);
@@ -623,14 +663,18 @@ const Lobby = () => {
       });
     }
   };
+
   const handleBackToGameSelection = () => {
     // Navigate to a proper game selection screen instead of going back in history
     navigate("/game-select"); // or navigate("/game-modes") or whatever your main menu route is
   };
+
   // Manual refresh function for retry button
   const handleRetry = () => {
     hasInitializedData.current = false;
     fetchLobbyData();
+    // FIX: Also refresh user data when retrying
+    refreshUserData();
   };
 
   if (!user) {
@@ -648,11 +692,11 @@ const Lobby = () => {
             Welcome, {user?.username || "Guest"}! Find your perfect match
           </p>
           <div className="mt-4">
-  <span className="text-muted-foreground">
-    Your rank points: <span className="text-primary font-bold" key={user?.points}>
-      {JSON.parse(localStorage.getItem("user") || "{}")?.points || user?.points || 0}
-    </span>
-  </span>
+            <span className="text-muted-foreground flex justify-center items-center">
+              Your rank points:&nbsp;<span className="text-primary font-bold flex items-center" key={userPoints}>
+                {userPoints}<Trophy className="h-5 w-5 ml-1 text-primary" />
+              </span>
+            </span>
           </div>
         </div>
 
@@ -664,20 +708,6 @@ const Lobby = () => {
                 <div className="flex items-center justify-center space-x-2 text-orange-600 dark:text-orange-400">
                   <Clock className="h-5 w-5 animate-pulse" />
                   <span>Connecting to game server...</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Loading Status */}
-        {isLoading && (
-          <div className="mb-6">
-            <Card className="border-blue-500/50 bg-blue-50 dark:bg-blue-900/20">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-center space-x-2 text-blue-600 dark:text-blue-400">
-                  <Clock className="h-5 w-5 animate-pulse" />
-                  <span>Loading lobby data...</span>
                 </div>
               </CardContent>
             </Card>

@@ -6,5 +6,4 @@ export interface UserProfile {
     imageUrl?: string;
     createdAt?: Date | string;
     points?: number;
-    // Ajoutez d'autres propriétés selon votre besoin
   }
