@@ -66,7 +66,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [isGameOver, setIsGameOver] = useState(false);
-  const [isReviewMode] = useState(false); // Add review mode state
+  const [isReviewMode] = useState(false);
   const [playerStats, setPlayerStats] = useState<{
     white: PlayerStats;
     black: PlayerStats;
@@ -79,6 +79,8 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   const [playerId, setPlayerId] = useState<string>("");
   const [playerColor, setPlayerColor] = useState<PieceColor>("white");
   const [flipped, setFlipped] = useState(false);
+  const [totalPoints, setTotalPoints] = useState<number | null>(null);
+  const [initialPoints, setInitialPoints] = useState<number | null>(null);
 
   const moveToAlgebraicNotation = (action: ExtendedPlayerAction): string => {
     if (!action || !action.from || !action.to ||
@@ -289,7 +291,6 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         setIsLoading(true);
         const session = await gameSessionService.getGameSession(gameId);
 
-        // Check if the game is already completed
         if (session.status === 'COMPLETED' || session.status === 'TIMEOUT') {
           toast({
             title: "Game Over",
@@ -300,13 +301,8 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           return;
         }
 
-        // FIX: Properly normalize player data
-        const normalizedWhitePlayer = Array.isArray(session.whitePlayer)
-          ? session.whitePlayer[0]
-          : session.whitePlayer;
-        const normalizedBlackPlayer = Array.isArray(session.blackPlayer)
-          ? (session.blackPlayer.length > 0 ? session.blackPlayer[0] : null)
-          : session.blackPlayer;
+        const normalizedWhitePlayer = normalizePlayerData(session.whitePlayer);
+        const normalizedBlackPlayer = normalizePlayerData(session.blackPlayer);
 
         if (!normalizedWhitePlayer) {
           throw new Error("White player data is missing");
@@ -319,17 +315,19 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         setPlayerId(currentUserId);
         setFlipped(myColor === "black");
 
-        // FIX: Properly set game state with both user IDs
+        // Fetch initial points
+        const user = await userService.getCurrentUser(JwtService.getKeycloakId());
+        setInitialPoints(user.points);
+
         setGameState({
           ...session.gameState,
           gameSessionId: gameId,
           userId1: normalizedWhitePlayer.userId,
-          userId2: normalizedBlackPlayer?.userId || "", // Ensure this is set
+          userId2: normalizedBlackPlayer?.userId || "",
         });
 
         setCurrentPlayer(session.gameState.currentTurn);
 
-        // FIX: Set player stats with proper data
         setPlayerStats({
           white: {
             playerId: normalizedWhitePlayer.userId,
@@ -343,7 +341,6 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           },
         });
 
-        // Set timers with proper initialization
         setTimers({
           white: {
             timeLeft: session.timers?.white?.timeLeft ?? 600,
@@ -368,6 +365,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
     initializeGame();
   }, [gameId, navigate]);
+
 
   useEffect(() => {
     // Stop polling if game is over, still loading, in review mode, OR if we have a game result
@@ -504,17 +502,14 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   const handleGameEnd = async (result: GameResult) => {
     console.log("[DEBUG] Game ended:", result);
 
-    // Prevent multiple game end calls
     if (isGameOver || gameResult !== null) {
       console.log("[DEBUG] Game already ended, ignoring");
       return;
     }
 
-    // FIX: Ensure winnerId is properly set before processing
     let correctedResult = { ...result };
 
     if (!correctedResult.winnerid && correctedResult.winner !== "draw") {
-      // Determine winnerId from winner color and game state
       if (correctedResult.winner === "white") {
         correctedResult.winnerid = gameState.userId1;
       } else if (correctedResult.winner === "black") {
@@ -523,31 +518,37 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       console.log("[DEBUG] Fixed missing winnerId:", correctedResult.winnerid);
     }
 
-    // FIX: Ensure points are 0 for non-ranked matches
     if (!isRankedMatch) {
       correctedResult.pointsAwarded = 0;
       console.log("[DEBUG] Non-ranked match - points set to 0");
     }
 
-    // IMMEDIATELY set game over states to stop polling
     setGameResult(correctedResult);
     setIsGameOver(true);
     setIsModalOpen(true);
 
-    // Stop all timers immediately
     setTimers((prev) => prev && ({
       ...prev,
       white: { ...prev.white, active: false },
       black: { ...prev.black, active: false },
     }));
 
-    // Update local UI state
     setGameState(prev => ({
       ...prev,
       isCheckmate: correctedResult.gameEndReason === "checkmate",
       isDraw: correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw",
       currentTurn: prev.currentTurn
     }));
+
+    const keycloakId = JwtService.getKeycloakId();
+    if (keycloakId) {
+      try {
+        const updatedUser = await userService.getCurrentUser(keycloakId);
+        setTotalPoints(updatedUser.points);
+      } catch (error) {
+        console.error("Failed to fetch updated user:", error);
+      }
+    }
 
     console.log("[DEBUG] Game end processing completed locally");
   };
@@ -690,7 +691,6 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   if (isLoading || !timers) {
     return <div className="text-center p-4">Loading game...</div>;
   }
-
   return (
     <>
       <style>{`
@@ -724,40 +724,33 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                   timers={timers}
                   setTimers={setTimers}
                   currentPlayer={currentPlayer}
-                  isGameOver={isGameOver || isReviewMode} // Treat review mode as game over for timer
+                  isGameOver={isGameOver || isReviewMode}
                   onTimeout={(color) => {
-                    // Don't handle timeout in review mode
                     if (isReviewMode) return;
 
-                    // Stop all timers immediately
                     setTimers((prev) => prev && ({
                       ...prev,
                       white: { ...prev.white, active: false },
                       black: { ...prev.black, active: false },
                     }));
 
-                    // Mark game as over
                     setIsGameOver(true);
 
-                    // Determine winner
                     const winner = color === "white" ? "black" : "white";
                     const winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
                     const winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
 
-                    // Create game result for timeout
                     const timeoutResult: GameResult = {
                       winner,
                       winnerName,
-                      pointsAwarded: isRankedMatch ? 15 : 0,
+                      pointsAwarded: isRankedMatch ? 0 : 0, // Let backend handle points
                       gameEndReason: "timeout",
                       gameid: gameState.gameSessionId,
                       winnerid: winnerId,
                     };
 
-                    // Trigger game end with modal
                     handleGameEnd(timeoutResult);
 
-                    // Show additional toast notification
                     toast({
                       title: "Game Over - Timeout!",
                       description: `${color === "white" ? playerStats.white.name : playerStats.black.name} ran out of time. ${winnerName} wins!`,
@@ -792,7 +785,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                   handleGameEnd({
                     winner,
                     winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
-                    pointsAwarded: isRankedMatch ? 15 : 0,
+                    pointsAwarded: isRankedMatch ? 0 : 0, // Let backend handle points
                     gameEndReason: "timeout",
                     gameid: gameState.gameSessionId,
                     winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
@@ -804,28 +797,24 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 onMoveMade={handleMoveMade}
               />
 
-
               <GameControls
+                playerColor={playerColor}
                 onResign={(customResult?: GameResult) => {
-                  // Don't allow resign in review mode
                   if (isReviewMode) return;
 
                   if (customResult) {
-                    // Use the custom result (e.g., for draw offers)
                     handleGameEnd(customResult);
                   } else {
-                    // Normal resignation logic
                     const winner = currentPlayer === "white" ? "black" : "white";
                     const resignationResult: GameResult = {
                       winner,
                       winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
-                      pointsAwarded: isRankedMatch ? 10 : 0, // <-- This should use isRankedMatch
+                      pointsAwarded: isRankedMatch ? 0 : 0, // Let backend handle points
                       gameEndReason: "resignation",
                       gameid: gameState.gameSessionId,
                       winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
                     };
 
-                    // Immediately end the game locally
                     handleGameEnd(resignationResult);
                   }
                 }}
@@ -836,7 +825,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 isGameOver={isGameOver}
                 gameResult={gameResult}
                 isReviewMode={isReviewMode}
-                isRankedMatch={isRankedMatch} // <-- Add this line
+                isRankedMatch={isRankedMatch}
               />
             </div>
           </div>
@@ -875,7 +864,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 <div>
                   <h4 className="font-medium mb-1">Points at Stake</h4>
                   <p className="text-lg font-bold text-primary">
-                    {isRankedMatch ? "25" : "0"}
+                    {isRankedMatch ? "12-25" : "0"}
                   </p>
                   {!isRankedMatch && (
                     <p className="text-xs text-muted-foreground">
@@ -919,8 +908,10 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           onClose={() => setIsModalOpen(false)}
           onPlayAgain={() => navigate("/lobby")}
           onReviewGame={() => setIsModalOpen(false)}
-          onBackToMenu={() => navigate("/game-select")}
+          onBackToMenu={() => navigate("/")}
           isRankedMatch={isRankedMatch}
+          totalPoints={totalPoints}
+          initialPoints={initialPoints}
         />
       </div>
     </>

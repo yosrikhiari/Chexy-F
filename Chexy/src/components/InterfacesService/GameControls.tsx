@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button.tsx";
-import { Input } from "@/components/ui/input.tsx";
+import React, {useState, useEffect} from "react";
+import {useNavigate} from "react-router-dom";
+import {Button} from "@/components/ui/button.tsx";
+import {Input} from "@/components/ui/input.tsx";
 import {
   Dialog,
   DialogContent,
@@ -9,22 +9,23 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog.tsx";
-import { GameControlsProps } from "@/Interfaces/GameControlsProps.ts";
-import { toast } from "@/components/ui/use-toast.tsx";
-import { GameSession } from "@/Interfaces/types/GameSession.ts";
-import { GameResult } from "@/Interfaces/types/chess.ts";
-import { gameSessionService } from "@/services/GameSessionService.ts";
+import {GameControlsProps} from "@/Interfaces/GameControlsProps.ts";
+import {toast} from "@/components/ui/use-toast.tsx";
+import {GameSession} from "@/Interfaces/types/GameSession.ts";
+import {GameResult} from "@/Interfaces/types/chess.ts";
+import {gameSessionService} from "@/services/GameSessionService.ts";
 import {JwtService} from "@/services/JwtService.ts";
 import {userService} from "@/services/UserService.ts";
-import {gameHistoryService} from "@/services/GameHistoryService.ts";
+import {PointCalculationService} from "@/services/PointsCalculatorService.tsx";
 
 // Updated interface to include additional game state props
 interface ExtendedGameControlsProps extends GameControlsProps {
-  onBackToLobby?: () => void;
-  isGameOver?: boolean;
-  gameResult?: GameResult | null;
-  isReviewMode?: boolean;
-  isRankedMatch?: boolean; // <-- Add this line
+  onBackToLobby?: () => void,
+  isGameOver?: boolean,
+  gameResult?: GameResult | null,
+  isReviewMode?: boolean,
+  isRankedMatch?: boolean,
+  playerColor?: "white" | "black" | "null"
 }
 
 const GameControls: React.FC<ExtendedGameControlsProps> = ({
@@ -37,7 +38,8 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
                                                              isGameOver: propIsGameOver,
                                                              gameResult,
                                                              isReviewMode = false,
-                                                             isRankedMatch = false, // <-- Add this line with default value
+                                                             isRankedMatch = false,
+                                                             playerColor
                                                            }) => {
   const navigate = useNavigate();
   const [player1Name, setPlayer1Name] = useState("Player 1");
@@ -45,7 +47,7 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
   const [open, setOpen] = useState(false);
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
   const [drawOfferSent] = useState(false);
-  const [isResigning, setIsResigning] = useState(false); // Add resign state
+  const [isResigning, setIsResigning] = useState(false);
 
   // Comprehensive game over check
   const isGameOver = propIsGameOver ||
@@ -137,7 +139,6 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
   };
 
   const handleNewGame = () => {
-    // Simply navigate to lobby instead of creating a new game session
     navigate("/lobby");
   };
 
@@ -151,27 +152,24 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       return;
     }
 
-    // Prevent multiple resignations
     setIsResigning(true);
 
     try {
       console.log("[DEBUG] Starting resignation process...");
 
-      const winnerColor = currentPlayer === "white" ? "black" : "white";
+      const winnerColor = playerColor === "white" ? "black" : "white";
 
-      // FIX: Get actual player IDs from the gameSession object, not gameState
+      // Get actual player IDs from the gameSession object
       let winnerId: string;
       let winnerName: string;
 
       if (winnerColor === "white") {
-        // Winner is white player - get from gameSession
         const whitePlayer = Array.isArray(gameSession.whitePlayer)
           ? gameSession.whitePlayer[0]
           : gameSession.whitePlayer;
         winnerId = whitePlayer?.userId || whitePlayer?.id || gameState.userId1;
         winnerName = whitePlayer?.username || player1Name;
       } else {
-        // Winner is black player - get from gameSession
         const blackPlayer = Array.isArray(gameSession.blackPlayer)
           ? gameSession.blackPlayer[0]
           : gameSession.blackPlayer;
@@ -179,63 +177,49 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
         winnerName = blackPlayer?.username || player2Name;
       }
 
-      console.log("[DEBUG] Winner determined:", {
-        winnerColor,
-        winnerId,
-        winnerName,
-        gameSession: gameSession,
-        gameState: gameState
-      });
-
-      // FIX: Validate that we actually have a winnerId
+      // Validate winnerId
       if (!winnerId) {
-        console.error("[ERROR] Could not determine winnerId from game session:", {
-          gameSession: gameSession,
-          whitePlayer: gameSession.whitePlayer,
-          blackPlayer: gameSession.blackPlayer,
-          gameState: gameState
-        });
-
-        // Fallback to any available ID
+        console.error("[ERROR] Could not determine winnerId from game session");
         winnerId = winnerColor === "white"
           ? (gameState.userId1 || "unknown")
           : (gameState.userId2 || "unknown");
-
-        console.log("[DEBUG] Using fallback winnerId:", winnerId);
       }
 
-      // Create game result with validated winnerId
+      // Calculate points for resignation
+      let calculatedPoints = 0;
+      if (isRankedMatch && winnerId) {
+        calculatedPoints = await PointCalculationService.calculatePoints(
+          winnerId,
+          true, // Winner
+          false, // Not a draw
+          isRankedMatch
+        );
+      }
+
       const gameResult: GameResult = {
         winner: winnerColor,
         winnerName: winnerName,
-        pointsAwarded: 0, // FIX: Always 0 for resignations in casual games
+        pointsAwarded: calculatedPoints,
         gameEndReason: "resignation",
         gameid: gameState.gameSessionId,
-        winnerid: winnerId, // FIX: Now properly validated
+        winnerid: winnerId,
       };
 
-      console.log("[DEBUG] Created game result:", gameResult);
+      console.log("[DEBUG] Created game result with calculated points:", gameResult);
 
-      // Call parent's onResign IMMEDIATELY to stop polling and set game over state
+      // Call parent's onResign IMMEDIATELY
       if (onResign) {
         console.log("[DEBUG] Calling parent onResign...");
         onResign(gameResult);
       }
 
-      // FIX: Call backend endGame with the proper winnerId
+      // Backend cleanup
       try {
-        console.log("[DEBUG] Ending game session on backend with winnerId:", winnerId);
-
-        // Update the game session status to COMPLETED first
         await gameSessionService.updateGameStatus(gameState.gameSessionId, "COMPLETED");
-
-        // Then end the game with the proper winnerId
         await gameSessionService.endGame(gameState.gameSessionId, winnerId);
-
         console.log("[DEBUG] Backend cleanup completed");
       } catch (backendError) {
-        console.error("[ERROR] Backend cleanup failed (but game already ended locally):", backendError);
-        // Don't show error to user since the game end was already processed
+        console.error("[ERROR] Backend cleanup failed:", backendError);
       }
 
       toast({
@@ -255,7 +239,6 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
     }
   };
 
-
   const handleDrawOffer = async () => {
     if (!gameSession || !currentPlayer) return;
 
@@ -266,7 +249,7 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       const drawResult: GameResult = {
         winner: "draw" as any,
         winnerName: "Draw by agreement",
-        pointsAwarded: 0, // Draws typically don't award points
+        pointsAwarded: 0, // Draws don't award points
         gameEndReason: "draw",
         gameid: gameState.gameSessionId,
         winnerid: "",

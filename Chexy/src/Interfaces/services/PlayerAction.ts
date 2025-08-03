@@ -9,5 +9,3 @@ export interface PlayerAction {
   timestamp: number;
   sequenceNumber: number;
 }
-
-

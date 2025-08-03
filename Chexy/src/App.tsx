@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import {BrowserRouter, Routes, Route, useLocation} from "react-router-dom";
 import GameSelect from "@/pages/GameSelect";
 import Login from "@/pages/Login";
 import Index from "@/pages/Index";
@@ -11,32 +11,48 @@ import BotSelect from "@/pages/BotSelect.tsx";
 import Lobby from "@/pages/Lobby.jsx";
 import Register from "@/pages/Register.tsx";
 import ForgotPassword from "@/pages/ForgotPassword.tsx";
-import ChessBoardPvP from "@/components/InterfacesService/ChessBoardPvP.tsx";
 import { WebSocketProvider } from "./WebSocket/WebSocketContext";
 import ChessGameLayoutPvP from "@/components/InterfacesService/ChessGameLayoutPvP.tsx";
+
+// Create a wrapper component to handle the route state
+const GamePageWrapper = () => {
+  const location = useLocation();
+
+  // Extract isRankedMatch from navigation state, default to false
+  const isRankedMatch = location.state?.isRankedMatch ?? false;
+
+  console.log("[DEBUG] Game page - navigation state:", location.state);
+  console.log("[DEBUG] Game page - isRankedMatch:", isRankedMatch);
+
+  return (
+    <ChessGameLayoutPvP
+      isRankedMatch={isRankedMatch}
+    />
+  );
+};
 
 const App = () => {
   return (
     <WebSocketProvider>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/game/:gameId" element={<ChessGameLayoutPvP />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route element={<ProtectedRoute />}>
-          <Route path="/game-select" element={<GameSelect />} />
-          <Route path="/bot-select" element={<BotSelect />} />
-          <Route path="/lobby" element={<Lobby />} />
-          <Route path="/game/:gameId" element={<ChessBoardPvP />} />
-          <Route path="/" element={<Index />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/rpg" element={<RPGAdventure />} />
-        </Route>
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="/game-select" element={<GameSelect />} />
+            <Route path="/bot-select" element={<BotSelect />} />
+            <Route path="/lobby" element={<Lobby />} />
+            {/* FIX: Remove the duplicate route and use the wrapper */}
+            <Route path="/game/:gameId" element={<GamePageWrapper />} />
+            <Route path="/" element={<Index />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/rpg" element={<RPGAdventure />} />
+          </Route>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
     </WebSocketProvider>
   );
 };

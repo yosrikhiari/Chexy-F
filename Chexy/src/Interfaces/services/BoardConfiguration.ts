@@ -5,4 +5,3 @@ export interface BoardConfiguration {
   bossRound: boolean;
   enemyQueenExposed: boolean;
 }
-

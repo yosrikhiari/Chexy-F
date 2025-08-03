@@ -278,17 +278,21 @@ const Lobby = () => {
           console.log("Game ready:", gameData);
           setInQueue(false);
           setShowAcceptDialog(false);
+
+          // FIX: Add isRankedMatch: true for matchmaking games
           navigate(`/game/${gameData.gameId}`, {
             state: {
               playerId: user.id,
               color: gameData.color,
-              opponentId: gameData.opponentId
+              opponentId: gameData.opponentId,
+              isRankedMatch: true  // <-- ADD THIS LINE
             }
           });
         } catch (error) {
           console.error("Error parsing game ready data:", error);
         }
       });
+
       newSubscriptions.push(gameReadySub);
 
       // Match cancelled subscription
@@ -419,7 +423,12 @@ const Lobby = () => {
         });
       } else {
         navigate(`/game/${session.gameId}`, {
-          state: { playerId: user.id, color: "white", opponentId: session.blackPlayer?.userId }
+          state: {
+            playerId: user.id,
+            color: "white",
+            opponentId: session.blackPlayer?.userId,
+            isRankedMatch: !isPrivate  // <-- ADD THIS: public games are ranked
+          }
         });
       }
     } catch (error) {
@@ -436,7 +445,12 @@ const Lobby = () => {
     try {
       const session = await gameSessionService.joinGame(gameId, user.id);
       navigate(`/game/${session.gameId}`, {
-        state: { playerId: user.id, color: "black", opponentId: session.whitePlayer?.userId }
+        state: {
+          playerId: user.id,
+          color: "black",
+          opponentId: session.whitePlayer?.userId,
+          isRankedMatch: !session.isPrivate  // <-- ADD THIS: determine based on session
+        }
       });
     } catch (error) {
       console.error("Error joining game:", error);

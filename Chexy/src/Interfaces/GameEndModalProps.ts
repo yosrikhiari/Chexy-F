@@ -6,4 +6,5 @@ export interface GameEndModalProps {
   onClose: () => void;
   onPlayAgain: () => void;
   isRankedMatch?: boolean;
+  totalPoints?: number; // New prop
 }

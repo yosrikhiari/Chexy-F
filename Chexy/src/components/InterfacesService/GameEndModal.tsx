@@ -14,6 +14,7 @@ import { JwtService } from "@/services/JwtService.ts";
 import { userService } from "@/services/UserService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
+import {PointCalculationService} from "@/services/PointsCalculatorService.tsx";
 
 interface ExtendedGameEndModalProps extends GameEndModalProps {
   onReviewGame: () => void;
@@ -28,11 +29,13 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
                                                              onReviewGame,
                                                              onBackToMenu,
                                                              isRankedMatch = false,
+                                                             totalPoints,
                                                            }) => {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [updatedPoints, setUpdatedPoints] = useState<number>(0);
+  const [calculatedPoints, setCalculatedPoints] = useState<number>(0);
+  const [streakInfo, setStreakInfo] = useState<string>("");
 
   const {
     winner = "",
@@ -67,9 +70,35 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
           return;
         }
 
+        // Get current user
+        const currentUser = await userService.getCurrentUser(keycloakId);
+        const currentUserId = currentUser.id;
+
+        // Calculate points for the current user BEFORE updating backend
+        if (isRankedMatch && winnerid) {
+          const isCurrentUserWinner = winnerid === currentUserId;
+          const isDraw = winner === "draw";
+
+          const calculatedPointsForUser = await PointCalculationService.calculatePoints(
+            currentUserId,
+            isCurrentUserWinner,
+            isDraw,
+            isRankedMatch
+          );
+
+          setCalculatedPoints(calculatedPointsForUser);
+
+          // If current user won, update their points
+          if (isCurrentUserWinner && calculatedPointsForUser > 0) {
+            await userService.updateUserPoints(currentUserId, calculatedPointsForUser);
+          }
+        }
+
         const gameSession = await gameSessionService.getGameSession(gameid);
-        const actualWhitePlayerId = gameSession.whitePlayer?.userId || (Array.isArray(gameSession.whitePlayer) ? gameSession.whitePlayer[0]?.userId : null);
-        const actualBlackPlayerId = gameSession.blackPlayer?.[0]?.userId || (Array.isArray(gameSession.blackPlayer) ? gameSession.blackPlayer[0]?.userId : null);
+        const actualWhitePlayerId = gameSession.whitePlayer?.userId ||
+          (Array.isArray(gameSession.whitePlayer) ? gameSession.whitePlayer[0]?.userId : null);
+        const actualBlackPlayerId = gameSession.blackPlayer?.[0]?.userId ||
+          (Array.isArray(gameSession.blackPlayer) ? gameSession.blackPlayer[0]?.userId : null);
 
         let actualWinnerId = winnerid;
         if (!actualWinnerId && winner !== "draw") {
@@ -82,17 +111,36 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
 
         const history = await gameHistoryService.getGameHistoriesBySession(gameid);
         if (history && history.id) {
+          // Create the result with calculated points for the winner
+          let finalPointsAwarded = 0;
+          if (isRankedMatch && actualWinnerId) {
+            // Calculate points for the actual winner
+            const isDraw = winner === "draw";
+            finalPointsAwarded = await PointCalculationService.calculatePoints(
+              actualWinnerId,
+              true, // They are the winner
+              isDraw,
+              isRankedMatch
+            );
+
+            // Update the winner's points
+            if (finalPointsAwarded > 0) {
+              await userService.updateUserPoints(actualWinnerId, finalPointsAwarded);
+            }
+          }
+
           const updatedGameResult = {
             ...gameResult,
-            pointsAwarded: 0, // Points handled in backend
-            winnerid: actualWinnerId || ""
+            winnerid: actualWinnerId || "",
+            pointsAwarded: finalPointsAwarded
           };
+
           await gameHistoryService.completeGameHistory(history.id, updatedGameResult);
         }
 
+        // Refresh user data to get updated points
         const updatedUser = await userService.getCurrentUser(keycloakId);
         localStorage.setItem("user", JSON.stringify(updatedUser));
-        setUpdatedPoints(updatedUser.points);
 
       } catch (err) {
         console.error("Error updating backend:", err);
@@ -103,7 +151,51 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
     };
 
     updateBackend();
-  }, [gameResult, gameid, isRankedMatch, winner, gameEndReason]);
+  }, [gameResult, gameid, isRankedMatch, winner, gameEndReason, winnerid]);
+
+  // Load streak information for display
+  useEffect(() => {
+    const loadStreakInfo = async () => {
+      if (!isRankedMatch || !authService.isLoggedIn()) return;
+
+      try {
+        const keycloakId = JwtService.getKeycloakId();
+        if (!keycloakId) return;
+
+        const currentUser = await userService.getCurrentUser(keycloakId);
+        const gameHistories = await gameHistoryService.getRankedGamesByUser(currentUser.id);
+
+        // Calculate streak (this is a simplified version - you might want to use the full service method)
+        const sortedHistories = gameHistories
+          .filter(h => h.endTime)
+          .sort((a, b) => new Date(b.endTime!).getTime() - new Date(a.endTime!).getTime());
+
+        let streak = 0;
+        let lastWasWin: boolean | null = null;
+
+        for (const history of sortedHistories) {
+          if (!history.result || history.result.winner === "draw") continue;
+
+          const isWin = history.result.winnerid === currentUser.id;
+
+          if (lastWasWin === null) {
+            lastWasWin = isWin;
+            streak = isWin ? 1 : -1;
+          } else if (lastWasWin === isWin) {
+            streak = isWin ? streak + 1 : streak - 1;
+          } else {
+            break;
+          }
+        }
+
+        setStreakInfo(PointCalculationService.getStreakDescription(streak));
+      } catch (error) {
+        console.error("Failed to load streak info:", error);
+      }
+    };
+
+    loadStreakInfo();
+  }, [isRankedMatch]);
 
   const handlePlayAgain = async () => {
     try {
@@ -129,7 +221,9 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
 
   const displayPoints = () => {
     if (!isRankedMatch || winner === "draw") return 0;
-    return pointsAwarded; // Backend now provides this
+
+    // Show calculated points if available, otherwise fall back to gameResult points
+    return calculatedPoints > 0 ? calculatedPoints : pointsAwarded;
   };
 
   return (
@@ -163,7 +257,7 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
 
           {isProcessing && (
             <p className="text-sm text-blue-600 text-center">
-              Finalizing game...
+              Calculating points and finalizing game...
             </p>
           )}
 
@@ -172,8 +266,23 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
               {isRankedMatch ? "Ranked Points Awarded" : "Casual Match - No Points Awarded"}
             </p>
             <p className="text-2xl font-bold text-primary">
-              {displayPoints()}
+              +{displayPoints()}
             </p>
+            {streakInfo && isRankedMatch && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {streakInfo}
+              </p>
+            )}
+            {isRankedMatch && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Points range: 12-25 based on streak
+              </p>
+            )}
+            {totalPoints !== null && (
+              <p className="text-sm text-muted-foreground mt-2">
+                New Total Points: {totalPoints}
+              </p>
+            )}
           </div>
 
           {error && (
