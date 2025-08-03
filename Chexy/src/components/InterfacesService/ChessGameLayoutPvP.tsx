@@ -14,6 +14,7 @@ import { JwtService } from "@/services/JwtService.ts";
 import ChessBoardPvP from "@/components/InterfacesService/ChessBoardPvP.tsx";
 import { PlayerAction } from "@/Interfaces/services/PlayerAction.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
+import {PointCalculationService} from "@/services/PointsCalculatorService.tsx";
 
 interface ChessGameLayoutPvPProps {
   className?: string;
@@ -522,7 +523,38 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       correctedResult.pointsAwarded = 0;
       console.log("[DEBUG] Non-ranked match - points set to 0");
     }
+// Calculate and set points for display
+    if (isRankedMatch && correctedResult.winnerid) {
+      try {
+        const keycloakId = JwtService.getKeycloakId();
+        if (keycloakId) {
+          const currentUser = await userService.getCurrentUser(keycloakId);
+          const isCurrentUserWinner = correctedResult.winnerid === currentUser.id;
 
+          if (isCurrentUserWinner) {
+            // Calculate points for winner
+            const calculatedPoints = await PointCalculationService.calculatePoints(
+              currentUser.id,
+              true,
+              correctedResult.winner === "draw",
+              isRankedMatch
+            );
+            correctedResult.pointsAwarded = calculatedPoints;
+          } else {
+            // Show negative points for loser
+            const calculatedPoints = await PointCalculationService.calculatePoints(
+              correctedResult.winnerid,
+              true,
+              correctedResult.winner === "draw",
+              isRankedMatch
+            );
+            correctedResult.pointsAwarded = -calculatedPoints;
+          }
+        }
+      } catch (error) {
+        console.error("Failed to calculate points:", error);
+      }
+    }
     setGameResult(correctedResult);
     setIsGameOver(true);
     setIsModalOpen(true);
@@ -911,7 +943,6 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           onBackToMenu={() => navigate("/")}
           isRankedMatch={isRankedMatch}
           totalPoints={totalPoints}
-          initialPoints={initialPoints}
         />
       </div>
     </>

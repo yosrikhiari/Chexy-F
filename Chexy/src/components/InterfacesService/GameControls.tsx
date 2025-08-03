@@ -157,55 +157,71 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
     try {
       console.log("[DEBUG] Starting resignation process...");
 
-      const winnerColor = playerColor === "white" ? "black" : "white";
+      // Get current user ID (the one who is resigning)
+      const keycloakId = JwtService.getKeycloakId();
+      if (!keycloakId) throw new Error("User not authenticated");
 
-      // Get actual player IDs from the gameSession object
+      const currentUser = await userService.getCurrentUser(keycloakId);
+      const resigningUserId = currentUser.id;
+
+      // Determine winner (the player who DIDN'T resign)
       let winnerId: string;
       let winnerName: string;
+      let winnerColor: "white" | "black";
 
-      if (winnerColor === "white") {
-        const whitePlayer = Array.isArray(gameSession.whitePlayer)
-          ? gameSession.whitePlayer[0]
-          : gameSession.whitePlayer;
-        winnerId = whitePlayer?.userId || whitePlayer?.id || gameState.userId1;
-        winnerName = whitePlayer?.username || player1Name;
-      } else {
-        const blackPlayer = Array.isArray(gameSession.blackPlayer)
-          ? gameSession.blackPlayer[0]
-          : gameSession.blackPlayer;
-        winnerId = blackPlayer?.userId || blackPlayer?.id || gameState.userId2;
+      const whitePlayer = Array.isArray(gameSession.whitePlayer)
+        ? gameSession.whitePlayer[0]
+        : gameSession.whitePlayer;
+      const blackPlayer = Array.isArray(gameSession.blackPlayer)
+        ? gameSession.blackPlayer[0]
+        : gameSession.blackPlayer;
+
+      if (resigningUserId === whitePlayer?.userId) {
+        // White player resigned, black player wins
+        winnerId = blackPlayer?.userId || gameState.userId2;
         winnerName = blackPlayer?.username || player2Name;
+        winnerColor = "black";
+      } else {
+        // Black player resigned, white player wins
+        winnerId = whitePlayer?.userId || gameState.userId1;
+        winnerName = whitePlayer?.username || player1Name;
+        winnerColor = "white";
       }
 
-      // Validate winnerId
-      if (!winnerId) {
-        console.error("[ERROR] Could not determine winnerId from game session");
-        winnerId = winnerColor === "white"
-          ? (gameState.userId1 || "unknown")
-          : (gameState.userId2 || "unknown");
-      }
+      // Calculate points for both players if ranked match
+      let winnerPoints = 0;
+      let loserPoints = 0;
 
-      // Calculate points for resignation
-      let calculatedPoints = 0;
-      if (isRankedMatch && winnerId) {
-        calculatedPoints = await PointCalculationService.calculatePoints(
+      if (isRankedMatch) {
+        // Calculate winner points
+        winnerPoints = await PointCalculationService.calculatePoints(
           winnerId,
-          true, // Winner
-          false, // Not a draw
+          true, // is winner
+          false, // not a draw
           isRankedMatch
         );
+
+        // Calculate loser points (the one who resigned)
+        loserPoints = -(await PointCalculationService.calculatePoints(
+          resigningUserId,
+          false, // is loser
+          false, // not a draw
+          isRankedMatch
+        ));
+
+        console.log("[DEBUG] Calculated points - Winner:", winnerPoints, "Loser:", loserPoints);
       }
 
       const gameResult: GameResult = {
         winner: winnerColor,
         winnerName: winnerName,
-        pointsAwarded: calculatedPoints,
+        pointsAwarded: winnerPoints, // Store winner points for history
         gameEndReason: "resignation",
         gameid: gameState.gameSessionId,
         winnerid: winnerId,
       };
 
-      console.log("[DEBUG] Created game result with calculated points:", gameResult);
+      console.log("[DEBUG] Created game result:", gameResult);
 
       // Call parent's onResign IMMEDIATELY
       if (onResign) {
@@ -224,7 +240,7 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
 
       toast({
         title: "Game Resigned",
-        description: `${currentPlayer === "white" ? player1Name : player2Name} has resigned.`,
+        description: `You have resigned. ${winnerName} wins!`,
       });
 
     } catch (error) {

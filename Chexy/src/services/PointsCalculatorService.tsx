@@ -28,11 +28,6 @@ export class PointCalculationService {
       return 0;
     }
 
-    // No points for losers
-    if (!isWinner) {
-      return 0;
-    }
-
     try {
       // Get user's ranked game history
       const gameHistories = await gameHistoryService.getRankedGamesByUser(userId);
@@ -45,7 +40,7 @@ export class PointCalculationService {
       // Calculate current streak
       const currentStreak = this.calculateCurrentStreak(sortedHistories, userId);
 
-      // Base points for a win
+      // Base points calculation
       let points = 12;
 
       // Streak bonus calculation
@@ -57,7 +52,10 @@ export class PointCalculationService {
         points += Math.min(Math.abs(currentStreak), 13);
       }
 
-      return Math.min(points, 25); // Cap at 25 points
+      const finalPoints = Math.min(points, 25); // Cap at 25 points
+
+      // Return positive points for winners, same amount for losers (will be made negative elsewhere)
+      return finalPoints;
 
     } catch (error) {
       console.error("Error calculating points:", error);

@@ -74,26 +74,6 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
         const currentUser = await userService.getCurrentUser(keycloakId);
         const currentUserId = currentUser.id;
 
-        // Calculate points for the current user BEFORE updating backend
-        if (isRankedMatch && winnerid) {
-          const isCurrentUserWinner = winnerid === currentUserId;
-          const isDraw = winner === "draw";
-
-          const calculatedPointsForUser = await PointCalculationService.calculatePoints(
-            currentUserId,
-            isCurrentUserWinner,
-            isDraw,
-            isRankedMatch
-          );
-
-          setCalculatedPoints(calculatedPointsForUser);
-
-          // If current user won, update their points
-          if (isCurrentUserWinner && calculatedPointsForUser > 0) {
-            await userService.updateUserPoints(currentUserId, calculatedPointsForUser);
-          }
-        }
-
         const gameSession = await gameSessionService.getGameSession(gameid);
         const actualWhitePlayerId = gameSession.whitePlayer?.userId ||
           (Array.isArray(gameSession.whitePlayer) ? gameSession.whitePlayer[0]?.userId : null);
@@ -105,40 +85,59 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
           actualWinnerId = winner === "white" ? actualWhitePlayerId : actualBlackPlayerId;
         }
 
-        if (!actualWhitePlayerId || (!actualBlackPlayerId && winner !== "draw")) {
-          setError("Unable to identify players. History updated without points.");
-        }
+        let winnerPoints = 0;
+        let loserPoints = 0;
 
-        const history = await gameHistoryService.getGameHistoriesBySession(gameid);
-        if (history && history.id) {
-          // Create the result with calculated points for the winner
-          let finalPointsAwarded = 0;
-          if (isRankedMatch && actualWinnerId) {
-            // Calculate points for the actual winner
-            const isDraw = winner === "draw";
-            finalPointsAwarded = await PointCalculationService.calculatePoints(
-              actualWinnerId,
-              true, // They are the winner
-              isDraw,
+        // Calculate points for BOTH winner and loser if ranked match
+        if (isRankedMatch && actualWinnerId && winner !== "draw") {
+          // Calculate winner points
+          winnerPoints = await PointCalculationService.calculatePoints(
+            actualWinnerId,
+            true, // is winner
+            false, // not a draw
+            isRankedMatch
+          );
+
+          // Calculate loser points (negative)
+          const loserId = actualWinnerId === actualWhitePlayerId ? actualBlackPlayerId : actualWhitePlayerId;
+          if (loserId) {
+            loserPoints = -(await PointCalculationService.calculatePoints(
+              loserId,
+              false, // is loser
+              false, // not a draw
               isRankedMatch
-            );
-
-            // Update the winner's points
-            if (finalPointsAwarded > 0) {
-              await userService.updateUserPoints(actualWinnerId, finalPointsAwarded);
-            }
+            ));
           }
 
+          // Update BOTH players' points in backend
+          if (winnerPoints > 0) {
+            await userService.updateUserPoints(actualWinnerId, winnerPoints);
+          }
+          if (loserPoints < 0 && loserId) {
+            await userService.updateUserPoints(loserId, loserPoints);
+          }
+
+          // Set calculated points for display
+          if (currentUserId === actualWinnerId) {
+            setCalculatedPoints(winnerPoints);
+          } else if (currentUserId === loserId) {
+            setCalculatedPoints(loserPoints);
+          }
+        }
+
+        // Update game history
+        const history = await gameHistoryService.getGameHistoriesBySession(gameid);
+        if (history && history.id) {
           const updatedGameResult = {
             ...gameResult,
             winnerid: actualWinnerId || "",
-            pointsAwarded: finalPointsAwarded
+            pointsAwarded: winnerPoints // Store winner's points in history
           };
 
           await gameHistoryService.completeGameHistory(history.id, updatedGameResult);
         }
 
-        // Refresh user data to get updated points
+        // Refresh current user data
         const updatedUser = await userService.getCurrentUser(keycloakId);
         localStorage.setItem("user", JSON.stringify(updatedUser));
 
@@ -199,14 +198,23 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
 
   const handlePlayAgain = async () => {
     try {
+      // Force refresh user data before navigating
       const keycloakId = JwtService.getKeycloakId();
       if (keycloakId) {
         const updatedUser = await userService.getCurrentUser(keycloakId);
         localStorage.setItem("user", JSON.stringify(updatedUser));
+        console.log("[DEBUG] User data refreshed before lobby navigation:", updatedUser.points);
       }
-      navigate("/lobby", { replace: true });
+
+      // Navigate with replace to prevent back button issues
+      navigate("/lobby", {
+        replace: true,
+        state: { forceRefresh: true }
+      });
       onClose();
     } catch (error) {
+      console.error("Failed to refresh user data:", error);
+      // Navigate anyway
       navigate("/lobby", { replace: true });
       onClose();
     }
@@ -222,8 +230,8 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
   const displayPoints = () => {
     if (!isRankedMatch || winner === "draw") return 0;
 
-    // Show calculated points if available, otherwise fall back to gameResult points
-    return calculatedPoints > 0 ? calculatedPoints : pointsAwarded;
+    // Show the calculated points (already positive for winner, negative for loser)
+    return calculatedPoints;
   };
 
   return (
@@ -263,10 +271,10 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
 
           <div className="bg-muted p-4 rounded-md w-full text-center">
             <p className="text-sm text-muted-foreground mb-1">
-              {isRankedMatch ? "Ranked Points Awarded" : "Casual Match - No Points Awarded"}
+              {isRankedMatch ? "Ranked Points Change" : "Casual Match - No Points Awarded"}
             </p>
-            <p className="text-2xl font-bold text-primary">
-              +{displayPoints()}
+            <p className={`text-2xl font-bold ${displayPoints() >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {displayPoints() >= 0 ? '+' : ''}{displayPoints()}
             </p>
             {streakInfo && isRankedMatch && (
               <p className="text-xs text-muted-foreground mt-1">

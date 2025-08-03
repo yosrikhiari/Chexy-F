@@ -199,23 +199,37 @@ const Lobby = () => {
       try {
         const keycloakId = JwtService.getKeycloakId();
         if (keycloakId) {
+          console.log("[DEBUG] Refreshing user data in lobby...");
           const updatedUser = await userService.getCurrentUser(keycloakId);
+
+          // Update both localStorage and component state
           localStorage.setItem("user", JSON.stringify(updatedUser));
+
           console.log("[DEBUG] User data refreshed in lobby:", updatedUser.points);
         }
       } catch (error) {
         console.error("Failed to refresh user data in lobby:", error);
-        // Don't show toast as this is a background operation
       }
     };
 
-    // Only refresh if we don't have fresh data
-    const lastRefresh = localStorage.getItem("lastUserRefresh");
-    const now = Date.now();
-    if (!lastRefresh || (now - parseInt(lastRefresh)) > 30000) { // 30 seconds
-      refreshUserData();
-      localStorage.setItem("lastUserRefresh", now.toString());
-    }
+    // Always refresh when entering lobby (don't check lastRefresh)
+    refreshUserData();
+  }, []);
+
+
+  useEffect(() => {
+    // Override beforeunload to prevent reload warning in lobby
+    const handleBeforeUnload = (e) => {
+      // Don't show warning in lobby
+      e.preventDefault();
+      return undefined;
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
   }, []);
   // WebSocket subscription setup - stabilized dependencies
   useEffect(() => {
@@ -634,9 +648,11 @@ const Lobby = () => {
             Welcome, {user?.username || "Guest"}! Find your perfect match
           </p>
           <div className="mt-4">
-            <span className="text-muted-foreground">
-              Your rank points: <span className="text-primary font-bold">{user?.points || 0}</span>
-            </span>
+  <span className="text-muted-foreground">
+    Your rank points: <span className="text-primary font-bold" key={user?.points}>
+      {JSON.parse(localStorage.getItem("user") || "{}")?.points || user?.points || 0}
+    </span>
+  </span>
           </div>
         </div>
 
