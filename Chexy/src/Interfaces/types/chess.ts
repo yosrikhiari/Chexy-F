@@ -64,10 +64,10 @@ export interface PlayerStats {
 export type GameEndReason = 'checkmate' | 'timeout' | 'resignation' | 'draw' | 'tie_resolved';
 
 export interface GameResult {
-  winner: PieceColor | "draw" | "";
+  winner: PieceColor | "draw"; // Add "draw" as a valid winner type
   winnerName: string;
   pointsAwarded: number;
   gameEndReason: GameEndReason;
   gameid: string;
-  winnerid: string;
+  winnerid: string; // Empty string for draws
 }

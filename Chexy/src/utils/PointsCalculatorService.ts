@@ -1,5 +1,6 @@
 import {JwtService} from '@/services/JwtService.ts';
 import {userService} from '@/services/UserService.ts';
+import {gameHistoryService} from '@/services/GameHistoryService.ts';
 
 
 export interface StreakBasedPoints {
@@ -96,7 +97,7 @@ export class PointCalculationService {
   }
 
   /**
-   * Get current user's streak from their game stats
+   * Get current user's streak from their game stats or calculate from history
    * @returns Current streak value
    */
   static async getCurrentUserStreak(): Promise<number> {
@@ -105,13 +106,81 @@ export class PointCalculationService {
       if (!keycloakId) throw new Error("User not authenticated");
 
       const user = await userService.getCurrentUser(keycloakId);
-      return user.gameStats?.currentStreak || 0;
+
+      // Try to get from user stats first
+      if (user.gameStats?.currentStreak !== undefined) {
+        return user.gameStats.currentStreak;
+      }
+
+      // Fallback to calculating from game history
+      return await this.getCurrentUserStreakFromHistory();
+
     } catch (error) {
       console.error("[POINTS] Failed to get current user streak:", error);
       return 0;
     }
   }
+  /**
+   * Get current user's streak using game history service
+   * @returns Current streak value
+   */
+  static async getCurrentUserStreakFromHistory(): Promise<number> {
+    try {
+      const keycloakId = JwtService.getKeycloakId();
+      if (!keycloakId) throw new Error("User not authenticated");
 
+      const user = await userService.getCurrentUser(keycloakId);
+      const userId = user.id;
+
+      // Get recent ranked games to calculate streak
+      const recentGames = await gameHistoryService.getRankedGamesByUser(userId);
+
+      if (!recentGames || recentGames.length === 0) {
+        return 0; // No games = no streak
+      }
+
+      // Sort by most recent first
+      recentGames.sort((a, b) => new Date(b.endTime || b.startTime).getTime() - new Date(a.endTime || a.startTime).getTime());
+
+      let streak = 0;
+      let lastResult: 'win' | 'loss' | 'draw' | null = null;
+
+      for (const game of recentGames) {
+        if (!game.result) continue;
+
+        let currentResult: 'win' | 'loss' | 'draw';
+
+        if (game.result.winner === "draw") {
+          currentResult = 'draw';
+        } else if (game.result.winnerid === userId) {
+          currentResult = 'win';
+        } else {
+          currentResult = 'loss';
+        }
+
+        // If this is the first game or continues the streak
+        if (lastResult === null) {
+          lastResult = currentResult;
+          if (currentResult === 'win') streak = 1;
+          else if (currentResult === 'loss') streak = -1;
+          else streak = 0; // draw breaks streak
+        } else if (lastResult === currentResult && currentResult !== 'draw') {
+          if (currentResult === 'win') streak++;
+          else if (currentResult === 'loss') streak--;
+        } else {
+          // Streak broken
+          break;
+        }
+      }
+
+      console.log("[STREAK] Calculated streak from game history:", { userId, streak, gamesAnalyzed: recentGames.length });
+      return streak;
+
+    } catch (error) {
+      console.error("[STREAK] Failed to get streak from game history:", error);
+      return 0;
+    }
+  }
   /**
    * Calculate and apply points for a game result
    * @param gameResult - The game result

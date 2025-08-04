@@ -141,10 +141,8 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
     navigate("/lobby");
   };
 
-// Key changes for GameControls.tsx - Replace the handleResign function:
-
   const handleResign = async () => {
-    if (!gameState?.gameSessionId || !gameSession || !currentPlayer || isResigning) {
+    if (!gameState?.gameSessionId || !gameSession || isResigning) {
       toast({
         title: "Error",
         description: "Game session not loaded or already resigning",
@@ -165,11 +163,9 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       const currentUser = await userService.getCurrentUser(keycloakId);
       const resigningUserId = currentUser.id;
 
-      // Determine winner (the player who DIDN'T resign)
-      let winnerId: string;
-      let winnerName: string;
-      let winnerColor: "white" | "black";
+      console.log("[DEBUG] Resigning user ID:", resigningUserId);
 
+      // Normalize player data to handle arrays
       const whitePlayer = Array.isArray(gameSession.whitePlayer)
         ? gameSession.whitePlayer[0]
         : gameSession.whitePlayer;
@@ -177,43 +173,74 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
         ? gameSession.blackPlayer[0]
         : gameSession.blackPlayer;
 
+      console.log("[DEBUG] White player:", whitePlayer);
+      console.log("[DEBUG] Black player:", blackPlayer);
+
+      // Determine winner (the player who DIDN'T resign)
+      let winnerId: string;
+      let winnerName: string;
+      let winnerColor: "white" | "black";
+
       if (resigningUserId === whitePlayer?.userId) {
         // White player resigned, black player wins
         winnerId = blackPlayer?.userId || gameState.userId2;
-        winnerName = blackPlayer?.username || player2Name;
+        winnerName = blackPlayer?.username || player2Name || "Black Player";
         winnerColor = "black";
-      } else {
+        console.log("[DEBUG] White resigned, black wins:", { winnerId, winnerName });
+      } else if (resigningUserId === blackPlayer?.userId) {
         // Black player resigned, white player wins
         winnerId = whitePlayer?.userId || gameState.userId1;
-        winnerName = whitePlayer?.username || player1Name;
+        winnerName = whitePlayer?.username || player1Name || "White Player";
         winnerColor = "white";
+        console.log("[DEBUG] Black resigned, white wins:", { winnerId, winnerName });
+      } else {
+        // Fallback: determine based on current player
+        console.log("[DEBUG] Using fallback logic, currentPlayer:", currentPlayer);
+        if (currentPlayer === "white") {
+          // Current player (white) resigned, black wins
+          winnerId = blackPlayer?.userId || gameState.userId2;
+          winnerName = blackPlayer?.username || player2Name || "Black Player";
+          winnerColor = "black";
+        } else {
+          // Current player (black) resigned, white wins
+          winnerId = whitePlayer?.userId || gameState.userId1;
+          winnerName = whitePlayer?.username || player1Name || "White Player";
+          winnerColor = "white";
+        }
       }
 
-      // Create game result - points will be calculated by parent component
+      // Validate that we have a winner ID
+      if (!winnerId) {
+        console.error("[ERROR] Could not determine winner ID");
+        throw new Error("Could not determine winner");
+      }
+
+      // Create game result with proper winner ID
       const gameResult: GameResult = {
         winner: winnerColor,
         winnerName: winnerName,
         pointsAwarded: 0, // Will be calculated by parent based on streak
         gameEndReason: "resignation",
         gameid: gameState.gameSessionId,
-        winnerid: winnerId,
+        winnerid: winnerId, // This is critical!
       };
 
-      console.log("[DEBUG] Created game result:", gameResult);
+      console.log("[DEBUG] Created game result with winnerId:", gameResult);
 
-      // Call parent's onResign IMMEDIATELY
+      // Call parent's onResign IMMEDIATELY (this will handle point calculation)
       if (onResign) {
         console.log("[DEBUG] Calling parent onResign...");
         onResign(gameResult);
       }
 
-      // Backend cleanup - no point calculations
+      // Backend cleanup
       try {
         await gameSessionService.updateGameStatus(gameState.gameSessionId, "COMPLETED");
         await gameSessionService.endGame(gameState.gameSessionId, winnerId);
         console.log("[DEBUG] Backend cleanup completed");
       } catch (backendError) {
         console.error("[ERROR] Backend cleanup failed:", backendError);
+        // Don't throw here, just log
       }
 
       toast({

@@ -501,8 +501,6 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
 
 
-// Key changes for ChessGameLayoutPvP.tsx - Replace the handleGameEnd function:
-
   const handleGameEnd = async (result: GameResult) => {
     console.log("[DEBUG] Game ended:", result);
 
@@ -513,43 +511,89 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
     let correctedResult = { ...result };
 
-    // Fix missing winnerId
+    // CRITICAL: Ensure winnerId is properly set
     if (!correctedResult.winnerid && correctedResult.winner !== "draw") {
+      console.error("[ERROR] Missing winnerId in game result:", correctedResult);
+
+      // Try to fix based on winner color
       if (correctedResult.winner === "white") {
         correctedResult.winnerid = gameState.userId1;
       } else if (correctedResult.winner === "black") {
         correctedResult.winnerid = gameState.userId2;
       }
-      console.log("[DEBUG] Fixed missing winnerId:", correctedResult.winnerid);
+
+      console.log("[DEBUG] Attempted to fix winnerId:", correctedResult.winnerid);
+
+      // If still no winnerId, this is a critical error
+      if (!correctedResult.winnerid) {
+        console.error("[CRITICAL ERROR] Cannot determine winnerId, game state:", gameState);
+        correctedResult.pointsAwarded = 0; // Safe fallback
+        setGameResult(correctedResult);
+        setIsGameOver(true);
+        setIsModalOpen(true);
+        return;
+      }
     }
 
-    // NEW: Calculate points based on streak for ranked matches
+    // Calculate points for ranked matches
     if (isRankedMatch) {
       try {
+        // Get current user to determine if they're the winner
+        const keycloakId = JwtService.getKeycloakId();
+        if (!keycloakId) throw new Error("User not authenticated");
+
+        const currentUser = await userService.getCurrentUser(keycloakId);
+        const isCurrentUserWinner = correctedResult.winnerid === currentUser.id;
+        const isDraw = correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw";
+
+        console.log("[DEBUG] Point calculation context:", {
+          currentUserId: currentUser.id,
+          winnerId: correctedResult.winnerid,
+          isCurrentUserWinner,
+          isDraw,
+          gameEndReason: correctedResult.gameEndReason
+        });
+
+        // Get current streak
         const currentStreak = await PointCalculationService.getCurrentUserStreak();
-        const { gameResult: updatedResult, pointsCalculation } = await PointCalculationService.processGameResultPoints(
-          correctedResult,
+
+        // Calculate points using the streak-based system
+        const pointsCalculation = PointCalculationService.calculateStreakBasedPoints(
+          isCurrentUserWinner,
+          isDraw,
           currentStreak,
           isRankedMatch
         );
 
-        correctedResult = updatedResult;
+        // Apply points to current user's account
+        if (pointsCalculation.pointsAwarded !== 0) {
+          await PointCalculationService.applyPointsToUser(currentUser.id, pointsCalculation.pointsAwarded);
+          console.log("[DEBUG] Applied points to user:", {
+            userId: currentUser.id,
+            pointsAwarded: pointsCalculation.pointsAwarded
+          });
+        }
+
+        // Update the result with calculated points
+        correctedResult.pointsAwarded = pointsCalculation.pointsAwarded;
 
         console.log("[DEBUG] Points calculated based on streak:", {
           streak: currentStreak,
           newStreak: pointsCalculation.newStreak,
           pointsAwarded: pointsCalculation.pointsAwarded,
-          streakType: pointsCalculation.streakType
+          streakType: pointsCalculation.streakType,
+          isWinner: isCurrentUserWinner,
+          isDraw: isDraw
         });
       } catch (error) {
-        console.error("[DEBUG] Failed to calculate streak-based points:", error);
+        console.error("[ERROR] Failed to calculate streak-based points:", error);
         correctedResult.pointsAwarded = 0;
       }
     } else {
       correctedResult.pointsAwarded = 0;
     }
 
-    // Set local game state immediately
+    // Set local game state
     setGameResult(correctedResult);
     setIsGameOver(true);
     setIsModalOpen(true);
@@ -567,7 +611,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       currentTurn: prev.currentTurn
     }));
 
-    // Refresh user data after points calculation
+    // Refresh user data
     setTimeout(async () => {
       const keycloakId = JwtService.getKeycloakId();
       if (keycloakId) {
@@ -580,7 +624,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           console.error("Failed to fetch updated user:", error);
         }
       }
-    }, 1000); // Reduced timeout since we're not waiting for backend
+    }, 1000);
 
     console.log("[DEBUG] Game end processing completed locally");
   };
@@ -675,32 +719,38 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       const isBlackDraw = await chessGameService.isDraw(gameState.gameSessionId, "black");
 
       if (isWhiteCheckmate) {
-        handleGameEnd({
+        const checkmateResult: GameResult = {
           winner: "black",
           winnerName: playerStats.black.name,
-          pointsAwarded: isRankedMatch ? 15 : 0,
+          pointsAwarded: 0, // Will be calculated based on streak
           gameEndReason: "checkmate",
           gameid: gameState.gameSessionId,
           winnerid: gameState.userId2,
-        });
+        };
+        console.log("[DEBUG] White checkmate detected, calling handleGameEnd");
+        handleGameEnd(checkmateResult);
       } else if (isBlackCheckmate) {
-        handleGameEnd({
+        const checkmateResult: GameResult = {
           winner: "white",
           winnerName: playerStats.white.name,
-          pointsAwarded: isRankedMatch ? 15 : 0,
+          pointsAwarded: 0, // Will be calculated based on streak
           gameEndReason: "checkmate",
           gameid: gameState.gameSessionId,
           winnerid: gameState.userId1,
-        });
+        };
+        console.log("[DEBUG] Black checkmate detected, calling handleGameEnd");
+        handleGameEnd(checkmateResult);
       } else if (isWhiteDraw || isBlackDraw) {
-        handleGameEnd({
+        const drawResult: GameResult = {
           winner: "draw" as any,
           winnerName: "Draw",
-          pointsAwarded: 0,
-          gameEndReason: "checkmate", // Will be handled as draw
+          pointsAwarded: 0, // Draws typically don't award points
+          gameEndReason: "draw",
           gameid: gameState.gameSessionId,
           winnerid: "",
-        });
+        };
+        console.log("[DEBUG] Draw detected, calling handleGameEnd");
+        handleGameEnd(drawResult);
       }
     } catch (error) {
       console.error("Error checking game end conditions:", error);

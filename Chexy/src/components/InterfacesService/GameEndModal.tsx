@@ -121,16 +121,22 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
   const displayPoints = () => {
     if (!isRankedMatch) return 0;
 
-    // Show actual points difference if available
+    // Priority order for points display:
+    // 1. Actual points difference (most accurate)
+    // 2. Points from gameResult
+    // 3. Fallback to 0
+
     if (actualPointsAwarded !== 0) {
+      console.log("[MODAL] Using actualPointsAwarded:", actualPointsAwarded);
       return actualPointsAwarded;
     }
 
-    // Fallback to pointsAwarded from gameResult
-    if (gameResult?.pointsAwarded !== undefined) {
+    if (gameResult?.pointsAwarded !== undefined && gameResult.pointsAwarded !== 0) {
+      console.log("[MODAL] Using gameResult.pointsAwarded:", gameResult.pointsAwarded);
       return gameResult.pointsAwarded;
     }
 
+    console.log("[MODAL] No points to display, returning 0");
     return 0;
   };
 
