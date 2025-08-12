@@ -1,7 +1,9 @@
 import { JwtService } from "./JwtService";
 
+import { API_BASE_URL } from "@/config/env";
+
 export class RealtimeService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
+  baseUrl = API_BASE_URL;
 
   async broadcastGameState(gameId: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/realtime/broadcast/${gameId}`, {

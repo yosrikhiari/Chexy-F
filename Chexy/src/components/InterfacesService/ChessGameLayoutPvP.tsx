@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import React, {useState, useEffect, useRef} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import GameControls from "./GameControls.tsx";
 import PlayerInfo from "./PlayerInfo.tsx";
@@ -15,6 +15,7 @@ import ChessBoardPvP from "@/components/InterfacesService/ChessBoardPvP.tsx";
 import { PlayerAction } from "@/Interfaces/services/PlayerAction.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
 import {PointCalculationService} from "@/utils/PointsCalculatorService.ts";
+import { normalizePlayer } from "@/utils/sessionUtils.ts";
 
 
 interface ChessGameLayoutPvPProps {
@@ -30,16 +31,7 @@ type ExtendedPlayerAction = PlayerAction & {
   resultsInStalemate?: boolean;
 };
 
-const normalizePlayerData = (playerData: any) => {
-  if (!playerData) return null;
-  if (Array.isArray(playerData)) {
-    return playerData.length > 0 ? playerData[0] : null;
-  }
-  if (typeof playerData === 'object') {
-    return playerData;
-  }
-  return null;
-};
+const normalizePlayerData = normalizePlayer as any;
 
 const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                                                                  className = "",
@@ -69,6 +61,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   const [gameResult, setGameResult] = useState<GameResult | null>(null);
   const [isGameOver, setIsGameOver] = useState(false);
   const [isReviewMode] = useState(false);
+  const gameEndProcessedRef = useRef(false);
   const [playerStats, setPlayerStats] = useState<{
     white: PlayerStats;
     black: PlayerStats;
@@ -288,6 +281,10 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   };
 
   useEffect(() => {
+    gameEndProcessedRef.current = false;
+  }, [gameId]);
+
+  useEffect(() => {
     const initializeGame = async () => {
       try {
         setIsLoading(true);
@@ -396,6 +393,9 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           let winnerId: string;
           let gameEndReason: "checkmate" | "timeout" | "resignation" | "draw" = "resignation";
 
+          const endWhite = normalizePlayerData(session.whitePlayer);
+          const endBlack = normalizePlayerData(session.blackPlayer);
+
           // Check if it's a draw first
           if (session.gameState?.isDraw) {
             winner = "draw" as any;
@@ -406,27 +406,36 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           // Check for checkmate
           else if (session.gameState?.isCheckmate) {
             winner = session.gameState.checkedPlayer === "white" ? "black" : "white";
-            winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
-            // FIX: Properly set winnerId
-            winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
+            winnerName = winner === "white" ? (endWhite?.username || playerStats.white.name) : (endBlack?.username || playerStats.black.name);
+            // Prefer fresh session players; fallback to gameState
+            winnerId = winner === "white" ? (endWhite?.userId || gameState.userId1) : (endBlack?.userId || gameState.userId2);
             gameEndReason = "checkmate";
           }
           // Check for timeout
           else if (session.status === 'TIMEOUT') {
             // Determine winner based on whose timer ran out
             winner = currentPlayer === "white" ? "black" : "white";
-            winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
-            // FIX: Properly set winnerId
-            winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
+            winnerName = winner === "white" ? (endWhite?.username || playerStats.white.name) : (endBlack?.username || playerStats.black.name);
+            // Prefer fresh session players; fallback to gameState
+            winnerId = winner === "white" ? (endWhite?.userId || gameState.userId1) : (endBlack?.userId || gameState.userId2);
             gameEndReason = "timeout";
           }
-          // Default case - assume resignation or other completion
+          // Default case - assume resignation; winner is the current client's color
           else {
-            winner = currentPlayer === "white" ? "black" : "white";
-            winnerName = winner === "white" ? playerStats.white.name : playerStats.black.name;
-            // FIX: Properly set winnerId
-            winnerId = winner === "white" ? gameState.userId1 : gameState.userId2;
+            winner = playerColor;
+            winnerName = winner === "white" ? (endWhite?.username || playerStats.white.name) : (endBlack?.username || playerStats.black.name);
+            // Prefer fresh session players; fallback to gameState
+            winnerId = winner === "white" ? (endWhite?.userId || gameState.userId1) : (endBlack?.userId || gameState.userId2);
             gameEndReason = "resignation";
+          }
+
+          // Final winnerId fallback to prevent empty IDs causing both sides to get penalties
+          if (!winnerId) {
+            if (winner === "white") {
+              winnerId = endWhite?.userId || gameState.userId1 || playerStats.white.playerId || "";
+            } else if (winner === "black") {
+              winnerId = endBlack?.userId || gameState.userId2 || playerStats.black.playerId || "";
+            }
           }
 
           const detectedGameResult: GameResult = {
@@ -504,129 +513,124 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   const handleGameEnd = async (result: GameResult) => {
     console.log("[DEBUG] Game ended:", result);
 
+    if (gameEndProcessedRef.current) {
+      console.log("[DEBUG] Game end already processed, ignoring");
+      return;
+    }
     if (isGameOver || gameResult !== null) {
       console.log("[DEBUG] Game already ended, ignoring");
       return;
     }
 
-    let correctedResult = { ...result };
+    gameEndProcessedRef.current = true;
+    try {
+      let correctedResult = { ...result };
 
-    // CRITICAL: Ensure winnerId is properly set
-    if (!correctedResult.winnerid && correctedResult.winner !== "draw") {
-      console.error("[ERROR] Missing winnerId in game result:", correctedResult);
-
-      // Try to fix based on winner color
-      if (correctedResult.winner === "white") {
-        correctedResult.winnerid = gameState.userId1;
-      } else if (correctedResult.winner === "black") {
-        correctedResult.winnerid = gameState.userId2;
-      }
-
-      console.log("[DEBUG] Attempted to fix winnerId:", correctedResult.winnerid);
-
-      // If still no winnerId, this is a critical error
-      if (!correctedResult.winnerid) {
-        console.error("[CRITICAL ERROR] Cannot determine winnerId, game state:", gameState);
-        correctedResult.pointsAwarded = 0; // Safe fallback
-        setGameResult(correctedResult);
-        setIsGameOver(true);
-        setIsModalOpen(true);
+      // CRITICAL: Get current user info for proper winner calculation
+      const keycloakId = JwtService.getKeycloakId();
+      if (!keycloakId) {
+        console.error("[ERROR] No keycloak ID available");
         return;
       }
-    }
 
-    // Calculate points for ranked matches
-    if (isRankedMatch) {
+      const currentUser = await userService.getCurrentUser(keycloakId);
+      const currentUserId = currentUser.id;
+
+      // CRITICAL FIX: Comprehensive winnerId validation and fixing
+      if (!correctedResult.winnerid && correctedResult.winner !== "draw") {
+        console.error("[ERROR] Missing winnerId in game result:", correctedResult);
+
+        // Method 1: For resignation, determine winner based on who DIDN'T resign
+        if (correctedResult.gameEndReason === "resignation") {
+          console.log("[DEBUG] Resignation detected, determining winner...");
+
+          // FIXED LOGIC: Use the winner field to determine winnerId
+          if (correctedResult.winner === "white") {
+            correctedResult.winnerid = gameState.userId1; // White player's ID
+            correctedResult.winnerName = playerStats.white.name;
+            console.log("[DEBUG] White wins resignation, winnerId set to:", correctedResult.winnerid);
+          } else if (correctedResult.winner === "black") {
+            correctedResult.winnerid = gameState.userId2; // Black player's ID
+            correctedResult.winnerName = playerStats.black.name;
+            console.log("[DEBUG] Black wins resignation, winnerId set to:", correctedResult.winnerid);
+          } else {
+            console.error("[ERROR] Invalid winner for resignation:", correctedResult.winner);
+            return;
+          }
+        }
+        // Method 2: For other game endings, use existing logic
+        else if (correctedResult.winner === "white" && gameState.userId1) {
+          correctedResult.winnerid = gameState.userId1;
+        } else if (correctedResult.winner === "black" && gameState.userId2) {
+          correctedResult.winnerid = gameState.userId2;
+        }
+
+        // Final validation
+        if (!correctedResult.winnerid) {
+          console.error("[CRITICAL ERROR] Cannot determine winnerId after all attempts");
+          correctedResult.winnerid = "";
+          correctedResult.pointsAwarded = 0;
+          setGameResult(correctedResult);
+          setIsGameOver(true);
+          setIsModalOpen(true);
+          return;
+        }
+      }
+
+      // Calculate and apply points strictly via streak-based system for the current user
       try {
-        // Get current user to determine if they're the winner
-        const keycloakId = JwtService.getKeycloakId();
-        if (!keycloakId) throw new Error("User not authenticated");
-
-        const currentUser = await userService.getCurrentUser(keycloakId);
-        const isCurrentUserWinner = correctedResult.winnerid === currentUser.id;
-        const isDraw = correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw";
-
-        console.log("[DEBUG] Point calculation context:", {
-          currentUserId: currentUser.id,
-          winnerId: correctedResult.winnerid,
-          isCurrentUserWinner,
-          isDraw,
-          gameEndReason: correctedResult.gameEndReason
-        });
-
-        // Get current streak
         const currentStreak = await PointCalculationService.getCurrentUserStreak();
-
-        // Calculate points using the streak-based system
-        const pointsCalculation = PointCalculationService.calculateStreakBasedPoints(
-          isCurrentUserWinner,
-          isDraw,
+        const processed = await PointCalculationService.processGameResultPoints(
+          correctedResult,
           currentStreak,
           isRankedMatch
         );
-
-        // Apply points to current user's account
-        if (pointsCalculation.pointsAwarded !== 0) {
-          await PointCalculationService.applyPointsToUser(currentUser.id, pointsCalculation.pointsAwarded);
-          console.log("[DEBUG] Applied points to user:", {
-            userId: currentUser.id,
-            pointsAwarded: pointsCalculation.pointsAwarded
-          });
-        }
-
-        // Update the result with calculated points
-        correctedResult.pointsAwarded = pointsCalculation.pointsAwarded;
-
-        console.log("[DEBUG] Points calculated based on streak:", {
-          streak: currentStreak,
-          newStreak: pointsCalculation.newStreak,
-          pointsAwarded: pointsCalculation.pointsAwarded,
-          streakType: pointsCalculation.streakType,
-          isWinner: isCurrentUserWinner,
-          isDraw: isDraw
-        });
+        correctedResult = processed.gameResult;
       } catch (error) {
-        console.error("[ERROR] Failed to calculate streak-based points:", error);
+        console.error("[ERROR] Failed to process streak-based points:", error);
         correctedResult.pointsAwarded = 0;
       }
-    } else {
-      correctedResult.pointsAwarded = 0;
-    }
 
-    // Set local game state
-    setGameResult(correctedResult);
-    setIsGameOver(true);
-    setIsModalOpen(true);
+      // Set local game state
+      setGameResult(correctedResult);
+      setIsGameOver(true);
+      setIsModalOpen(true);
 
-    setTimers((prev) => prev && ({
-      ...prev,
-      white: { ...prev.white, active: false },
-      black: { ...prev.black, active: false },
-    }));
+      setTimers((prev) => prev && ({
+        ...prev,
+        white: { ...prev.white, active: false },
+        black: { ...prev.black, active: false },
+      }));
 
-    setGameState(prev => ({
-      ...prev,
-      isCheckmate: correctedResult.gameEndReason === "checkmate",
-      isDraw: correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw",
-      currentTurn: prev.currentTurn
-    }));
+      setGameState(prev => ({
+        ...prev,
+        isCheckmate: correctedResult.gameEndReason === "checkmate",
+        isDraw: correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw",
+        currentTurn: prev.currentTurn
+      }));
 
-    // Refresh user data
-    setTimeout(async () => {
-      const keycloakId = JwtService.getKeycloakId();
-      if (keycloakId) {
-        try {
-          const updatedUser = await userService.getCurrentUser(keycloakId);
-          setTotalPoints(updatedUser.points);
-          localStorage.setItem("user", JSON.stringify(updatedUser));
-          console.log("[DEBUG] User data refreshed after game end:", updatedUser.points);
-        } catch (error) {
-          console.error("Failed to fetch updated user:", error);
+      // Refresh user data
+      setTimeout(async () => {
+        if (keycloakId) {
+          try {
+            const updatedUser = await userService.getCurrentUser(keycloakId);
+            setTotalPoints(updatedUser.points);
+            localStorage.setItem("user", JSON.stringify(updatedUser));
+            console.log("[DEBUG] User data refreshed after game end:", updatedUser.points);
+          } catch (error) {
+            console.error("Failed to fetch updated user:", error);
+          }
         }
-      }
-    }, 1000);
+      }, 1000);
 
-    console.log("[DEBUG] Game end processing completed locally");
+      console.log("[DEBUG] Game end processing completed locally with winnerId:", correctedResult.winnerid);
+    }
+    catch (error) {
+      console.error("[ERROR] Game end processing failed:", error);
+      // Reset the flag if processing failed
+      gameEndProcessedRef.current = false;
+      throw error;
+    }
   };
 
   const resetGame = () => {

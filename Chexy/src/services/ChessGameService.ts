@@ -2,8 +2,10 @@ import { JwtService } from "./JwtService";
 import { Move, PieceColor} from '@/Interfaces/types/chess.ts';
 
 
+import { API_BASE_URL } from "@/config/env";
+
 export class ChessGameService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
+  baseUrl = API_BASE_URL;
 
   async validateMove(gameId: string, move: Move): Promise<boolean> {
     if (!gameId) {

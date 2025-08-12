@@ -175,7 +175,6 @@ export class PointCalculationService {
 
       console.log("[STREAK] Calculated streak from game history:", { userId, streak, gamesAnalyzed: recentGames.length });
       return streak;
-
     } catch (error) {
       console.error("[STREAK] Failed to get streak from game history:", error);
       return 0;

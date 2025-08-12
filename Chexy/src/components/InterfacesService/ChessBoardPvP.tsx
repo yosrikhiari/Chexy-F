@@ -142,7 +142,7 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
           ...session.gameState,
           gameSessionId: gameId,
           userId1: session.whitePlayer.userId,
-          userId2: session.blackPlayer?.userId || "",
+          userId2: (Array.isArray(session.blackPlayer) ? session.blackPlayer[0]?.userId : (session as any).blackPlayer?.userId) || "",
         };
         setGameStateValue(initialGameState);
         setCurrentPlayerValue(session.gameState.currentTurn);

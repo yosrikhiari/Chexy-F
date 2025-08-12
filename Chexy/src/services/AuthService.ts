@@ -4,8 +4,10 @@ import { SignupRequest } from "@/Interfaces/user/SignupRequest";
 import { SignupResponse } from "@/Interfaces/user/SignupResponse";
 import { JwtService } from "./JwtService";
 
+import { API_BASE_URL } from "@/config/env";
+
 export class AuthService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
+  baseUrl = API_BASE_URL;
 
   async login(credentials: LoginRequest): Promise<LoginResponse> {
     const response = await fetch(`${this.baseUrl}/auth/login`, {

@@ -97,7 +97,8 @@ export interface RPGRound {
 
 export interface RPGGameState {
   turnsRemaining: number;
-  gameid: string;
+  gameSessionId?: string; // align with backend naming
+  gameid: string; // legacy usage in FE, keep for now
   currentRound: number;
   playerArmy: RPGPiece[];
   enemyArmy?: RPGPiece[]; // Add optional enemyArmy property

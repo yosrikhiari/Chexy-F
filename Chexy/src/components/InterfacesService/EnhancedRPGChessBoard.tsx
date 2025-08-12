@@ -21,7 +21,6 @@ import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
 import { realtimeService } from "@/services/RealtimeService.ts";
 import { enhancedRPGService } from "@/services/EnhancedRPGService.ts";
-import {aiserervice} from "@/services/aiService.ts";
 
 const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
                                                                        gameState,
@@ -142,7 +141,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         // Place enemy pieces
         const enemyArmy = gameState.enemyArmy.length
           ? gameState.enemyArmy
-          : await aiserervice.generateEnemyArmy(gameState.currentRound, size);
+          : generateDefaultEnemyArmy(size);
         let enemyIndex = 0;
         for (let row = 0; row < 2 && enemyIndex < enemyArmy.length; row++) {
           for (let col = 0; col < size && enemyIndex < enemyArmy.length; col++) {
@@ -480,32 +479,77 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
     }
   };
 
-  /** Execute an AI move */
+  /** Execute an AI move (local heuristic for Enhanced RPG) */
   const makeAIMove = async (currentBoard: (EnhancedRPGPiece | null)[][]) => {
     try {
-      const enemyPieces = currentBoard.flat().filter((piece) => piece && piece.color === "black") as EnhancedRPGPiece[];
-      const playerPieces = currentBoard.flat().filter((piece) => piece && piece.color === "white") as EnhancedRPGPiece[];
-      const aiMove = await aiserervice.calculateAIMove(
-        currentBoard,
-        enemyPieces,
-        playerPieces,
-        gameState.aiStrategy,
-        gameState.boardSize,
-        gameState.currentRound,
-        gameState.gameid,
-        "ENHANCED_RPG",
-        gameSession?.blackPlayer.userId
-      );
-
-      if (aiMove) {
-        await makeEnhancedMove(aiMove.from, aiMove.to);
-      } else {
-        toast({ title: "AI Move", description: "No valid move available for AI.", variant: "default" });
+      const possibleMoves: { from: BoardPosition; to: BoardPosition }[] = [];
+      for (let row = 0; row < gameState.boardSize; row++) {
+        for (let col = 0; col < gameState.boardSize; col++) {
+          const piece = currentBoard[row][col];
+          if (piece && piece.color === "black") {
+            const moves = await calculateValidMoves(
+              { row, col },
+              currentBoard,
+              "black",
+              gameState.gameid,
+              "ENHANCED_RPG",
+              gameState.boardSize
+            );
+            moves.forEach((m) => possibleMoves.push({ from: { row, col }, to: m }));
+          }
+        }
       }
+
+      if (possibleMoves.length === 0) {
+        toast({ title: "AI Move", description: "No valid move available for AI.", variant: "default" });
+        return;
+      }
+
+      // Prefer capture moves if available
+      const captureMoves = possibleMoves.filter(({ to }) => !!currentBoard[to.row][to.col]);
+      const selected = (captureMoves.length > 0 ? captureMoves : possibleMoves)[
+        Math.floor(Math.random() * (captureMoves.length > 0 ? captureMoves.length : possibleMoves.length))
+      ];
+
+      await makeEnhancedMove(selected.from, selected.to);
     } catch (error) {
       console.error("AI move error:", error);
       toast({ title: "Error", description: "Failed to process AI move.", variant: "destructive" });
     }
+  };
+
+  /** Generate a basic enemy army if none exists in server state */
+  const generateDefaultEnemyArmy = (boardSize: number): EnhancedRPGPiece[] => {
+    const pieces: EnhancedRPGPiece[] = [];
+    const addPiece = (type: string, row: number, col: number) =>
+      pieces.push({
+        id: `${type}-${row}-${col}-${Math.random().toString(36).slice(2)}`,
+        type: type as any,
+        color: "black",
+        name: type,
+        description: `${type} piece`,
+        specialAbility: "none",
+        hp: 10,
+        maxHp: 10,
+        attack: 5,
+        defense: 5,
+        rarity: "common",
+        pluscurrentHp: 10,
+        plusmaxHp: 10,
+        plusattack: 5,
+        plusdefense: 5,
+        pluslevel: 1,
+        plusexperience: 0,
+        position: { row, col },
+        hasMoved: false,
+      } as EnhancedRPGPiece);
+
+    // Pawns on row 1
+    for (let c = 0; c < Math.min(boardSize, 8); c++) addPiece("pawn", 1, c);
+    // Back rank basics on row 0
+    const backRank = ["rook", "knight", "bishop", "queen", "king", "bishop", "knight", "rook"];
+    for (let c = 0; c < Math.min(boardSize, 8); c++) addPiece(backRank[c], 0, c);
+    return pieces;
   };
 
   /** Get special effects for a square */

@@ -1,8 +1,10 @@
 import { GameStateData } from "@/Interfaces/services/GameStateData";
 import { JwtService } from "./JwtService";
 
+import { API_BASE_URL } from "@/config/env";
+
 export class GameService {
-  baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
+  baseUrl = API_BASE_URL;
 
   async executeMove(gameId: string, move: {
     from: { row: number; col: number };

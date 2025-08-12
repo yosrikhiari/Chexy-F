@@ -12,6 +12,7 @@ import {
 import {GameControlsProps} from "@/Interfaces/GameControlsProps.ts";
 import {toast} from "@/components/ui/use-toast.tsx";
 import {GameSession} from "@/Interfaces/types/GameSession.ts";
+import { normalizePlayer } from "@/utils/sessionUtils.ts";
 import {GameResult} from "@/Interfaces/types/chess.ts";
 import {gameSessionService} from "@/services/GameSessionService.ts";
 import {JwtService} from "@/services/JwtService.ts";
@@ -71,9 +72,15 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
           gameState.gameSessionId
         );
         setGameSession(session);
-        setPlayer1Name(session.whitePlayer.username || "Player 1");
-        setPlayer2Name(session.blackPlayer.username || "Player 2");
+
+        // Handle nested player data structure properly
+        const whitePlayer = normalizePlayer(session.whitePlayer as any);
+        const blackPlayer = normalizePlayer(session.blackPlayer as any);
+
+        setPlayer1Name(whitePlayer?.username || "Player 1");
+        setPlayer2Name(blackPlayer?.username || "Player 2");
       } catch (error) {
+        console.error("[FETCH_SESSION] Failed to load game session:", error);
         toast({
           title: "Error",
           description: "Failed to load game session.",
@@ -99,18 +106,19 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       const keycloakId = JwtService.getKeycloakId();
       if (!keycloakId) throw new Error("User not authenticated");
 
-      // Update player usernames in backend
-      const whitePlayerId = gameSession.whitePlayer.userId;
-      const blackPlayerId = gameSession.blackPlayer.userId;
+      // Handle nested player data structure
+      const whitePlayer = normalizePlayer(gameSession.whitePlayer as any);
+      const blackPlayer = normalizePlayer(gameSession.blackPlayer as any);
 
-      if (player1Name && player1Name !== gameSession.whitePlayer.username) {
-        await userService.updateUser(whitePlayerId, {
+      // Update player usernames in backend
+      if (player1Name && whitePlayer && player1Name !== whitePlayer.username) {
+        await userService.updateUser(whitePlayer.userId, {
           username: player1Name,
         });
       }
 
-      if (player2Name && player2Name !== gameSession.blackPlayer.username) {
-        await userService.updateUser(blackPlayerId, {
+      if (player2Name && blackPlayer && player2Name !== blackPlayer.username) {
+        await userService.updateUser(blackPlayer.userId, {
           username: player2Name,
         });
       }
@@ -129,6 +137,7 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       });
       setOpen(false);
     } catch (error) {
+      console.error("[SAVE_NAMES] Failed to update player names:", error);
       toast({
         title: "Error",
         description: "Failed to update player names.",
@@ -143,120 +152,147 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
 
   const handleResign = async () => {
     if (!gameState?.gameSessionId || !gameSession || isResigning) {
+      console.error("[RESIGN] Cannot resign - missing game data or already in progress");
       toast({
         title: "Error",
-        description: "Game session not loaded or already resigning",
+        description: "Cannot resign at this time",
         variant: "destructive",
       });
       return;
     }
 
+    // Prevent multiple resignation attempts
     setIsResigning(true);
 
     try {
-      console.log("[DEBUG] Starting resignation process...");
+      console.log("[RESIGN] Starting resignation process...");
 
-      // Get current user ID (the one who is resigning)
+      // Get current user information
       const keycloakId = JwtService.getKeycloakId();
       if (!keycloakId) throw new Error("User not authenticated");
 
       const currentUser = await userService.getCurrentUser(keycloakId);
       const resigningUserId = currentUser.id;
 
-      console.log("[DEBUG] Resigning user ID:", resigningUserId);
+      // CRITICAL FIX: Handle nested player data structure properly
+      const normalizePlayerData = (playerData: any) => {
+        if (!playerData) return null;
+        if (Array.isArray(playerData)) {
+          return playerData.length > 0 ? playerData[0] : null;
+        }
+        if (typeof playerData === 'object') {
+          return playerData;
+        }
+        return null;
+      };
 
-      // Normalize player data to handle arrays
-      const whitePlayer = Array.isArray(gameSession.whitePlayer)
-        ? gameSession.whitePlayer[0]
-        : gameSession.whitePlayer;
-      const blackPlayer = Array.isArray(gameSession.blackPlayer)
-        ? gameSession.blackPlayer[0]
-        : gameSession.blackPlayer;
+      const whitePlayer = normalizePlayerData(gameSession.whitePlayer);
+      const blackPlayer = normalizePlayerData(gameSession.blackPlayer);
 
-      console.log("[DEBUG] White player:", whitePlayer);
-      console.log("[DEBUG] Black player:", blackPlayer);
+      console.log("[RESIGN] Resignation context:", {
+        resigningUserId,
+        gameSessionId: gameState.gameSessionId,
+        whitePlayer: whitePlayer ? { userId: whitePlayer.userId, username: whitePlayer.username } : null,
+        blackPlayer: blackPlayer ? { userId: blackPlayer.userId, username: blackPlayer.username } : null,
+        gameState: {
+          userId1: gameState.userId1,
+          userId2: gameState.userId2
+        }
+      });
 
-      // Determine winner (the player who DIDN'T resign)
+      // CRITICAL FIX: Use properly normalized player data
+      const whitePlayerId = whitePlayer?.userId;
+      const blackPlayerId = blackPlayer?.userId;
+
+      // Validate that the resigning user is actually in this game
+      if (resigningUserId !== whitePlayerId && resigningUserId !== blackPlayerId) {
+        console.error("[RESIGN] User not found in this game session");
+        console.error("[RESIGN] Expected one of:", { whitePlayerId, blackPlayerId });
+        console.error("[RESIGN] Got:", resigningUserId);
+        throw new Error("You are not a participant in this game");
+      }
+
+      // Determine winner based on who is resigning
       let winnerId: string;
       let winnerName: string;
       let winnerColor: "white" | "black";
 
-      if (resigningUserId === whitePlayer?.userId) {
-        // White player resigned, black player wins
-        winnerId = blackPlayer?.userId || gameState.userId2;
-        winnerName = blackPlayer?.username || player2Name || "Black Player";
-        winnerColor = "black";
-        console.log("[DEBUG] White resigned, black wins:", { winnerId, winnerName });
-      } else if (resigningUserId === blackPlayer?.userId) {
-        // Black player resigned, white player wins
-        winnerId = whitePlayer?.userId || gameState.userId1;
-        winnerName = whitePlayer?.username || player1Name || "White Player";
-        winnerColor = "white";
-        console.log("[DEBUG] Black resigned, white wins:", { winnerId, winnerName });
-      } else {
-        // Fallback: determine based on current player
-        console.log("[DEBUG] Using fallback logic, currentPlayer:", currentPlayer);
-        if (currentPlayer === "white") {
-          // Current player (white) resigned, black wins
-          winnerId = blackPlayer?.userId || gameState.userId2;
-          winnerName = blackPlayer?.username || player2Name || "Black Player";
-          winnerColor = "black";
-        } else {
-          // Current player (black) resigned, white wins
-          winnerId = whitePlayer?.userId || gameState.userId1;
-          winnerName = whitePlayer?.username || player1Name || "White Player";
-          winnerColor = "white";
+      if (resigningUserId === whitePlayerId) {
+        // White player resigned, black wins
+        if (!blackPlayerId) {
+          throw new Error("Black player not found - cannot determine winner");
         }
+        winnerId = blackPlayerId;
+        winnerColor = "black";
+        winnerName = player2Name || blackPlayer?.username || "Black Player";
+        console.log("[RESIGN] White player resigned, black wins");
+      } else if (resigningUserId === blackPlayerId) {
+        // Black player resigned, white wins
+        if (!whitePlayerId) {
+          throw new Error("White player not found - cannot determine winner");
+        }
+        winnerId = whitePlayerId;
+        winnerColor = "white";
+        winnerName = player1Name || whitePlayer?.username || "White Player";
+        console.log("[RESIGN] Black player resigned, white wins");
+      } else {
+        // This shouldn't happen due to validation above, but just in case
+        throw new Error("Could not determine which player is resigning");
       }
 
-      // Validate that we have a winner ID
-      if (!winnerId) {
-        console.error("[ERROR] Could not determine winner ID");
-        throw new Error("Could not determine winner");
+      // Final validation - make sure we have a valid winner
+      if (!winnerId || winnerId === resigningUserId || winnerId === "") {
+        console.error("[RESIGN] Invalid winner determination");
+        console.error("[RESIGN] Winner ID:", winnerId, "Resigning User ID:", resigningUserId);
+        throw new Error("Could not determine game winner - invalid winner ID");
       }
 
-      // Create game result with proper winner ID
-      const gameResult: GameResult = {
+      // Create the game result
+      const resignationResult: GameResult = {
         winner: winnerColor,
         winnerName: winnerName,
-        pointsAwarded: 0, // Will be calculated by parent based on streak
+        pointsAwarded: 0, // Will be calculated by parent component based on streak
         gameEndReason: "resignation",
         gameid: gameState.gameSessionId,
-        winnerid: winnerId, // This is critical!
+        winnerid: winnerId,
       };
 
-      console.log("[DEBUG] Created game result with winnerId:", gameResult);
+      console.log("[RESIGN] Created resignation result:", resignationResult);
 
-      // Call parent's onResign IMMEDIATELY (this will handle point calculation)
+      // Call parent's onResign immediately to handle local game state
       if (onResign) {
-        console.log("[DEBUG] Calling parent onResign...");
-        onResign(gameResult);
+        console.log("[RESIGN] Calling parent onResign handler...");
+        onResign(resignationResult);
       }
 
-      // Backend cleanup
-      try {
-        await gameSessionService.updateGameStatus(gameState.gameSessionId, "COMPLETED");
-        await gameSessionService.endGame(gameState.gameSessionId, winnerId);
-        console.log("[DEBUG] Backend cleanup completed");
-      } catch (backendError) {
-        console.error("[ERROR] Backend cleanup failed:", backendError);
-        // Don't throw here, just log
-      }
-
+      // Show success message
       toast({
         title: "Game Resigned",
         description: `You have resigned. ${winnerName} wins!`,
       });
 
+      // Backend cleanup (fire and forget - don't wait for it)
+      setTimeout(async () => {
+        try {
+          console.log("[RESIGN] Updating backend game status...");
+          await gameSessionService.updateGameStatus(gameState.gameSessionId, "COMPLETED");
+          await gameSessionService.endGame(gameState.gameSessionId, winnerId);
+          console.log("[RESIGN] Backend cleanup completed");
+        } catch (backendError) {
+          console.error("[RESIGN] Backend cleanup failed (non-critical):", backendError);
+        }
+      }, 100);
+
     } catch (error) {
-      console.error("[ERROR] Resignation failed:", error);
+      console.error("[RESIGN] Resignation failed:", error);
       toast({
-        title: "Error",
-        description: "Failed to process resignation",
+        title: "Resignation Failed",
+        description: error.message || "Failed to process resignation",
         variant: "destructive",
       });
     } finally {
-      setIsResigning(false);
+      // Always reset the resigning state
+      setTimeout(() => setIsResigning(false), 1000);
     }
   };
 
@@ -286,6 +322,7 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
         description: "Both players agreed to a draw.",
       });
     } catch (error) {
+      console.error("[DRAW] Failed to process draw offer:", error);
       toast({
         title: "Error",
         description: "Failed to process draw offer.",

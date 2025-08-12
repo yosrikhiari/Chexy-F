@@ -47,7 +47,8 @@ export class WebSocketService {
     // Clean up any existing connection
     this.cleanup();
 
-    const socket = new SockJS('http://localhost:8081/ws');
+    const wsUrl = import.meta.env.DEV ? '/chess-websocket' : 'http://localhost:8081/chess-websocket';
+    const socket = new SockJS(wsUrl);
     this.stompClient = Stomp.over(socket);
 
     // Disable debug in production

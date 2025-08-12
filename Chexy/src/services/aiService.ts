@@ -8,8 +8,10 @@ import {gameSessionService} from '@/services/GameSessionService.ts';
 import {chessGameService} from '@/services/ChessGameService.ts';
 import {initialBoard} from '@/utils/chessConstants.ts';
 
+import { AI_BASE_URL } from "@/config/env";
+
 export class AIService {
-  private static baseUrl = 'http://localhost:5000/api';
+  private static baseUrl = AI_BASE_URL;
 
   static async generateEnemyArmy(
     round: number,
@@ -210,7 +212,8 @@ export class AIService {
       const isCheck = await chessGameService.isCheck(gameId, color);
       if (isCheck) {
         console.log("[Bot] Checkmate detected");
-        await gameSessionService.endGame(gameId, color === "white" ? session.blackPlayer?.userId : session.whitePlayer.userId);
+        const blackP = Array.isArray(session.blackPlayer) ? session.blackPlayer[0] : (session as any).blackPlayer;
+        await gameSessionService.endGame(gameId, color === "white" ? blackP?.userId : session.whitePlayer.userId);
       } else {
         console.log("[Bot] Stalemate detected");
         await gameSessionService.endGame(gameId, undefined, true);

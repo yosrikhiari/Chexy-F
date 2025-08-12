@@ -217,7 +217,7 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
               ...session.gameState,
               gameSessionId: session.gameId,
               userId1: session.whitePlayer.userId,
-              userId2: session.blackPlayer?.userId || "BOT",
+              userId2: (Array.isArray(session.blackPlayer) ? session.blackPlayer[0]?.userId : (session as any).blackPlayer?.userId) || "BOT",
             });
             setCurrentPlayer(session.gameState.currentTurn);
             const timers = {
@@ -252,11 +252,11 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
           session = await gameSessionService.createGameSession(user.id, mode || "CLASSIC_SINGLE_PLAYER", isRankedMatch);
         }
         setGameSession(session);
-        setGameState({
+            setGameState({
           ...session.gameState,
           gameSessionId: session.gameId,
           userId1: session.whitePlayer.userId,
-          userId2: session.blackPlayer?.userId || "BOT",
+          userId2: (Array.isArray(session.blackPlayer) ? session.blackPlayer[0]?.userId : (session as any).blackPlayer?.userId) || "BOT",
         });
         setCurrentPlayer(session.gameState.currentTurn);
 
@@ -291,23 +291,24 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
   }, [propGameId, propPlayerId, isRankedMatch, mode]);
 
   useEffect(() => {
-    if (mode === "CLASSIC_SINGLE_PLAYER" || !gameSession || gameSession.blackPlayer?.userId) return;
+    if (mode === "CLASSIC_SINGLE_PLAYER" || !gameSession || (Array.isArray(gameSession.blackPlayer) ? gameSession.blackPlayer[0]?.userId : (gameSession as any).blackPlayer?.userId)) return;
 
     const interval = setInterval(async () => {
       try {
         const updatedSession = await gameSessionService.getGameSession(gameSession.gameId);
-        if (updatedSession.blackPlayer?.userId) {
+        const blackP = Array.isArray(updatedSession.blackPlayer) ? updatedSession.blackPlayer[0] : (updatedSession as any).blackPlayer;
+        if (blackP?.userId) {
           setGameSession(updatedSession);
           setGameState((prev) => ({
             ...prev,
-            userId2: updatedSession.blackPlayer.userId,
+            userId2: blackP.userId,
           }));
           setPlayerStats((prev) => ({
             ...prev,
             black: {
-              playerId: updatedSession.blackPlayer.userId,
-              name: updatedSession.blackPlayer.username || "Opponent",
-              points: updatedSession.blackPlayer.currentStats?.points ?? 0,
+              playerId: blackP.userId,
+              name: blackP.username || "Opponent",
+              points: blackP.currentStats?.points ?? 0,
             },
           }));
         }
@@ -392,15 +393,15 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
           ...session.gameState,
           gameSessionId: session.gameId,
           userId1: session.whitePlayer.userId,
-          userId2: session.blackPlayer?.userId || "",
+          userId2: (Array.isArray(session.blackPlayer) ? session.blackPlayer[0]?.userId : (session as any).blackPlayer?.userId) || "",
         });
         setCurrentPlayer(session.gameState.currentTurn);
         setPlayerStats((prev) => ({
           ...prev,
           black: {
-            playerId: session.blackPlayer?.userId || "",
-            name: session.blackPlayer?.username || "Bot",
-            points: session.blackPlayer?.currentStats?.points ?? 0,
+            playerId: (Array.isArray(session.blackPlayer) ? session.blackPlayer[0]?.userId : (session as any).blackPlayer?.userId) || "",
+            name: (Array.isArray(session.blackPlayer) ? session.blackPlayer[0]?.username : (session as any).blackPlayer?.username) || "Bot",
+            points: (Array.isArray(session.blackPlayer) ? session.blackPlayer[0]?.currentStats?.points : (session as any).blackPlayer?.currentStats?.points) ?? 0,
           },
         }));
         setTimers({

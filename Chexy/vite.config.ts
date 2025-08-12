@@ -19,18 +19,22 @@ export default defineConfig(({ mode }) => ({
         timeout: 60000, // 60 second timeout
         proxyTimeout: 60000
       },
-      '/ws': {
-        target: 'http://localhost:8081', // Changed from ws:// to http://
+      '/chess-websocket': {
+        target: 'http://localhost:8081',
         changeOrigin: true,
         secure: false,
         ws: true,
+        rewrite: (path) => path.replace(/^\/chess-websocket/, '/chess-websocket'),
         rewriteWsOrigin: true,
         timeout: 0, // No timeout for WebSocket connections
         proxyTimeout: 0,
         // Add custom headers for WebSocket upgrade
         configure: (proxy, options) => {
           proxy.on('proxyReqWs', (proxyReq, req, socket, options, head) => {
-            console.log('[Vite Proxy] WebSocket upgrade request:', req.url);
+            // Only log in development mode
+            if (mode === 'development') {
+              console.log('[Vite Proxy] WebSocket upgrade request:', req.url);
+            }
             // Ensure proper headers are passed through
             if (req.headers.authorization) {
               proxyReq.setHeader('Authorization', req.headers.authorization);
@@ -38,11 +42,15 @@ export default defineConfig(({ mode }) => ({
           });
 
           proxy.on('error', (err, req, res) => {
-            console.error('[Vite Proxy] Proxy error:', err.message);
+            if (mode === 'development') {
+              console.error('[Vite Proxy] Proxy error:', err.message);
+            }
           });
 
           proxy.on('proxyRes', (proxyRes, req, res) => {
-            console.log('[Vite Proxy] Response status:', proxyRes.statusCode);
+            if (mode === 'development') {
+              console.log('[Vite Proxy] Response status:', proxyRes.statusCode);
+            }
           });
         }
       }
@@ -60,4 +68,25 @@ export default defineConfig(({ mode }) => ({
   define: {
     global: 'globalThis',
   },
+  build: {
+    // Optimize build output
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-toast'],
+          chess: ['chess.js'],
+          utils: ['clsx', 'class-variance-authority', 'tailwind-merge']
+        }
+      }
+    },
+    // Remove console logs in production
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: mode === 'production',
+        drop_debugger: mode === 'production'
+      }
+    }
+  }
 }));

@@ -4,7 +4,8 @@ export interface User {
   username: string;
   firstName: string;
   lastName: string;
-  emailAddress: string;
+  emailAddress: string; // backend field name
+  email?: string; // compatibility with response DTOs
   points: number;
   phoneNumber?: string;
   birthdate?: string;

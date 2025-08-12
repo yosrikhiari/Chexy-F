@@ -19,6 +19,9 @@ export interface Move {
 export interface BoardPosition {
   row: number;
   col: number;
+  // backend may include torow/tocol in same object for POSTing moves
+  torow?: number;
+  tocol?: number;
 }
 
 export interface PlayerTimer {
@@ -53,6 +56,7 @@ export interface GameState {
   canBlackCastleKingSide: boolean;
   canBlackCastleQueenSide: boolean;
   gameHistoryId?: string;
+  isGameOver?: boolean; // align with backend field
 }
 
 export interface PlayerStats {
