@@ -540,32 +540,12 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       if (!correctedResult.winnerid && correctedResult.winner !== "draw") {
         console.error("[ERROR] Missing winnerId in game result:", correctedResult);
 
-        // Method 1: For resignation, determine winner based on who DIDN'T resign
-        if (correctedResult.gameEndReason === "resignation") {
-          console.log("[DEBUG] Resignation detected, determining winner...");
-
-          // FIXED LOGIC: Use the winner field to determine winnerId
-          if (correctedResult.winner === "white") {
-            correctedResult.winnerid = gameState.userId1; // White player's ID
-            correctedResult.winnerName = playerStats.white.name;
-            console.log("[DEBUG] White wins resignation, winnerId set to:", correctedResult.winnerid);
-          } else if (correctedResult.winner === "black") {
-            correctedResult.winnerid = gameState.userId2; // Black player's ID
-            correctedResult.winnerName = playerStats.black.name;
-            console.log("[DEBUG] Black wins resignation, winnerId set to:", correctedResult.winnerid);
-          } else {
-            console.error("[ERROR] Invalid winner for resignation:", correctedResult.winner);
-            return;
-          }
-        }
-        // Method 2: For other game endings, use existing logic
-        else if (correctedResult.winner === "white" && gameState.userId1) {
+        if (correctedResult.winner === "white" && gameState.userId1) {
           correctedResult.winnerid = gameState.userId1;
         } else if (correctedResult.winner === "black" && gameState.userId2) {
           correctedResult.winnerid = gameState.userId2;
         }
 
-        // Final validation
         if (!correctedResult.winnerid) {
           console.error("[CRITICAL ERROR] Cannot determine winnerId after all attempts");
           correctedResult.winnerid = "";
@@ -575,6 +555,17 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           setIsModalOpen(true);
           return;
         }
+      }
+
+      // Persist game end to backend to update stats
+      try {
+        await gameSessionService.endGame(
+          correctedResult.gameid,
+          correctedResult.winner !== "draw" ? correctedResult.winnerid : undefined,
+          correctedResult.gameEndReason === "draw" || correctedResult.winner === "draw"
+        );
+      } catch (persistErr) {
+        console.error("[ERROR] Failed to persist game end to backend:", persistErr);
       }
 
       // Calculate and apply points strictly via streak-based system for the current user

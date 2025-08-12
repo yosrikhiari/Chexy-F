@@ -596,14 +596,16 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
 
               <GameControls
                 onResign={() => {
-                  const winner = currentPlayer === "white" ? "black" : "white";
+                  // In single-player, human is white and bot is black.
+                  // Resignation is initiated by the human player, so the bot wins.
+                  const winner: PieceColor = "black";
                   handleGameEnd({
                     winner,
-                    winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
+                    winnerName: playerStats.black.name,
                     pointsAwarded: isRankedMatch ? 10 : 0,
                     gameEndReason: "resignation",
                     gameid: gameState.gameSessionId,
-                    winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
+                    winnerid: gameState.userId2 || "BOT",
                   });
                 }}
                 onReset={resetGame}
