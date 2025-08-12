@@ -6,6 +6,11 @@ import { JwtService } from "./JwtService";
 
 import { API_BASE_URL } from "@/config/env";
 
+// Custom event to notify components of auth state changes
+const dispatchAuthEvent = () => {
+  window.dispatchEvent(new CustomEvent('authStateChanged'));
+};
+
 export class AuthService {
   baseUrl = API_BASE_URL;
 
@@ -18,6 +23,7 @@ export class AuthService {
     if (!response.ok) throw new Error("Login failed");
     const data: LoginResponse = await response.json();
     localStorage.setItem("token", data.token);
+    dispatchAuthEvent(); // Notify components of auth state change
     return data;
   }
 
@@ -60,6 +66,7 @@ export class AuthService {
   logout(): void {
     JwtService.removeToken();
     localStorage.removeItem("user");
+    dispatchAuthEvent(); // Notify components of auth state change
   }
 }
 

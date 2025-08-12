@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useRef, useCallb
 import SockJS from "sockjs-client";
 import { Client } from "@stomp/stompjs";
 import { JwtService } from "@/services/JwtService.ts";
+import { useAuth } from "@/hooks/useAuth";
+import { healthService } from "@/services/healthService";
 import { logger } from '../utils/log';
 
 interface WebSocketContextType {
@@ -13,20 +15,26 @@ interface WebSocketContextType {
 const WebSocketContext = createContext<WebSocketContextType>({
   client: null,
   isConnected: false,
-  reconnect: () => {}
+  reconnect: () => {},
 });
 
-export const WebSocketProvider = ({ children }) => {
-  const [client, setClient] = useState<Client | null>(null);
+export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnecting = useRef(false);
   const stompClient = useRef<Client | null>(null);
-  const wsBaseUrl = import.meta.env.DEV ? '/chess-websocket' : 'http://localhost:8081/chess-websocket';
+  
+  // Use the auth hook to get authentication state
+  const { isAuthenticated, isLoading } = useAuth();
 
   const createConnection = useCallback(async () => {
+    // Only attempt connection if user is authenticated and not loading
+    if (!isAuthenticated || isLoading) {
+      logger.debug("[WebSocket] User not authenticated or still loading, skipping connection");
+      return;
+    }
+
     if (isConnecting.current) {
       logger.debug("[WebSocket] Connection already in progress, skipping...");
       return;
@@ -43,11 +51,40 @@ export const WebSocketProvider = ({ children }) => {
       }
 
       isConnecting.current = true;
-      const wsUrl = `${wsBaseUrl}/chess-websocket`;
-      logger.debug("[WebSocket] Connecting to:", wsUrl);
+      
+      // Check backend health before attempting connection
+      logger.debug("[WebSocket] Checking backend health...");
+      const backendHealthy = await healthService.checkBackendHealth();
+      if (!backendHealthy) {
+        logger.error("[WebSocket] Backend is not healthy, skipping connection");
+        isConnecting.current = false;
+        return;
+      }
+      
+      // Use SockJS URL - the backend expects SockJS
+      const sockJsUrl = import.meta.env.DEV ? '/chess-websocket' : 'http://localhost:8081/chess-websocket';
+      logger.debug("[WebSocket] Connecting to:", sockJsUrl);
 
       const client = new Client({
-        webSocketFactory: () => new WebSocket(wsUrl),
+        webSocketFactory: () => {
+          logger.debug("[WebSocket] Creating SockJS connection to:", sockJsUrl);
+          const sock = new SockJS(sockJsUrl);
+          
+          // Add additional debugging for SockJS events
+          sock.onopen = () => {
+            logger.debug("[WebSocket] SockJS connection opened successfully");
+          };
+          
+          sock.onclose = (event) => {
+            logger.debug("[WebSocket] SockJS connection closed:", event.code, event.reason);
+          };
+          
+          sock.onerror = (error) => {
+            logger.error("[WebSocket] SockJS connection error:", error);
+          };
+          
+          return sock;
+        },
         debug: (str) => {
           if (import.meta.env.DEV) {
             logger.debug('[STOMP Debug]:', str);
@@ -114,7 +151,7 @@ export const WebSocketProvider = ({ children }) => {
       logger.error("[WebSocket] Error in createConnection:", error);
       isConnecting.current = false;
     }
-  }, [wsBaseUrl]);
+  }, [isAuthenticated, isLoading]);
 
   const reconnect = useCallback(() => {
     if (reconnectAttempts.current >= maxReconnectAttempts) {
@@ -152,17 +189,16 @@ export const WebSocketProvider = ({ children }) => {
     }
   }, []);
 
+  // Monitor authentication state changes
   useEffect(() => {
-    createConnection();
-
-    return () => {
-      logger.debug("[WebSocket] Cleaning up connection");
+    if (isAuthenticated && !isLoading) {
+      logger.debug("[WebSocket] User authenticated, attempting connection");
+      createConnection();
+    } else {
+      logger.debug("[WebSocket] User not authenticated or loading, disconnecting");
       disconnect();
-    };
-  }, [createConnection, disconnect]);
-
-  // Remove the periodic health check - STOMP heartbeats handle this
-  // The health check was potentially causing unnecessary reconnections
+    }
+  }, [isAuthenticated, isLoading, createConnection, disconnect]);
 
   const contextValue: WebSocketContextType = {
     client: stompClient.current,

@@ -24,7 +24,6 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         secure: false,
         ws: true,
-        rewrite: (path) => path.replace(/^\/chess-websocket/, '/chess-websocket'),
         rewriteWsOrigin: true,
         timeout: 0, // No timeout for WebSocket connections
         proxyTimeout: 0,
@@ -50,6 +49,26 @@ export default defineConfig(({ mode }) => ({
           proxy.on('proxyRes', (proxyRes, req, res) => {
             if (mode === 'development') {
               console.log('[Vite Proxy] Response status:', proxyRes.statusCode);
+            }
+          });
+        }
+      },
+      // Handle SockJS fallback endpoints
+      '/chess-websocket/**': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+        rewriteWsOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
+        configure: (proxy, options) => {
+          proxy.on('proxyReqWs', (proxyReq, req, socket, options, head) => {
+            if (mode === 'development') {
+              console.log('[Vite Proxy] SockJS fallback request:', req.url);
+            }
+            if (req.headers.authorization) {
+              proxyReq.setHeader('Authorization', req.headers.authorization);
             }
           });
         }

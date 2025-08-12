@@ -1,5 +1,7 @@
 import { Navigate, Outlet } from "react-router-dom";
-import { JwtService } from "@/services/JwtService.ts";
+import { useAuth } from "@/hooks/useAuth";
+import { logger } from "@/utils/log";
+import { Loading } from "@/components/ui/loading";
 
 const ProtectedRoute = () => {
   // Handle server-side rendering
@@ -7,9 +9,15 @@ const ProtectedRoute = () => {
     return <Outlet />;
   }
 
-  const token = JwtService.getToken();
-  console.log("ProtectedRoute - Token:", token, "Expired:", JwtService.isTokenExpired(token));
-  const isAuthenticated = !!token && !JwtService.isTokenExpired(token);
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  logger.debug("ProtectedRoute - isAuthenticated:", isAuthenticated, "isLoading:", isLoading);
+  
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return <Loading message="Checking authentication..." />;
+  }
+  
   return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
 };
 
