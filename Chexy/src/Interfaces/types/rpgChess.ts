@@ -96,27 +96,20 @@ export interface RPGRound {
 }
 
 export interface RPGGameState {
-  turnsRemaining: number;
-  gameSessionId?: string; // align with backend naming
-  gameid: string; // legacy usage in FE, keep for now
+  turnsRemaining?: number;
+  gameSessionId?: string; // backend field
+  gameId?: string; // normalized alias used by new code
+  gameid: string; // legacy usage in FE, keep for now for compatibility
   currentRound: number;
   playerArmy: RPGPiece[];
-  enemyArmy?: RPGPiece[]; // Add optional enemyArmy property
-  activeModifiers?: any[]; // Adjust type as needed
-  activeBoardModifiers?: any[]; // Adjust type as needed
-  activeCapacityModifiers?: any[]; // Adjust type as needed
+  enemyArmy?: RPGPiece[];
+  activeModifiers?: any[];
+  activeBoardModifiers?: any[];
+  activeCapacityModifiers?: any[];
   boardEffects?: BoardEffect[];
   boardSize: number;
-  armyCapacity: {
-    maxTotalPieces: number;
-    maxQueens: number;
-    maxRooks: number;
-    maxBishops: number;
-    maxKnights: number;
-    maxPawns: number;
-    bonusCapacity: number;
-  };
-  completedRounds?: any[]; // Adjust type as needed
+  armyCapacity: ArmyCapacity;
+  completedRounds?: number[];
   lives: number;
   score: number;
   coins: number;

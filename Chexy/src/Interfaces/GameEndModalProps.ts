@@ -7,4 +7,5 @@ export interface GameEndModalProps {
   onPlayAgain: () => void;
   isRankedMatch?: boolean;
   totalPoints?: number; // New prop
+  forcedPointsDelta?: number; // Forces the modal to display this delta if provided
 }

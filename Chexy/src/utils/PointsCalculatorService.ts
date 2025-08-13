@@ -180,6 +180,71 @@ export class PointCalculationService {
       return 0;
     }
   }
+
+  /**
+   * Get any user's streak using game history service
+   */
+  static async getUserStreakByUserId(userId: string): Promise<number> {
+    try {
+      const recentGames = await gameHistoryService.getRankedGamesByUser(userId);
+      if (!recentGames || recentGames.length === 0) return 0;
+      recentGames.sort((a, b) => new Date(b.endTime || b.startTime).getTime() - new Date(a.endTime || a.startTime).getTime());
+      let streak = 0;
+      let lastResult: 'win' | 'loss' | 'draw' | null = null;
+      for (const game of recentGames) {
+        if (!game.result) continue;
+        let currentResult: 'win' | 'loss' | 'draw';
+        if (game.result.winner === 'draw') currentResult = 'draw';
+        else if (game.result.winnerid === userId) currentResult = 'win';
+        else currentResult = 'loss';
+        if (lastResult === null) {
+          lastResult = currentResult;
+          if (currentResult === 'win') streak = 1;
+          else if (currentResult === 'loss') streak = -1;
+          else streak = 0;
+        } else if (lastResult === currentResult && currentResult !== 'draw') {
+          if (currentResult === 'win') streak++;
+          else if (currentResult === 'loss') streak--;
+        } else {
+          break;
+        }
+      }
+      return streak;
+    } catch (e) {
+      console.error('[STREAK] Failed to get streak for user:', userId, e);
+      return 0;
+    }
+  }
+
+  /**
+   * Process and apply points for an arbitrary user (winner/loser/draw) with idempotency.
+   */
+  static async processPointsForUser(
+    gameResult: any,
+    targetUserId: string,
+    isRankedMatch: boolean,
+    isWinner: boolean,
+    isDraw: boolean
+  ): Promise<StreakBasedPoints> {
+    const targetStreak = await this.getUserStreakByUserId(targetUserId);
+    const calc = this.calculateStreakBasedPoints(isWinner, isDraw, targetStreak, isRankedMatch);
+    if (calc.pointsAwarded !== 0) {
+      const gameId: string = gameResult.gameid || gameResult.gameId || gameResult.id;
+      const idempotencyKey = `points_processed:${gameId}:${targetUserId}`;
+      const alreadyProcessed = localStorage.getItem(idempotencyKey);
+      if (!alreadyProcessed) {
+        try {
+          await this.applyPointsToUser(targetUserId, calc.pointsAwarded);
+          localStorage.setItem(idempotencyKey, JSON.stringify({ applied: true, at: Date.now(), delta: calc.pointsAwarded }));
+        } catch (err) {
+          console.error('[POINTS] Failed to apply points for user', targetUserId, err);
+        }
+      } else {
+        console.log(`[POINTS] Skipping duplicate points application for key ${idempotencyKey}`);
+      }
+    }
+    return calc;
+  }
   /**
    * Calculate and apply points for a game result
    * @param gameResult - The game result
@@ -210,9 +275,22 @@ export class PointCalculationService {
       isRankedMatch
     );
 
-    // Apply points to user account
-    if (pointsCalculation.pointsAwarded !== 0) {
-      await this.applyPointsToUser(currentUser.id, pointsCalculation.pointsAwarded);
+    // Idempotency: ensure we apply points ONCE per (gameId, userId)
+    try {
+      const gameId: string = gameResult.gameid || gameResult.gameId || gameResult.id;
+      const idempotencyKey = `points_processed:${gameId}:${currentUser.id}`;
+      const alreadyProcessed = localStorage.getItem(idempotencyKey);
+      if (!alreadyProcessed && pointsCalculation.pointsAwarded !== 0) {
+        await this.applyPointsToUser(currentUser.id, pointsCalculation.pointsAwarded);
+        localStorage.setItem(idempotencyKey, JSON.stringify({ applied: true, at: Date.now(), delta: pointsCalculation.pointsAwarded }));
+      } else if (alreadyProcessed) {
+        console.log(`[POINTS] Skipping duplicate points application for key ${idempotencyKey}`);
+      }
+    } catch (e) {
+      console.warn("[POINTS] Idempotency guard failed; continuing without cache:", e);
+      if (pointsCalculation.pointsAwarded !== 0) {
+        await this.applyPointsToUser(currentUser.id, pointsCalculation.pointsAwarded);
+      }
     }
 
     // Update game result with calculated points

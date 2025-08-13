@@ -10,4 +10,5 @@ export interface PlayerSessionInfo {
   isConnected: boolean;
   lastSeen: string;
   currentStats: PlayerStats;
+  currentTurn?: boolean;
 }

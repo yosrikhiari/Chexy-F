@@ -76,6 +76,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   const [flipped, setFlipped] = useState(false);
   const [totalPoints, setTotalPoints] = useState<number | null>(null);
   const [initialPoints, setInitialPoints] = useState<number | null>(null);
+  const [forcedPointsDelta, setForcedPointsDelta] = useState<number | null>(null);
 
   const moveToAlgebraicNotation = (action: ExtendedPlayerAction): string => {
     if (!action || !action.from || !action.to ||
@@ -288,7 +289,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     const initializeGame = async () => {
       try {
         setIsLoading(true);
-        const session = await gameSessionService.getGameSession(gameId);
+         const session = await gameSessionService.getGameSession(gameId);
 
         if (session.status === 'COMPLETED' || session.status === 'TIMEOUT') {
           toast({
@@ -323,6 +324,10 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           gameSessionId: gameId,
           userId1: normalizedWhitePlayer.userId,
           userId2: normalizedBlackPlayer?.userId || "",
+          // Defensive: ensure flags exist so end checks work
+          isCheck: !!session.gameState?.isCheck,
+          isCheckmate: !!session.gameState?.isCheckmate,
+          isDraw: !!session.gameState?.isDraw,
         });
 
         setCurrentPlayer(session.gameState.currentTurn);
@@ -420,13 +425,10 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
             winnerId = winner === "white" ? (endWhite?.userId || gameState.userId1) : (endBlack?.userId || gameState.userId2);
             gameEndReason = "timeout";
           }
-          // Default case - assume resignation; winner is the current client's color
+          // Default case - do NOT guess winner. Let explicit detectors decide (prevents wrong points application)
           else {
-            winner = playerColor;
-            winnerName = winner === "white" ? (endWhite?.username || playerStats.white.name) : (endBlack?.username || playerStats.black.name);
-            // Prefer fresh session players; fallback to gameState
-            winnerId = winner === "white" ? (endWhite?.userId || gameState.userId1) : (endBlack?.userId || gameState.userId2);
-            gameEndReason = "resignation";
+            console.warn("[DEBUG] Unable to determine winner from session state; deferring end handling");
+            return; // Keep polling or rely on explicit detectors like checkmate/timeout
           }
 
           // Final winnerId fallback to prevent empty IDs causing both sides to get penalties
@@ -436,6 +438,17 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
             } else if (winner === "black") {
               winnerId = endBlack?.userId || gameState.userId2 || playerStats.black.playerId || "";
             }
+          }
+
+          // As a final fallback, query the session directly for player IDs
+          if (!winnerId) {
+            try {
+              const s = await gameSessionService.getGameSession(gameId!);
+              const w = normalizePlayerData(s.whitePlayer);
+              const b = normalizePlayerData(s.blackPlayer);
+              if (winner === "white") winnerId = w?.userId || winnerId;
+              if (winner === "black") winnerId = b?.userId || winnerId;
+            } catch {}
           }
 
           const detectedGameResult: GameResult = {
@@ -452,9 +465,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           // Show notification to opponent
           toast({
             title: "Game Ended",
-            description: gameEndReason === "resignation"
-              ? "Your opponent has resigned"
-              : gameEndReason === "timeout"
+            description: gameEndReason === "timeout"
                 ? "Game ended due to timeout"
                 : gameEndReason === "draw"
                   ? "Game ended in a draw"
@@ -495,7 +506,13 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           await loadMoveHistoryFromServer();
         }
 
-        setGameState(session.gameState);
+        // Preserve identifiers we enrich locally (userId1/userId2/gameSessionId)
+        setGameState((prev) => ({
+          ...session.gameState,
+          gameSessionId: prev.gameSessionId || gameId!,
+          userId1: prev.userId1,
+          userId2: prev.userId2,
+        }));
 
       } catch (error) {
         console.error("Error polling for updates:", error);
@@ -526,13 +543,16 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     try {
       let correctedResult = { ...result };
 
-      // CRITICAL: Get current user info for proper winner calculation
+      // CRITICAL: Ensure session players are known for winner calculation
       const keycloakId = JwtService.getKeycloakId();
       if (!keycloakId) {
         console.error("[ERROR] No keycloak ID available");
         return;
       }
 
+      const sessionForIds = await gameSessionService.getGameSession(gameState.gameSessionId);
+      const endWhite = normalizePlayerData(sessionForIds.whitePlayer);
+      const endBlack = normalizePlayerData(sessionForIds.blackPlayer);
       const currentUser = await userService.getCurrentUser(keycloakId);
       const currentUserId = currentUser.id;
 
@@ -540,10 +560,10 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       if (!correctedResult.winnerid && correctedResult.winner !== "draw") {
         console.error("[ERROR] Missing winnerId in game result:", correctedResult);
 
-        if (correctedResult.winner === "white" && gameState.userId1) {
-          correctedResult.winnerid = gameState.userId1;
-        } else if (correctedResult.winner === "black" && gameState.userId2) {
-          correctedResult.winnerid = gameState.userId2;
+        if (correctedResult.winner === "white") {
+          correctedResult.winnerid = endWhite?.userId || gameState.userId1 || playerStats.white.playerId || "";
+        } else if (correctedResult.winner === "black") {
+          correctedResult.winnerid = endBlack?.userId || gameState.userId2 || playerStats.black.playerId || "";
         }
 
         if (!correctedResult.winnerid) {
@@ -568,15 +588,59 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         console.error("[ERROR] Failed to persist game end to backend:", persistErr);
       }
 
-      // Calculate and apply points strictly via streak-based system for the current user
+      // Calculate and apply points for both players strictly on the client with idempotency guards
       try {
+        const isDraw = correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw";
+        const winnerId = correctedResult.winnerid;
+        const loserId = winnerId === gameState.userId1 ? gameState.userId2 : gameState.userId1;
+
+        if (isRankedMatch) {
+          if (!isDraw) {
+            // Winner: positive points
+            if (winnerId) {
+              await PointCalculationService.processPointsForUser(correctedResult, winnerId, true, true, false);
+            }
+            // Loser: negative points
+            if (loserId) {
+              await PointCalculationService.processPointsForUser(correctedResult, loserId, true, false, false);
+            }
+          } else {
+            // Draw: award draw points to both
+            if (gameState.userId1) {
+              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId1, true, false, true);
+            }
+            if (gameState.userId2) {
+              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId2, true, false, true);
+            }
+          }
+        }
+
+        // For UI: calculate current client’s points to show in modal
         const currentStreak = await PointCalculationService.getCurrentUserStreak();
-        const processed = await PointCalculationService.processGameResultPoints(
+        const processedSelf = await PointCalculationService.processGameResultPoints(
           correctedResult,
           currentStreak,
           isRankedMatch
         );
-        correctedResult = processed.gameResult;
+        correctedResult = processedSelf.gameResult;
+
+        // Immediately use idempotency cache delta when available; fallback to calculated points
+        try {
+          const idempotencyKeyNow = `points_processed:${correctedResult.gameid}:${currentUserId}`;
+          const cached = localStorage.getItem(idempotencyKeyNow);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && typeof parsed.delta === 'number') {
+              setForcedPointsDelta(parsed.delta);
+            } else {
+              setForcedPointsDelta(processedSelf.gameResult.pointsAwarded || 0);
+            }
+          } else {
+            setForcedPointsDelta(processedSelf.gameResult.pointsAwarded || 0);
+          }
+        } catch {
+          setForcedPointsDelta(processedSelf.gameResult.pointsAwarded || 0);
+        }
       } catch (error) {
         console.error("[ERROR] Failed to process streak-based points:", error);
         correctedResult.pointsAwarded = 0;
@@ -608,6 +672,25 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
             setTotalPoints(updatedUser.points);
             localStorage.setItem("user", JSON.stringify(updatedUser));
             console.log("[DEBUG] User data refreshed after game end:", updatedUser.points);
+            // Reconcile forced delta: prefer idempotency cache delta; fallback to actual totals diff
+            try {
+              const idempotencyKeyAfter = `points_processed:${gameState.gameSessionId}:${updatedUser.id}`;
+              const cachedAfter = localStorage.getItem(idempotencyKeyAfter);
+              if (cachedAfter) {
+                const parsedAfter = JSON.parse(cachedAfter);
+                if (parsedAfter && typeof parsedAfter.delta === 'number') {
+                  setForcedPointsDelta(parsedAfter.delta);
+                } else if (initialPoints !== null) {
+                  setForcedPointsDelta(updatedUser.points - initialPoints);
+                }
+              } else if (initialPoints !== null) {
+                setForcedPointsDelta(updatedUser.points - initialPoints);
+              }
+            } catch {
+              if (initialPoints !== null) {
+                setForcedPointsDelta(updatedUser.points - initialPoints);
+              }
+            }
           } catch (error) {
             console.error("Failed to fetch updated user:", error);
           }
@@ -720,7 +803,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           pointsAwarded: 0, // Will be calculated based on streak
           gameEndReason: "checkmate",
           gameid: gameState.gameSessionId,
-          winnerid: gameState.userId2,
+          winnerid: gameState.userId2 || playerStats.black.playerId,
         };
         console.log("[DEBUG] White checkmate detected, calling handleGameEnd");
         handleGameEnd(checkmateResult);
@@ -731,7 +814,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           pointsAwarded: 0, // Will be calculated based on streak
           gameEndReason: "checkmate",
           gameid: gameState.gameSessionId,
-          winnerid: gameState.userId1,
+          winnerid: gameState.userId1 || playerStats.white.playerId,
         };
         console.log("[DEBUG] Black checkmate detected, calling handleGameEnd");
         handleGameEnd(checkmateResult);
@@ -992,6 +1075,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           onBackToMenu={() => navigate("/")}
           isRankedMatch={isRankedMatch}
           totalPoints={totalPoints}
+          forcedPointsDelta={forcedPointsDelta ?? undefined}
         />
       </div>
     </>

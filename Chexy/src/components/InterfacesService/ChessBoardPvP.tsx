@@ -17,6 +17,57 @@ import { ChessBoardProps } from "@/Interfaces/ChessBoardProps.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
 import { gameService } from "@/services/GameService.ts";
 
+// Storage helpers to avoid localStorage quota errors
+const MAX_HISTORY_SNAPSHOTS = 80;
+const REDUCED_HISTORY_SNAPSHOTS = 40;
+
+const getBoardHistoryKey = (gameId: string) => `boardHistory_${gameId}`;
+
+const clearOtherBoardHistories = (currentKey: string) => {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i) as string;
+      if (key && key.startsWith("boardHistory_") && key !== currentKey) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {}
+};
+
+const safeSaveBoardHistory = (gameId: string, history: any[][][]) => {
+  const key = getBoardHistoryKey(gameId);
+  const trySet = (h: any[][][]) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(h));
+      return true;
+    } catch (e: any) {
+      if (e && (e.name === "QuotaExceededError" || (typeof e.message === "string" && e.message.includes("quota")))) {
+        return false;
+      }
+      // Non-quota errors: swallow but stop retrying
+      return true;
+    }
+  };
+
+  // 1) Try with current size
+  if (trySet(history)) return;
+  // 2) Prune to MAX_HISTORY_SNAPSHOTS
+  const pruned = history.slice(-MAX_HISTORY_SNAPSHOTS);
+  if (trySet(pruned)) return;
+  // 3) Prune harder
+  const prunedMore = history.slice(-REDUCED_HISTORY_SNAPSHOTS);
+  if (trySet(prunedMore)) return;
+  // 4) Free space by clearing other game histories and retry
+  clearOtherBoardHistories(key);
+  if (trySet(prunedMore)) return;
+  // 5) Fallback to sessionStorage
+  try {
+    sessionStorage.setItem(key, JSON.stringify(prunedMore));
+  } catch {}
+};
+
 // Normalize board state received from the server
 const ensureClassicBoard = (board: any): Piece[][] => {
   if (!Array.isArray(board) || board.length !== 8 || !board.every((row: any) => Array.isArray(row) && row.length === 8)) {
@@ -180,10 +231,11 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         if (boardChanged) {
           console.log("[DEBUG] Board changed, updating history...");
           setBoardHistory(prev => {
-            const newHistory = [...prev, serverBoard];
-            // Save to localStorage like in the original ChessBoard
-            localStorage.setItem(`boardHistory_${gameId}`, JSON.stringify(newHistory));
-            return newHistory;
+            const extended = [...prev, serverBoard];
+            const pruned = extended.slice(-MAX_HISTORY_SNAPSHOTS);
+            // Safe persist with pruning and fallbacks
+            safeSaveBoardHistory(gameId!, pruned);
+            return pruned;
           });
 
           // Only auto-advance to latest move if we were already at the latest
@@ -390,15 +442,16 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
       isProcessingRef.current = false;
 
       // Manually refresh the board state immediately
-      setTimeout(async () => {
+          setTimeout(async () => {
         try {
           const session = await gameSessionService.getGameSession(gameId!);
           const serverBoard = ensureClassicBoard(session.board);
-          setBoardHistory(prev => {
-            const newHistory = [...prev, serverBoard];
-            localStorage.setItem(`boardHistory_${gameId}`, JSON.stringify(newHistory));
-            return newHistory;
-          });
+              setBoardHistory(prev => {
+                const extended = [...prev, serverBoard];
+                const pruned = extended.slice(-MAX_HISTORY_SNAPSHOTS);
+                safeSaveBoardHistory(gameId!, pruned);
+                return pruned;
+              });
           setCurrentMoveIndex(prev => prev + 1);
           setGameStateValue(session.gameState);
           setCurrentPlayerValue(session.gameState.currentTurn);
@@ -446,11 +499,13 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         winnerid: gameState.isDraw ? "" : (winner === "white" ? gameState.userId1 : gameState.userId2),
       };
 
-      setGameResult(gameResult);
-      setShowGameEndModal(true);
-
       if (onGameEnd) {
+        // Let parent handle modal and points logic
         onGameEnd(gameResult);
+      } else {
+        // Fallback: show own modal if no parent handler is provided
+        setGameResult(gameResult);
+        setShowGameEndModal(true);
       }
     }
   }, [gameState?.isCheckmate, gameState?.isDraw, isInitialized, player1Name, player2Name, gameState?.gameSessionId, gameState?.userId1, gameState?.userId2, gameState?.checkedPlayer, onGameEnd]);
@@ -543,17 +598,19 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         </div>
       )}
 
-      <GameEndModal
-        open={showGameEndModal}
-        gameResult={gameResult}
-        onClose={() => setShowGameEndModal(false)}
-        onPlayAgain={() => {
-          setShowGameEndModal(false);
-          navigate("/lobby");
-        }}
-        onReviewGame={() => setShowGameEndModal(false)}
-        onBackToMenu={() => navigate("/")}
-      />
+      {!onGameEnd && (
+        <GameEndModal
+          open={showGameEndModal}
+          gameResult={gameResult}
+          onClose={() => setShowGameEndModal(false)}
+          onPlayAgain={() => {
+            setShowGameEndModal(false);
+            navigate("/lobby");
+          }}
+          onReviewGame={() => setShowGameEndModal(false)}
+          onBackToMenu={() => navigate("/")}
+        />
+      )}
     </div>
   );
 };

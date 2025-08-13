@@ -26,7 +26,8 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
                                                              onReviewGame,
                                                              onBackToMenu,
                                                              isRankedMatch = false,
-                                                             totalPoints,
+                                                              totalPoints,
+                                                              forcedPointsDelta,
                                                            }) => {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
@@ -122,9 +123,15 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
     if (!isRankedMatch) return 0;
 
     // Priority order for points display:
-    // 1. Actual points difference (most accurate)
+    // 1. Forced delta from parent when provided (authoritative)
+    // 1a. Actual points difference (most accurate when available)
     // 2. Points from gameResult
     // 3. Fallback to 0
+
+    if (typeof forcedPointsDelta === 'number') {
+      console.log("[MODAL] Using forcedPointsDelta:", forcedPointsDelta);
+      return forcedPointsDelta;
+    }
 
     if (actualPointsAwarded !== 0) {
       console.log("[MODAL] Using actualPointsAwarded:", actualPointsAwarded);
@@ -136,7 +143,12 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
       return gameResult.pointsAwarded;
     }
 
-    console.log("[MODAL] No points to display, returning 0");
+    console.log("[MODAL] No points to display, returning 0", {
+      isRankedMatch,
+      forcedPointsDelta,
+      actualPointsAwarded,
+      gameResultPoints: gameResult?.pointsAwarded,
+    });
     return 0;
   };
 
