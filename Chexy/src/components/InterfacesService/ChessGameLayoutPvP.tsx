@@ -474,7 +474,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
             winnerid: winnerId, // FIX: Now properly set
           };
           // End the game locally
-          handleGameEnd(detectedGameResult);
+          handleGameEnd(detectedGameResult, localMoveHistory.length);
 
           // Show notification to opponent
           toast({
@@ -541,7 +541,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
 
 
-  const handleGameEnd = async (result: GameResult) => {
+  const handleGameEnd = async (result: GameResult, moveCount?: number) => {
     console.log("[DEBUG] Game ended:", result);
 
     if (gameEndProcessedRef.current) {
@@ -607,24 +607,29 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         const isDraw = correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw";
         const winnerId = correctedResult.winnerid;
         const loserId = winnerId === gameState.userId1 ? gameState.userId2 : gameState.userId1;
+        // Use provided moveCount or fall back to localMoveHistory.length
+        const effectiveMoveCount = moveCount !== undefined ? moveCount : localMoveHistory.length;
+        
+        console.log("[DEBUG] Points calculation - isDraw:", isDraw, "moveCount:", moveCount, "localMoveHistory.length:", localMoveHistory.length, "effectiveMoveCount:", effectiveMoveCount);
 
         if (isRankedMatch) {
           if (!isDraw) {
             // Winner: positive points
             if (winnerId) {
-              await PointCalculationService.processPointsForUser(correctedResult, winnerId, true, true, false, localMoveHistory.length);
+              await PointCalculationService.processPointsForUser(correctedResult, winnerId, true, true, false, effectiveMoveCount);
             }
             // Loser: negative points
             if (loserId) {
-              await PointCalculationService.processPointsForUser(correctedResult, loserId, true, false, false, localMoveHistory.length);
+              await PointCalculationService.processPointsForUser(correctedResult, loserId, true, false, false, effectiveMoveCount);
             }
           } else {
             // Draw: award draw points to both based on move count
+            console.log("[DEBUG] Processing draw points - moveCount:", effectiveMoveCount, "awardPoints:", effectiveMoveCount >= 20);
             if (gameState.userId1) {
-              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId1, true, false, true, localMoveHistory.length);
+              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId1, true, false, true, effectiveMoveCount);
             }
             if (gameState.userId2) {
-              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId2, true, false, true, localMoveHistory.length);
+              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId2, true, false, true, effectiveMoveCount);
             }
           }
         }
@@ -635,7 +640,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           correctedResult,
           currentStreak,
           isRankedMatch,
-          localMoveHistory.length // Pass move count for draw point calculation
+          effectiveMoveCount // Pass move count for draw point calculation
         );
         correctedResult = processedSelf.gameResult;
 
@@ -821,7 +826,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           winnerid: gameState.userId2 || playerStats.black.playerId,
         };
         console.log("[DEBUG] White checkmate detected, calling handleGameEnd");
-        handleGameEnd(checkmateResult);
+        handleGameEnd(checkmateResult, localMoveHistory.length);
       } else if (isBlackCheckmate) {
         const checkmateResult: GameResult = {
           winner: "white",
@@ -832,7 +837,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           winnerid: gameState.userId1 || playerStats.white.playerId,
         };
         console.log("[DEBUG] Black checkmate detected, calling handleGameEnd");
-        handleGameEnd(checkmateResult);
+        handleGameEnd(checkmateResult, localMoveHistory.length);
       } else if (isWhiteDraw || isBlackDraw) {
         const drawResult: GameResult = {
           winner: "draw" as any,
@@ -843,7 +848,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           winnerid: "",
         };
         console.log("[DEBUG] Draw detected, calling handleGameEnd");
-        handleGameEnd(drawResult);
+        handleGameEnd(drawResult, localMoveHistory.length);
       }
     } catch (error) {
       console.error("Error checking game end conditions:", error);
@@ -924,7 +929,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                       winnerid: winnerId,
                     };
 
-                    handleGameEnd(timeoutResult);
+                    handleGameEnd(timeoutResult, localMoveHistory.length);
 
                     toast({
                       title: "Game Over - Timeout!",
@@ -947,7 +952,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 flipped={flipped}
                 currentPlayer={currentPlayer}
                 onMove={handlePlayerChange}
-                onGameEnd={handleGameEnd}
+                onGameEnd={(result) => handleGameEnd(result, localMoveHistory.length)}
                 gameState={gameState}
                 onGameStateChange={setGameState}
                 playerColor={playerColor}
@@ -964,7 +969,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                     gameEndReason: "timeout",
                     gameid: gameState.gameSessionId,
                     winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
-                  });
+                  }, localMoveHistory.length);
                 }}
                 player1Name={playerStats.white.name}
                 player2Name={playerStats.black.name}
@@ -974,11 +979,13 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
               <GameControls
                 playerColor={playerColor}
-                onResign={(customResult?: GameResult) => {
+                onResign={(customResult?: GameResult, moveCount?: number) => {
                   if (isReviewMode) return;
 
                   if (customResult) {
-                    handleGameEnd(customResult);
+                    // If moveCount is provided (from draw acceptance), use it; otherwise use localMoveHistory
+                    const effectiveMoveCount = moveCount !== undefined ? moveCount : localMoveHistory.length;
+                    handleGameEnd(customResult, effectiveMoveCount);
                   } else {
                     const winner = currentPlayer === "white" ? "black" : "white";
                     const resignationResult: GameResult = {
@@ -990,7 +997,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                       winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
                     };
 
-                    handleGameEnd(resignationResult);
+                    handleGameEnd(resignationResult, localMoveHistory.length);
                   }
                 }}
                 onReset={resetGame}

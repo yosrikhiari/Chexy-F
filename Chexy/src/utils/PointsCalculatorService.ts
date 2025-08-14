@@ -54,6 +54,7 @@ export class PointCalculationService {
       basePoints = moveCount >= 20 ? 5 : 0;
       newStreak = 0; // Draw resets streak
       streakType = 'neutral';
+      console.log("[DEBUG] Draw points calculation - moveCount:", moveCount, "basePoints:", basePoints, "awardPoints:", moveCount >= 20);
     } else {
       basePoints = -8; // Base points for losing
       newStreak = currentStreak <= 0 ? currentStreak - 1 : -1; // Continue negative streak or start new one

@@ -26,7 +26,8 @@ interface ExtendedGameControlsProps extends GameControlsProps {
   gameResult?: GameResult | null,
   isReviewMode?: boolean,
   isRankedMatch?: boolean,
-  playerColor?: "white" | "black" | "null"
+  playerColor?: "white" | "black" | "null",
+  onResign?: (customResult?: GameResult, moveCount?: number) => void
 }
 
 const GameControls: React.FC<ExtendedGameControlsProps> = ({
@@ -372,16 +373,24 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
           try {
             const data = JSON.parse(msg.body);
             if (data.gameId !== gameState.gameSessionId) return;
-            // End locally as draw
+            
+            // Get the current move count from the parent component
+            const moveCount = window.localStorage.getItem(`moveHistory_${gameState.gameSessionId}`);
+            const moveHistory = moveCount ? JSON.parse(moveCount) : [];
+            const actualMoveCount = moveHistory.length;
+            
+            // End locally as draw with proper move count for points calculation
             const drawResult: GameResult = {
               winner: "draw" as any,
               winnerName: "Draw",
-              pointsAwarded: 0,
+              pointsAwarded: 0, // Will be calculated by parent based on move count
               gameEndReason: "draw",
               gameid: gameState.gameSessionId,
               winnerid: "",
             };
-            onResign?.(drawResult);
+            
+            // Call onResign with the draw result - parent will handle points calculation
+            onResign?.(drawResult, actualMoveCount);
             setPendingDrawOfferFrom(null);
             toast({ title: "Draw Accepted", description: "The game has ended in a draw." });
           } catch (e) {
