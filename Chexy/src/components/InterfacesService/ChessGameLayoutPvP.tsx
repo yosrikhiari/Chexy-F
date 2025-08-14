@@ -425,10 +425,24 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
             winnerId = winner === "white" ? (endWhite?.userId || gameState.userId1) : (endBlack?.userId || gameState.userId2);
             gameEndReason = "timeout";
           }
-          // Default case - do NOT guess winner. Let explicit detectors decide (prevents wrong points application)
+          // Default case - attempt to derive winner from game history if available (handles resignation)
           else {
-            console.warn("[DEBUG] Unable to determine winner from session state; deferring end handling");
-            return; // Keep polling or rely on explicit detectors like checkmate/timeout
+            try {
+              const history = await gameHistoryService.getGameHistoriesBySession(gameId!);
+              if (history && history.result) {
+                const r = history.result as any;
+                winner = r.winner;
+                winnerName = r.winnerName;
+                winnerId = r.winnerid;
+                gameEndReason = r.gameEndReason || gameEndReason;
+              } else {
+                console.warn("[DEBUG] Unable to determine winner from session state; deferring end handling");
+                return; // Keep polling or rely on explicit detectors like checkmate/timeout
+              }
+            } catch (e) {
+              console.warn("[DEBUG] Could not fetch game history to determine winner; deferring", e);
+              return;
+            }
           }
 
           // Final winnerId fallback to prevent empty IDs causing both sides to get penalties
@@ -598,29 +612,30 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           if (!isDraw) {
             // Winner: positive points
             if (winnerId) {
-              await PointCalculationService.processPointsForUser(correctedResult, winnerId, true, true, false);
+              await PointCalculationService.processPointsForUser(correctedResult, winnerId, true, true, false, localMoveHistory.length);
             }
             // Loser: negative points
             if (loserId) {
-              await PointCalculationService.processPointsForUser(correctedResult, loserId, true, false, false);
+              await PointCalculationService.processPointsForUser(correctedResult, loserId, true, false, false, localMoveHistory.length);
             }
           } else {
-            // Draw: award draw points to both
+            // Draw: award draw points to both based on move count
             if (gameState.userId1) {
-              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId1, true, false, true);
+              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId1, true, false, true, localMoveHistory.length);
             }
             if (gameState.userId2) {
-              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId2, true, false, true);
+              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId2, true, false, true, localMoveHistory.length);
             }
           }
         }
 
-        // For UI: calculate current client’s points to show in modal
+        // For UI: calculate current client's points to show in modal
         const currentStreak = await PointCalculationService.getCurrentUserStreak();
         const processedSelf = await PointCalculationService.processGameResultPoints(
           correctedResult,
           currentStreak,
-          isRankedMatch
+          isRankedMatch,
+          localMoveHistory.length // Pass move count for draw point calculation
         );
         correctedResult = processedSelf.gameResult;
 

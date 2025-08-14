@@ -17,6 +17,7 @@ import {GameResult} from "@/Interfaces/types/chess.ts";
 import {gameSessionService} from "@/services/GameSessionService.ts";
 import {JwtService} from "@/services/JwtService.ts";
 import {userService} from "@/services/UserService.ts";
+import { useWebSocket } from "@/WebSocket/WebSocketContext.tsx";
 
 // Updated interface to include additional game state props
 interface ExtendedGameControlsProps extends GameControlsProps {
@@ -48,6 +49,10 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
   const [drawOfferSent] = useState(false);
   const [isResigning, setIsResigning] = useState(false);
+  const { client, isConnected } = useWebSocket();
+  const [pendingDrawOfferFrom, setPendingDrawOfferFrom] = useState<{ userId: string, username: string } | null>(null);
+  const [drawOfferCooldown, setDrawOfferCooldown] = useState<{ white: number, black: number }>({ white: 0, black: 0 });
+  const [lastDrawOfferTime, setLastDrawOfferTime] = useState<{ white: number, black: number }>({ white: 0, black: 0 });
 
   // Comprehensive game over check
   const isGameOver = propIsGameOver ||
@@ -274,8 +279,8 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       // Backend cleanup (fire and forget - don't wait for it)
       setTimeout(async () => {
         try {
-          console.log("[RESIGN] Updating backend game status...");
-          await gameSessionService.updateGameStatus(gameState.gameSessionId, "COMPLETED");
+          console.log("[RESIGN] Updating backend game status (endGame only)...");
+          // Calling endGame is sufficient; it sets status to COMPLETED server-side.
           await gameSessionService.endGame(gameState.gameSessionId, winnerId);
           console.log("[RESIGN] Backend cleanup completed");
         } catch (backendError) {
@@ -300,34 +305,143 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
     if (!gameSession || !currentPlayer) return;
 
     try {
-      const currentUserId = JwtService.getKeycloakId();
-      if (!currentUserId) throw new Error("User not authenticated");
+      const keycloakId = JwtService.getKeycloakId();
+      if (!keycloakId) throw new Error("User not authenticated");
 
-      const drawResult: GameResult = {
-        winner: "draw" as any,
-        winnerName: "Draw by agreement",
-        pointsAwarded: 0, // Draws don't award points
-        gameEndReason: "draw",
-        gameid: gameState.gameSessionId,
-        winnerid: "",
-      };
+      const me = await userService.getCurrentUser(keycloakId);
+      const white = normalizePlayer(gameSession.whitePlayer as any);
+      const black = normalizePlayer(gameSession.blackPlayer as any);
+      const opponentId = me.id === white?.userId ? black?.userId : white?.userId;
 
-      // Call the parent's onResign function to trigger game end
-      if (onResign) {
-        onResign(drawResult);
+      if (!client || !isConnected || !opponentId) {
+        throw new Error("Not connected or opponent missing");
       }
 
+      client.publish({
+        destination: "/app/game/draw/offer",
+        body: JSON.stringify({
+          gameId: gameState.gameSessionId,
+          fromUserId: me.id,
+          fromUsername: me.username,
+          toUserId: opponentId
+        })
+      });
+
       toast({
-        title: "Draw Agreed",
-        description: "Both players agreed to a draw.",
+        title: "Draw Offer Sent",
+        description: "Waiting for opponent to respond...",
       });
     } catch (error) {
-      console.error("[DRAW] Failed to process draw offer:", error);
+      console.error("[DRAW] Failed to send draw offer:", error);
       toast({
         title: "Error",
-        description: "Failed to process draw offer.",
+        description: "Failed to send draw offer.",
         variant: "destructive",
       });
+    }
+  };
+
+  // Subscribe to draw offer/response messages
+  useEffect(() => {
+    if (!client || !isConnected || !gameState?.gameSessionId) return;
+
+    const subs: any[] = [];
+
+    try {
+      const attach = async () => {
+        const keycloakId = JwtService.getKeycloakId();
+        if (!keycloakId) return;
+        const me = await userService.getCurrentUser(keycloakId);
+
+        // Offer received (per-user destination)
+        const offerSub = client.subscribe(`/queue/game/draw/offer/${me.id}`, (msg) => {
+          try {
+            const data = JSON.parse(msg.body);
+            if (data.gameId !== gameState.gameSessionId) return;
+            setPendingDrawOfferFrom({ userId: data.fromUserId, username: data.fromUsername });
+            toast({
+              title: "Draw Offer",
+              description: `The player ${data.fromUsername} has proposed a draw. Accept?`,
+            });
+          } catch (e) {
+            console.error("[DRAW] Failed to parse offer:", e);
+          }
+        });
+        subs.push(offerSub);
+
+        // Accepted (per-user destination)
+        const acceptedSub = client.subscribe(`/queue/game/draw/accepted/${me.id}`, (msg) => {
+          try {
+            const data = JSON.parse(msg.body);
+            if (data.gameId !== gameState.gameSessionId) return;
+            // End locally as draw
+            const drawResult: GameResult = {
+              winner: "draw" as any,
+              winnerName: "Draw",
+              pointsAwarded: 0,
+              gameEndReason: "draw",
+              gameid: gameState.gameSessionId,
+              winnerid: "",
+            };
+            onResign?.(drawResult);
+            setPendingDrawOfferFrom(null);
+            toast({ title: "Draw Accepted", description: "The game has ended in a draw." });
+          } catch (e) {
+            console.error("[DRAW] Failed to parse accepted:", e);
+          }
+        });
+        subs.push(acceptedSub);
+
+        // Declined (per-user destination)
+        const declinedSub = client.subscribe(`/queue/game/draw/declined/${me.id}`, (msg) => {
+          try {
+            const data = JSON.parse(msg.body);
+            if (data.gameId !== gameState.gameSessionId) return;
+            setPendingDrawOfferFrom(null);
+            toast({ title: "Draw Declined", description: "Opponent declined the draw offer." });
+          } catch (e) {
+            console.error("[DRAW] Failed to parse declined:", e);
+          }
+        });
+        subs.push(declinedSub);
+      };
+
+      attach();
+    } catch (e) {
+      console.error("[DRAW] Subscription setup failed:", e);
+    }
+
+    return () => {
+      subs.forEach((s) => {
+        try { s.unsubscribe?.(); } catch {}
+      });
+    };
+  }, [client, isConnected, gameState?.gameSessionId]);
+
+  const respondToDraw = async (accepted: boolean) => {
+    if (!client || !isConnected || !pendingDrawOfferFrom || !gameState?.gameSessionId) return;
+    try {
+      const keycloakId = JwtService.getKeycloakId();
+      if (!keycloakId) throw new Error("User not authenticated");
+      const me = await userService.getCurrentUser(keycloakId);
+
+      client.publish({
+        destination: "/app/game/draw/response",
+        body: JSON.stringify({
+          gameId: gameState.gameSessionId,
+          fromUserId: me.id,
+          toUserId: pendingDrawOfferFrom.userId,
+          accepted,
+        })
+      });
+
+      if (!accepted) {
+        toast({ title: "Draw Declined", description: "You declined the draw offer." });
+        setPendingDrawOfferFrom(null);
+      }
+    } catch (e) {
+      console.error("[DRAW] Failed to send response:", e);
+      toast({ title: "Error", description: "Failed to respond to draw offer", variant: "destructive" });
     }
   };
 
@@ -435,6 +549,16 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
         >
           {isResigning ? "Resigning..." : "Resign"}
         </Button>
+      )}
+
+      {pendingDrawOfferFrom && (
+        <div className="w-full flex flex-col items-center gap-2 mt-2">
+          <div className="text-sm">The player {pendingDrawOfferFrom.username} has proposed a draw. Accept?</div>
+          <div className="flex gap-2">
+            <Button onClick={() => respondToDraw(true)} className="bg-green-600 hover:bg-green-700 text-white">Yes</Button>
+            <Button onClick={() => respondToDraw(false)} variant="outline" className="border-red-500/50 text-red-600">No</Button>
+          </div>
+        </div>
       )}
     </div>
   );
