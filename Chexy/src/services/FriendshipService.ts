@@ -1,5 +1,6 @@
 import { Friendship } from "@/Interfaces/types/Friendship";
 import { JwtService } from "./JwtService";
+import {User} from '@/Interfaces/user/User.ts';
 
 export class FriendshipService {
   baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
@@ -47,7 +48,7 @@ export class FriendshipService {
     if (!response.ok) throw new Error("Failed to unblock user");
   }
 
-  async getFriends(userId: string): Promise<Friendship[]> {
+  async getFriends(userId: string): Promise<User[][]> {
     const response = await fetch(`${this.baseUrl}/friendship/friends/${userId}`, {
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
