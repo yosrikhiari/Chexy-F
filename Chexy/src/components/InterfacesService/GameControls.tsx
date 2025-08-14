@@ -40,7 +40,7 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
                                                              gameResult,
                                                              isReviewMode = false,
                                                              isRankedMatch = false,
-                                                             playerColor
+                                                             playerColor,
                                                            }) => {
   const navigate = useNavigate();
   const [player1Name, setPlayer1Name] = useState("Player 1");
@@ -51,8 +51,6 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
   const [isResigning, setIsResigning] = useState(false);
   const { client, isConnected } = useWebSocket();
   const [pendingDrawOfferFrom, setPendingDrawOfferFrom] = useState<{ userId: string, username: string } | null>(null);
-  const [drawOfferCooldown, setDrawOfferCooldown] = useState<{ white: number, black: number }>({ white: 0, black: 0 });
-  const [lastDrawOfferTime, setLastDrawOfferTime] = useState<{ white: number, black: number }>({ white: 0, black: 0 });
 
   // Comprehensive game over check
   const isGameOver = propIsGameOver ||
@@ -533,9 +531,8 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
           onClick={handleDrawOffer}
           variant="outline"
           className="border-blue-500/50 hover:bg-blue-500/10 text-blue-600"
-          disabled={drawOfferSent}
         >
-          {drawOfferSent ? "Draw Offered" : "Offer Draw"}
+          Offer Draw
         </Button>
       )}
 

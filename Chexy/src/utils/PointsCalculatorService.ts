@@ -19,13 +19,15 @@ export class PointCalculationService {
    * @param isDraw - Whether the game was a draw
    * @param currentStreak - Player's current streak (positive for winning, negative for losing)
    * @param isRankedMatch - Whether this was a ranked match
+   * @param moveCount - Number of moves made in the game (for draw point calculation)
    * @returns StreakBasedPoints object with calculation details
    */
   static calculateStreakBasedPoints(
     isWinner: boolean,
     isDraw: boolean,
     currentStreak: number,
-    isRankedMatch: boolean
+    isRankedMatch: boolean,
+    moveCount: number = 0
   ): StreakBasedPoints {
 
     if (!isRankedMatch) {
@@ -48,7 +50,8 @@ export class PointCalculationService {
       newStreak = currentStreak >= 0 ? currentStreak + 1 : 1; // Reset negative streak or continue positive
       streakType = 'winning';
     } else if (isDraw) {
-      basePoints = 5; // Base points for draw
+      // Only award draw points if game has at least 20 moves
+      basePoints = moveCount >= 20 ? 5 : 0;
       newStreak = 0; // Draw resets streak
       streakType = 'neutral';
     } else {
@@ -224,10 +227,11 @@ export class PointCalculationService {
     targetUserId: string,
     isRankedMatch: boolean,
     isWinner: boolean,
-    isDraw: boolean
+    isDraw: boolean,
+    moveCount: number = 0
   ): Promise<StreakBasedPoints> {
     const targetStreak = await this.getUserStreakByUserId(targetUserId);
-    const calc = this.calculateStreakBasedPoints(isWinner, isDraw, targetStreak, isRankedMatch);
+    const calc = this.calculateStreakBasedPoints(isWinner, isDraw, targetStreak, isRankedMatch, moveCount);
     if (calc.pointsAwarded !== 0) {
       const gameId: string = gameResult.gameid || gameResult.gameId || gameResult.id;
       const idempotencyKey = `points_processed:${gameId}:${targetUserId}`;
@@ -250,12 +254,14 @@ export class PointCalculationService {
    * @param gameResult - The game result
    * @param currentUserStreak - Current user's streak
    * @param isRankedMatch - Whether this was a ranked match
+   * @param moveCount - Number of moves made in the game (for draw point calculation)
    * @returns Updated GameResult with calculated points
    */
   static async processGameResultPoints(
     gameResult: any,
     currentUserStreak: number,
-    isRankedMatch: boolean
+    isRankedMatch: boolean,
+    moveCount: number = 0
   ): Promise<{ gameResult: any; pointsCalculation: StreakBasedPoints }> {
 
     const keycloakId = JwtService.getKeycloakId();
@@ -272,7 +278,8 @@ export class PointCalculationService {
       isWinner,
       isDraw,
       currentUserStreak,
-      isRankedMatch
+      isRankedMatch,
+      moveCount // Pass move count for draw point calculation
     );
 
     // Idempotency: ensure we apply points ONCE per (gameId, userId)

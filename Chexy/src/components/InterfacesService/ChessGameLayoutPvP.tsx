@@ -1047,7 +1047,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                     </p>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      Win: 15 + streak bonus | Draw: 5 | Loss: -8 + streak penalty
+                      Win: 15 + streak bonus | Draw: 5 (after 20+ moves) | Loss: -8 + streak penalty
                     </p>
                   )}
                 </div>
