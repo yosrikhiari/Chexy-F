@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {Gamepad, Sword, Trophy, Check, User as UserIcon, Users, List, UserPlus, UserMinus, MessageSquare, X, CheckCircle, Clock, AlertCircle} from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +44,16 @@ const GameSelect: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState<string>("");
   const [unreadCounts, setUnreadCounts] = useState<Map<string, number>>(new Map());
+  
+  // Use refs to track current chat state for WebSocket handlers
+  const currentChatState = useRef<{
+    isOpen: boolean;
+    selectedFriendId: string | null;
+  }>({
+    isOpen: false,
+    selectedFriendId: null,
+  });
+  
   const { client: stompClient, isConnected } = useWebSocket();
 
   useEffect(() => {
@@ -95,6 +105,14 @@ const GameSelect: React.FC = () => {
     }
   }, [user]);
 
+  // Keep the ref in sync with chat state
+  useEffect(() => {
+    currentChatState.current = {
+      isOpen: chatOpen,
+      selectedFriendId: selectedChatFriend?.id || null,
+    };
+  }, [chatOpen, selectedChatFriend]);
+
   // Filter friends based on search term
   const filteredFriends = friends.filter(friend =>
     friend.username.toLowerCase().includes(friendSearchTerm.toLowerCase())
@@ -127,15 +145,10 @@ const GameSelect: React.FC = () => {
         console.log("[Chat WS] Received message:", chatMessage);
         
         // Add message to chat if it's between the current user and the selected friend
-        console.log("[Chat Debug] Chat open:", chatOpen, "Selected friend:", selectedChatFriend?.id, "Message sender:", chatMessage.senderId, "Message receiver:", chatMessage.receiverId, "Current user:", user.id);
-        
-        if (chatOpen && selectedChatFriend && 
-            ((chatMessage.senderId === user.id && chatMessage.receiverId === selectedChatFriend.id) ||
-             (chatMessage.senderId === selectedChatFriend.id && chatMessage.receiverId === user.id))) {
-          console.log("[Chat Debug] Adding message to chat");
+        if (currentChatState.current.isOpen && currentChatState.current.selectedFriendId && 
+            ((chatMessage.senderId === user.id && chatMessage.receiverId === currentChatState.current.selectedFriendId) ||
+             (chatMessage.senderId === currentChatState.current.selectedFriendId && chatMessage.receiverId === user.id))) {
           setChatMessages(prev => [...prev, chatMessage]);
-        } else {
-          console.log("[Chat Debug] Not adding message to chat - conditions not met");
         }
         
         // Update unread count for received messages
@@ -149,8 +162,8 @@ const GameSelect: React.FC = () => {
         }
         
         // Show notification if chat is not open
-        if (!chatOpen || !selectedChatFriend || 
-            (chatMessage.senderId !== selectedChatFriend.id && chatMessage.receiverId !== selectedChatFriend.id)) {
+        if (!currentChatState.current.isOpen || !currentChatState.current.selectedFriendId || 
+            (chatMessage.senderId !== currentChatState.current.selectedFriendId && chatMessage.receiverId !== currentChatState.current.selectedFriendId)) {
           toast({
             title: `Message from ${chatMessage.senderName}`,
             description: chatMessage.message,
@@ -171,12 +184,8 @@ const GameSelect: React.FC = () => {
         console.log("[Chat History WS] Received history:", history);
         
         // Set chat history when opening a chat
-        console.log("[Chat History Debug] Chat open:", chatOpen, "Selected friend:", selectedChatFriend?.id, "History length:", history.length);
-        if (chatOpen && selectedChatFriend) {
-          console.log("[Chat History Debug] Setting chat messages");
+        if (currentChatState.current.isOpen && currentChatState.current.selectedFriendId) {
           setChatMessages(history);
-        } else {
-          console.log("[Chat History Debug] Not setting chat messages - conditions not met");
         }
       } catch (e) {
         console.error("[Chat History WS] Failed to parse message:", e);
@@ -379,9 +388,17 @@ const GameSelect: React.FC = () => {
 
   // Chat functions
   const openChat = (friendId: string, friendUsername: string): void => {
-    console.log("[OpenChat Debug] Opening chat with:", friendId, friendUsername);
-    setSelectedChatFriend({ id: friendId, username: friendUsername });
+    // Set the selected friend first
+    const selectedFriend = { id: friendId, username: friendUsername };
+    setSelectedChatFriend(selectedFriend);
     setChatOpen(true);
+    
+    // Update the ref immediately for WebSocket handlers
+    currentChatState.current = {
+      isOpen: true,
+      selectedFriendId: friendId,
+    };
+    
     // Clear previous messages when opening new chat
     setChatMessages([]);
     
@@ -394,10 +411,7 @@ const GameSelect: React.FC = () => {
     
     // Load chat history if WebSocket is connected
     if (stompClient && user) {
-      console.log("[OpenChat Debug] Loading chat history for:", user.id, friendId);
       chatService.getChatHistory(stompClient, user.id, friendId);
-    } else {
-      console.log("[OpenChat Debug] WebSocket not connected or user not available");
     }
   };
 
@@ -405,6 +419,12 @@ const GameSelect: React.FC = () => {
     setChatOpen(false);
     setSelectedChatFriend(null);
     setChatMessages([]);
+    
+    // Update the ref
+    currentChatState.current = {
+      isOpen: false,
+      selectedFriendId: null,
+    };
   };
 
   const sendMessage = (): void => {
