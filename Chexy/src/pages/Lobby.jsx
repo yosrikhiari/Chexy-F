@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clock, Gamepad2, Sword, Trophy, User as UserIcon, UserPlus, Users, RefreshCw } from "lucide-react";
+import { Clock, Gamepad2, Sword, Trophy, User as UserIcon, UserPlus, Users, RefreshCw, MessageSquare } from "lucide-react";
 import { friendshipService } from "@/services/FriendshipService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
@@ -10,6 +10,8 @@ import { userService } from "@/services/UserService.ts";
 import { JwtService } from "@/services/JwtService.ts";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/WebSocket/WebSocketContext.tsx";
+import InviteModal from "@/components/InterfacesService/InviteModal.tsx";
+import { gameInviteService } from "@/services/GameInviteService.ts";
 
 const Lobby = () => {
   const navigate = useNavigate();
@@ -43,6 +45,10 @@ const Lobby = () => {
   const [subscriptions, setSubscriptions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingError, setLoadingError] = useState(null);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [selectedFriend, setSelectedFriend] = useState(null);
+  const [waitingForInviteResponse, setWaitingForInviteResponse] = useState(false);
+  const [pendingInvite, setPendingInvite] = useState(null);
 
   // Refs to prevent multiple simultaneous requests
   const isLoadingLobbyData = useRef(false);
@@ -400,6 +406,80 @@ const Lobby = () => {
       });
       newSubscriptions.push(errorSub);
 
+      // Game invite response subscription
+      const gameInviteResponseSub = client.subscribe(`/queue/game-invite-response/${user.id}`, (message) => {
+        try {
+          const response = JSON.parse(message.body);
+          console.log("Game invite response:", response);
+          
+          // Check if this is the response for our pending invite
+          if (pendingInvite && response.id === pendingInvite.inviteId) {
+            setWaitingForInviteResponse(false);
+            setPendingInvite(null);
+            
+            if (response.status === "accepted") {
+              toast({
+                title: "Invite Accepted!",
+                description: `${response.fromUsername} accepted your game invite!`,
+              });
+              
+              // Create game session and navigate to game
+              createGameSessionForInvite(response);
+            } else if (response.status === "declined") {
+              toast({
+                title: "Invite Declined",
+                description: `${response.fromUsername} declined your game invite.`,
+                variant: "destructive",
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Error parsing game invite response:", error);
+        }
+      });
+      newSubscriptions.push(gameInviteResponseSub);
+
+      // Game invites subscription (for receiving invites)
+      const gameInvitesSub = client.subscribe(`/queue/game-invites/${user.id}`, (message) => {
+        try {
+          const invite = JSON.parse(message.body);
+          console.log("Game invite received:", invite);
+          
+          toast({
+            title: "Game Invite",
+            description: `${invite.fromUsername} invited you to play!`,
+            duration: 10000,
+          });
+          
+          // Show invite notification or handle it as needed
+          // For now, just show a toast
+        } catch (error) {
+          console.error("Error parsing game invite:", error);
+        }
+      });
+      newSubscriptions.push(gameInvitesSub);
+
+      // Game ready subscription for invited players
+      const gameReadyInviteSub = client.subscribe(`/queue/game-ready/${user.id}`, (message) => {
+        try {
+          const gameData = JSON.parse(message.body);
+          console.log("Game ready for invite:", gameData);
+          
+          // Navigate to the game
+          navigate(`/game/${gameData.gameId}`, {
+            state: {
+              playerId: user.id,
+              color: "black",
+              opponentId: gameData.inviterId,
+              isRankedMatch: gameData.isRanked || false,
+            },
+          });
+        } catch (error) {
+          console.error("Error parsing game ready data:", error);
+        }
+      });
+      newSubscriptions.push(gameReadyInviteSub);
+
       setSubscriptions(newSubscriptions);
       console.log("WebSocket subscriptions set up successfully");
     } catch (error) {
@@ -460,6 +540,104 @@ const Lobby = () => {
 
     return () => clearTimeout(timer);
   }, []); // No dependencies
+
+  const openInviteModal = (friend) => {
+    setSelectedFriend(friend);
+    setInviteModalOpen(true);
+  };
+
+  const closeInviteModal = () => {
+    setInviteModalOpen(false);
+    setSelectedFriend(null);
+  };
+
+  const handleGameTypeSelection = async (gameType, mode, isRanked) => {
+    if (!selectedFriend || !user?.id) return;
+
+    setInviteModalOpen(false);
+    
+    try {
+      // Generate invite ID that will be used by the service
+      const inviteId = `invite_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Send game invite via WebSocket
+      gameInviteService.sendGameInvite(
+        client,
+        user.id,
+        user.username,
+        selectedFriend.id,
+        mode,
+        isRanked,
+        gameType,
+        inviteId
+      );
+      
+      // Set waiting state
+      setWaitingForInviteResponse(true);
+      setPendingInvite({
+        inviteId,
+        friend: selectedFriend,
+        gameType,
+        mode,
+        isRanked
+      });
+      
+      toast({
+        title: "Invite Sent",
+        description: `Game invite sent to ${selectedFriend.username}!`,
+      });
+    } catch (error) {
+      console.error("Failed to send game invite:", error);
+      toast({
+        title: "Error",
+        description: "Failed to send game invite. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const createGameSessionForInvite = async (response) => {
+    try {
+      // Create game session based on the invite response
+      const session = await gameSessionService.createGameSession(
+        user.id,
+        response.gameMode || "CLASSIC_MULTIPLAYER",
+        response.isRanked || false
+      );
+
+      // Notify the invited player that the game is ready
+      if (client && response.fromUserId) {
+        client.publish({
+          destination: "/app/game-ready/notify",
+          body: JSON.stringify({
+            gameId: session.gameId,
+            inviterId: user.id,
+            invitedId: response.fromUserId,
+            gameMode: response.gameMode || "CLASSIC_MULTIPLAYER",
+            isRanked: response.isRanked || false,
+            gameType: response.gameType || "pvp-normal",
+          }),
+        });
+      }
+
+      // Navigate to the game
+      navigate(`/game/${session.gameId}`, {
+        state: {
+          playerId: user.id,
+          color: "white",
+          opponentId: response.fromUserId,
+          isRankedMatch: response.isRanked || false,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to create game session for invite:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create game session",
+        variant: "destructive",
+      });
+    }
+  };
 
   const createGame = async (isPrivate) => {
     try {
@@ -714,6 +892,40 @@ const Lobby = () => {
           </div>
         )}
 
+        {/* Quick Actions */}
+        <div className="mb-8">
+          <Card className="bg-gradient-to-r from-green-500/5 to-green-500/10 border-green-500/20">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-4">
+                <Gamepad className="h-8 w-8 text-green-500" />
+              </div>
+              <CardTitle className="text-2xl text-green-600">Quick Actions</CardTitle>
+              <CardDescription>Start playing with friends or find opponents</CardDescription>
+            </CardHeader>
+            <CardContent className="text-center">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Button
+                  onClick={() => navigate("/game-select")}
+                  size="lg"
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <Users className="mr-2 h-5 w-5" />
+                  Manage Friends
+                </Button>
+                <Button
+                  onClick={joinQueue}
+                  size="lg"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  disabled={!isConnected || inQueue}
+                >
+                  <Sword className="mr-2 h-5 w-5" />
+                  Quick Match
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Error Status */}
         {loadingError && (
           <div className="mb-6">
@@ -827,6 +1039,55 @@ const Lobby = () => {
           </Card>
         </div>
 
+        {/* Waiting for Invite Response */}
+        {waitingForInviteResponse && pendingInvite && (
+          <div className="mb-8">
+            <Card className="bg-gradient-to-r from-blue-500/5 to-blue-500/10 border-blue-500/20">
+              <CardHeader className="text-center">
+                <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center mx-auto mb-4">
+                  <UserPlus className="h-8 w-8 text-blue-500 animate-pulse" />
+                </div>
+                <CardTitle className="text-2xl text-blue-600">Waiting for Response</CardTitle>
+                <CardDescription>
+                  Waiting for {pendingInvite.friend.username} to respond to your game invite
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="text-center">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-center space-x-2">
+                    <Clock className="h-5 w-5 text-blue-500 animate-pulse" />
+                    <span className="text-lg text-blue-600">Waiting...</span>
+                  </div>
+                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      <strong>Game Type:</strong> {pendingInvite.gameType === 'rpg' ? 'RPG Adventure' : 
+                        pendingInvite.gameType === 'pvp-ranked' ? 'Ranked PvP' : 'Normal PvP'}
+                    </p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      <strong>Mode:</strong> {pendingInvite.isRanked ? 'Ranked' : 'Casual'}
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      // TODO: Send cancel invite message via WebSocket
+                      setWaitingForInviteResponse(false);
+                      setPendingInvite(null);
+                      toast({
+                        title: "Invite Cancelled",
+                        description: "Game invite has been cancelled",
+                      });
+                    }}
+                    variant="outline"
+                    className="border-blue-500/50 hover:border-blue-500 text-blue-600"
+                  >
+                    Cancel Invite
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* Game Cards Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Available Games */}
@@ -915,38 +1176,48 @@ const Lobby = () => {
                 </div>
                 <div>
                   <CardTitle>Friends</CardTitle>
-                  <CardDescription>Challenge your friends</CardDescription>
+                  <CardDescription>Challenge your friends to a game</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               {friends.length === 0 ? (
                 <div className="text-center py-6">
-                  <p className="text-muted-foreground">No friends added yet</p>
+                  <p className="text-muted-foreground mb-4">No friends added yet</p>
+                  <Button
+                    onClick={() => navigate("/game-select")}
+                    variant="outline"
+                    className="border-primary/50 hover:border-primary"
+                  >
+                    <UserPlus className="h-4 w-4 mr-1" />
+                    Add Friends
+                  </Button>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {friends.map((friend) => (
                     <div
                       key={friend.id}
-                      className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                      className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"
                     >
                       <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                          <UserIcon className="h-4 w-4 text-primary" />
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <UserIcon className="h-5 w-5 text-primary" />
                         </div>
-                        <span className="font-medium">
-                          {friend.recipientId === user.id ? friend.requesterId : friend.recipientId}
-                        </span>
+                        <div>
+                          <span className="font-medium text-sm">
+                            {friend.recipientId === user.id ? friend.requesterId : friend.recipientId}
+                          </span>
+                          <p className="text-xs text-muted-foreground">Online</p>
+                        </div>
                       </div>
                       <Button
-                        onClick={() => createGame(true)}
+                        onClick={() => openInviteModal(friend)}
                         size="sm"
-                        variant="outline"
-                        className="border-primary/50 hover:border-primary"
+                        className="bg-green-600 hover:bg-green-700 text-white"
                       >
-                        <UserPlus className="h-4 w-4 mr-1" />
-                        Invite
+                        <Gamepad className="h-4 w-4 mr-1" />
+                        Invite to Game
                       </Button>
                     </div>
                   ))}
@@ -978,22 +1249,24 @@ const Lobby = () => {
                   {recentOpponents.map((opponent) => (
                     <div
                       key={opponent.id}
-                      className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                      className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"
                     >
                       <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                          <UserIcon className="h-4 w-4 text-primary" />
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <UserIcon className="h-5 w-5 text-primary" />
                         </div>
-                        <span className="font-medium">{opponent.username}</span>
+                        <div>
+                          <span className="font-medium text-sm">{opponent.username}</span>
+                          <p className="text-xs text-muted-foreground">Previous opponent</p>
+                        </div>
                       </div>
                       <Button
-                        onClick={() => createGame(true)}
+                        onClick={() => openInviteModal(opponent)}
                         size="sm"
-                        variant="outline"
-                        className="border-primary/50 hover:border-primary"
+                        className="bg-orange-600 hover:bg-orange-700 text-white"
                       >
-                        <UserPlus className="h-4 w-4 mr-1" />
-                        Invite
+                        <Sword className="h-4 w-4 mr-1" />
+                        Rematch
                       </Button>
                     </div>
                   ))}
@@ -1013,6 +1286,14 @@ const Lobby = () => {
           </Button>
         </div>
       </div>
+
+      {/* Invite Modal */}
+      <InviteModal
+        open={inviteModalOpen}
+        onClose={closeInviteModal}
+        onSelectGameType={handleGameTypeSelection}
+        friendName={selectedFriend?.username || ""}
+      />
     </div>
   );
 };

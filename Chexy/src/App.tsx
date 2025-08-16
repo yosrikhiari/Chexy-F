@@ -14,6 +14,7 @@ import ForgotPassword from "@/pages/ForgotPassword.tsx";
 import { WebSocketProvider } from "./WebSocket/WebSocketContext";
 import ChessGameLayoutPvP from "@/components/InterfacesService/ChessGameLayoutPvP.tsx";
 
+
 // Create a wrapper component to handle the route state
 const GamePageWrapper = () => {
   const location = useLocation();
@@ -43,6 +44,7 @@ const App = () => {
             <Route path="/game-select" element={<GameSelect />} />
             <Route path="/bot-select" element={<BotSelect />} />
             <Route path="/lobby" element={<Lobby />} />
+
             {/* FIX: Remove the duplicate route and use the wrapper */}
             <Route path="/game/:gameId" element={<GamePageWrapper />} />
             <Route path="/" element={<Index />} />

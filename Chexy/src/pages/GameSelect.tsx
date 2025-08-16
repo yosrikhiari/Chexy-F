@@ -17,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useWebSocket } from "@/WebSocket/WebSocketContext";
+import { chatService, ChatMessage } from "@/services/ChatService";
+
 
 const GameSelect: React.FC = () => {
   const navigate = useNavigate();
@@ -37,6 +39,11 @@ const GameSelect: React.FC = () => {
   const [friendSearchTerm, setFriendSearchTerm] = useState<string>("");
   const [friendError, setFriendError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [chatOpen, setChatOpen] = useState<boolean>(false);
+  const [selectedChatFriend, setSelectedChatFriend] = useState<{ id: string; username: string } | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [newMessage, setNewMessage] = useState<string>("");
+  const [unreadCounts, setUnreadCounts] = useState<Map<string, number>>(new Map());
   const { client: stompClient, isConnected } = useWebSocket();
 
   useEffect(() => {
@@ -93,12 +100,15 @@ const GameSelect: React.FC = () => {
     friend.username.toLowerCase().includes(friendSearchTerm.toLowerCase())
   );
 
-  // Subscribe to friendship updates via WebSocket
+  // Subscribe to friendship updates and game invites via WebSocket
   useEffect(() => {
     if (!stompClient || !isConnected || !user?.id) return;
 
-    const destinationUser = `/queue/friendship/update/${user.id}`;
-    const subscription = stompClient.subscribe(destinationUser, async (msg) => {
+    const subscriptions: any[] = [];
+
+    // Friendship updates subscription
+    const friendshipDestination = `/queue/friendship/update/${user.id}`;
+    const friendshipSubscription = stompClient.subscribe(friendshipDestination, async (msg) => {
       try {
         const payload = JSON.parse(msg.body);
         // For any friendship event, refresh friend-related data
@@ -107,15 +117,85 @@ const GameSelect: React.FC = () => {
         console.error("[Friendship WS] Failed to parse message:", e);
       }
     });
+    subscriptions.push(friendshipSubscription);
+
+    // Chat messages subscription
+    const chatDestination = `/queue/chat/${user.id}`;
+    const chatSubscription = stompClient.subscribe(chatDestination, (msg) => {
+      try {
+        const chatMessage: ChatMessage = JSON.parse(msg.body);
+        console.log("[Chat WS] Received message:", chatMessage);
+        
+        // Add message to chat if it's between the current user and the selected friend
+        console.log("[Chat Debug] Chat open:", chatOpen, "Selected friend:", selectedChatFriend?.id, "Message sender:", chatMessage.senderId, "Message receiver:", chatMessage.receiverId, "Current user:", user.id);
+        
+        if (chatOpen && selectedChatFriend && 
+            ((chatMessage.senderId === user.id && chatMessage.receiverId === selectedChatFriend.id) ||
+             (chatMessage.senderId === selectedChatFriend.id && chatMessage.receiverId === user.id))) {
+          console.log("[Chat Debug] Adding message to chat");
+          setChatMessages(prev => [...prev, chatMessage]);
+        } else {
+          console.log("[Chat Debug] Not adding message to chat - conditions not met");
+        }
+        
+        // Update unread count for received messages
+        if (chatMessage.receiverId === user.id) {
+          const senderId = chatMessage.senderId;
+          setUnreadCounts(prev => {
+            const newCounts = new Map(prev);
+            newCounts.set(senderId, (newCounts.get(senderId) || 0) + 1);
+            return newCounts;
+          });
+        }
+        
+        // Show notification if chat is not open
+        if (!chatOpen || !selectedChatFriend || 
+            (chatMessage.senderId !== selectedChatFriend.id && chatMessage.receiverId !== selectedChatFriend.id)) {
+          toast({
+            title: `Message from ${chatMessage.senderName}`,
+            description: chatMessage.message,
+            duration: 5000,
+          });
+        }
+      } catch (e) {
+        console.error("[Chat WS] Failed to parse message:", e);
+      }
+    });
+    subscriptions.push(chatSubscription);
+
+    // Chat history subscription
+    const chatHistoryDestination = `/queue/chat/history/${user.id}`;
+    const chatHistorySubscription = stompClient.subscribe(chatHistoryDestination, (msg) => {
+      try {
+        const history: ChatMessage[] = JSON.parse(msg.body);
+        console.log("[Chat History WS] Received history:", history);
+        
+        // Set chat history when opening a chat
+        console.log("[Chat History Debug] Chat open:", chatOpen, "Selected friend:", selectedChatFriend?.id, "History length:", history.length);
+        if (chatOpen && selectedChatFriend) {
+          console.log("[Chat History Debug] Setting chat messages");
+          setChatMessages(history);
+        } else {
+          console.log("[Chat History Debug] Not setting chat messages - conditions not met");
+        }
+      } catch (e) {
+        console.error("[Chat History WS] Failed to parse message:", e);
+      }
+    });
+    subscriptions.push(chatHistorySubscription);
+
+
 
     return () => {
-      try {
-        subscription?.unsubscribe();
-      } catch (e) {
-        console.warn("[Friendship WS] Unsubscribe error:", e);
-      }
+      subscriptions.forEach(subscription => {
+        try {
+          subscription?.unsubscribe();
+        } catch (e) {
+          console.warn("[WebSocket] Unsubscribe error:", e);
+        }
+      });
     };
-  }, [stompClient, isConnected, user?.id]);
+  }, [stompClient, isConnected, user?.id, toast]);
 
   const fetchFriendData = async (): Promise<void> => {
     if (!user?.id) return;
@@ -296,23 +376,56 @@ const GameSelect: React.FC = () => {
     }
   };
 
-  const startGameWithFriend = async (friendId: string, friendUsername: string): Promise<void> => {
-    if (!user?.id) return;
 
-    try {
-      const session = await gameSessionService.createGameSession(user.id, "CLASSIC_MULTIPLAYER" as GameMode, false);
-      navigate("/game", {
-        state: {
-          isRankedMatch: false,
-          gameId: session.gameId,
-          playerId: user.id,
-          friendId: friendId,
-          friendUsername: friendUsername
-        }
-      });
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to create game with friend.", variant: "destructive" });
-      console.error("Create game with friend failed:", error);
+  // Chat functions
+  const openChat = (friendId: string, friendUsername: string): void => {
+    console.log("[OpenChat Debug] Opening chat with:", friendId, friendUsername);
+    setSelectedChatFriend({ id: friendId, username: friendUsername });
+    setChatOpen(true);
+    // Clear previous messages when opening new chat
+    setChatMessages([]);
+    
+    // Clear unread count for this friend
+    setUnreadCounts(prev => {
+      const newCounts = new Map(prev);
+      newCounts.set(friendId, 0);
+      return newCounts;
+    });
+    
+    // Load chat history if WebSocket is connected
+    if (stompClient && user) {
+      console.log("[OpenChat Debug] Loading chat history for:", user.id, friendId);
+      chatService.getChatHistory(stompClient, user.id, friendId);
+    } else {
+      console.log("[OpenChat Debug] WebSocket not connected or user not available");
+    }
+  };
+
+  const closeChat = (): void => {
+    setChatOpen(false);
+    setSelectedChatFriend(null);
+    setChatMessages([]);
+  };
+
+  const sendMessage = (): void => {
+    if (!newMessage.trim() || !selectedChatFriend || !user || !stompClient) return;
+
+    // Send message via WebSocket
+    chatService.sendMessage(
+      stompClient,
+      user.id,
+      user.username,
+      selectedChatFriend.id,
+      newMessage.trim()
+    );
+
+    setNewMessage("");
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
     }
   };
 
@@ -627,18 +740,37 @@ const GameSelect: React.FC = () => {
                                 <UserIcon className="h-5 w-5" />
                               </div>
                               <div>
-                                <p className="font-medium">{friend.username}</p>
+                                <p 
+                                  className="font-medium cursor-pointer hover:text-blue-600 transition-colors"
+                                  onClick={() => openChat(friend.id, friend.username)}
+                                >
+                                  {friend.username}
+                                </p>
                                 <p className="text-sm text-muted-foreground">{friend.points} points</p>
                               </div>
                             </div>
                             <div className="flex gap-2">
                               <Button
                                 size="sm"
-                                onClick={() => startGameWithFriend(friend.id, friend.username)}
-                                className="bg-blue-600 hover:bg-blue-700"
+                                onClick={() => openChat(friend.id, friend.username)}
+                                className="bg-green-600 hover:bg-green-700 text-white relative"
                               >
-                                <Gamepad className="h-4 w-4 mr-1" />
-                                Play
+                                <MessageSquare className="h-4 w-4 mr-1" />
+                                Chat
+                                {unreadCounts.get(friend.id) > 0 && (
+                                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                                    {unreadCounts.get(friend.id)}
+                                  </span>
+                                )}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => navigate("/profile", { state: { userId: friend.id } })}
+                                className="bg-purple-600 hover:bg-purple-700 text-white"
+                              >
+                                <UserIcon className="h-4 w-4 mr-1" />
+                                Profile
                               </Button>
                               <Button
                                 size="sm"
@@ -721,6 +853,79 @@ const GameSelect: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Chat Modal */}
+      {chatOpen && selectedChatFriend && (
+        <div className="fixed bottom-4 right-4 w-80 h-96 bg-white border border-gray-300 rounded-lg shadow-lg z-50 flex flex-col">
+          {/* Chat Header */}
+          <div className="bg-blue-600 text-white p-3 rounded-t-lg flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <UserIcon className="h-4 w-4" />
+              <span className="font-medium">{selectedChatFriend.username}</span>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={closeChat}
+              className="text-white hover:bg-blue-700"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          {/* Chat Messages */}
+          <div className="flex-1 p-3 overflow-y-auto space-y-2">
+            {chatMessages.length === 0 ? (
+              <div className="text-center text-gray-500 mt-8">
+                <MessageSquare className="h-8 w-8 mx-auto mb-2" />
+                <p>No messages yet</p>
+                <p className="text-sm">Start a conversation!</p>
+              </div>
+            ) : (
+              chatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-xs px-3 py-2 rounded-lg ${
+                      msg.senderId === user?.id
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-800'
+                    }`}
+                  >
+                    <p className="text-sm">{msg.message}</p>
+                    <p className="text-xs opacity-70 mt-1">
+                      {new Date(msg.timestamp).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          
+          {/* Chat Input */}
+          <div className="p-3 border-t border-gray-200">
+            <div className="flex gap-2">
+              <Input
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Type a message..."
+                className="flex-1"
+              />
+              <Button
+                size="sm"
+                onClick={sendMessage}
+                disabled={!newMessage.trim()}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                Send
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
