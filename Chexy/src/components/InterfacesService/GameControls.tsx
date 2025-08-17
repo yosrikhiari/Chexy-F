@@ -278,9 +278,6 @@ const GameControls: React.FC<ExtendedGameControlsProps> = ({
       // Backend cleanup (fire and forget - don't wait for it)
       setTimeout(async () => {
         try {
-          console.log("[RESIGN] Updating backend game status (endGame only)...");
-          // Calling endGame is sufficient; it sets status to COMPLETED server-side.
-          await gameSessionService.endGame(gameState.gameSessionId, winnerId);
           console.log("[RESIGN] Backend cleanup completed");
         } catch (backendError) {
           console.error("[RESIGN] Backend cleanup failed (non-critical):", backendError);

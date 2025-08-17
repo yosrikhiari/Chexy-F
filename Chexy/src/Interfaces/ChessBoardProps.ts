@@ -14,7 +14,6 @@ export interface ChessBoardProps {
   onPlayerChange?: (player: PieceColor) => void;
   timers?: GameTimers;
   onTimeUpdate?: (timers: GameTimers) => void;
-  onTimeout?: (color: PieceColor) => void;
   player1Name?: string;
   player2Name?: string;
   onResetGame?: () => void;
@@ -24,7 +23,6 @@ export interface ChessBoardProps {
   onGameStateChange?: React.Dispatch<React.SetStateAction<GameState>>;
   board?: (Piece | null)[][];
   playerColor?: PieceColor;
-  onGameEnd?: (result: GameResult) => void;
   onMoveMade?: (move: {
     from: BoardPosition;
     to: BoardPosition;

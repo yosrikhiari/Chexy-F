@@ -285,6 +285,11 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
   }, [gameId]);
 
   useEffect(() => {
+    if (!gameId) {
+      navigate("/lobby");
+      return;
+    }
+
     const initializeGame = async () => {
       try {
         setIsLoading(true);
@@ -378,7 +383,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
     const pollForUpdates = setInterval(async () => {
       // Double-check game over state before making API call
-      if (isGameOver || isReviewMode || gameResult !== null) {
+      if (isGameOver || isReviewMode || gameResult !== null || gameEndProcessedRef.current) {
         clearInterval(pollForUpdates);
         return;
       }
@@ -390,6 +395,12 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         if (session.status === 'COMPLETED' || session.status === 'TIMEOUT') {
           clearInterval(pollForUpdates);
           console.log("[DEBUG] Game session completed, processing game end...");
+
+          // Check if game end has already been processed
+          if (gameEndProcessedRef.current) {
+            console.log("[DEBUG] Game end already processed by polling, ignoring");
+            return;
+          }
 
           // Determine the winner from the session or game state
           let winner: PieceColor;
@@ -473,6 +484,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
             winnerid: winnerId, // FIX: Now properly set
           };
           // End the game locally
+          console.log("[DEBUG] Polling detected game end, calling handleGameEnd");
           handleGameEnd(detectedGameResult, localMoveHistory.length);
 
           // Show notification to opponent
@@ -541,7 +553,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
 
   const handleGameEnd = async (result: GameResult, moveCount?: number) => {
-    console.log("[DEBUG] Game ended:", result);
+    console.log("[DEBUG] Game ended:", result, "Move count:", moveCount, "Source: explicit call");
 
     if (gameEndProcessedRef.current) {
       console.log("[DEBUG] Game end already processed, ignoring");
@@ -609,56 +621,67 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         // Use provided moveCount or fall back to localMoveHistory.length
         const effectiveMoveCount = moveCount !== undefined ? moveCount : localMoveHistory.length;
         
-        console.log("[DEBUG] Points calculation - isDraw:", isDraw, "moveCount:", moveCount, "localMoveHistory.length:", localMoveHistory.length, "effectiveMoveCount:", effectiveMoveCount);
+        // Points calculation debug info
 
         if (isRankedMatch) {
           if (!isDraw) {
-            // Winner: positive points
-            if (winnerId) {
-              await PointCalculationService.processPointsForUser(correctedResult, winnerId, true, true, false, effectiveMoveCount);
-            }
-            // Loser: negative points
-            if (loserId) {
-              await PointCalculationService.processPointsForUser(correctedResult, loserId, true, false, false, effectiveMoveCount);
+            // Only process points for the current user, not for both players
+            // This prevents duplicate point application when both players call handleGameEnd
+            if (winnerId === currentUserId) {
+              // Current user is the winner
+              console.log("[DEBUG] Processing points for current user (winner):", currentUserId);
+              await PointCalculationService.processPointsForUser(correctedResult, currentUserId, true, true, false, effectiveMoveCount);
+            } else if (loserId === currentUserId) {
+              // Current user is the loser
+              console.log("[DEBUG] Processing points for current user (loser):", currentUserId);
+              await PointCalculationService.processPointsForUser(correctedResult, currentUserId, true, false, false, effectiveMoveCount);
+            } else {
+              console.log("[DEBUG] Current user not involved in game result, skipping point processing");
             }
           } else {
-            // Draw: award draw points to both based on move count
-            console.log("[DEBUG] Processing draw points - moveCount:", effectiveMoveCount, "awardPoints:", effectiveMoveCount >= 20);
-            if (gameState.userId1) {
-              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId1, true, false, true, effectiveMoveCount);
-            }
-            if (gameState.userId2) {
-              await PointCalculationService.processPointsForUser(correctedResult, gameState.userId2, true, false, true, effectiveMoveCount);
-            }
+            // Draw: only award draw points to current user
+            console.log("[DEBUG] Processing draw points for current user:", currentUserId);
+            await PointCalculationService.processPointsForUser(correctedResult, currentUserId, true, false, true, effectiveMoveCount);
           }
         }
 
-        // For UI: calculate current client's points to show in modal
+        // For UI: get the points that were already calculated and applied above
         const currentStreak = await PointCalculationService.getCurrentUserStreak();
-        const processedSelf = await PointCalculationService.processGameResultPoints(
-          correctedResult,
+        const isCurrentUserWinner = correctedResult.winnerid === currentUserId;
+        const isCurrentUserDraw = correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw";
+        
+        // Calculate points for display only (don't apply again)
+        const pointsCalculation = PointCalculationService.calculateStreakBasedPoints(
+          isCurrentUserWinner,
+          isCurrentUserDraw,
           currentStreak,
           isRankedMatch,
-          effectiveMoveCount // Pass move count for draw point calculation
+          effectiveMoveCount
         );
-        correctedResult = processedSelf.gameResult;
+        
+        // Update game result with calculated points for UI display
+        correctedResult = {
+          ...correctedResult,
+          pointsAwarded: pointsCalculation.pointsAwarded
+        };
 
         // Immediately use idempotency cache delta when available; fallback to calculated points
         try {
           const idempotencyKeyNow = `points_processed:${correctedResult.gameid}:${currentUserId}`;
           const cached = localStorage.getItem(idempotencyKeyNow);
+          
           if (cached) {
             const parsed = JSON.parse(cached);
             if (parsed && typeof parsed.delta === 'number') {
               setForcedPointsDelta(parsed.delta);
             } else {
-              setForcedPointsDelta(processedSelf.gameResult.pointsAwarded || 0);
+              setForcedPointsDelta(correctedResult.pointsAwarded || 0);
             }
           } else {
-            setForcedPointsDelta(processedSelf.gameResult.pointsAwarded || 0);
+            setForcedPointsDelta(correctedResult.pointsAwarded || 0);
           }
-        } catch {
-          setForcedPointsDelta(processedSelf.gameResult.pointsAwarded || 0);
+        } catch (error) {
+          setForcedPointsDelta(correctedResult.pointsAwarded || 0);
         }
       } catch (error) {
         console.error("[ERROR] Failed to process streak-based points:", error);
@@ -951,25 +974,11 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 flipped={flipped}
                 currentPlayer={currentPlayer}
                 onMove={handlePlayerChange}
-                onGameEnd={(result) => handleGameEnd(result, localMoveHistory.length)}
                 gameState={gameState}
                 onGameStateChange={setGameState}
                 playerColor={playerColor}
                 timers={timers}
                 onTimeUpdate={setTimers}
-                onTimeout={(color) => {
-                  if (isReviewMode) return;
-
-                  const winner = color === "white" ? "black" : "white";
-                  handleGameEnd({
-                    winner,
-                    winnerName: winner === "white" ? playerStats.white.name : playerStats.black.name,
-                    pointsAwarded: isRankedMatch ? 0 : 0, // Let backend handle points
-                    gameEndReason: "timeout",
-                    gameid: gameState.gameSessionId,
-                    winnerid: winner === "white" ? gameState.userId1 : gameState.userId2,
-                  }, localMoveHistory.length);
-                }}
                 player1Name={playerStats.white.name}
                 player2Name={playerStats.black.name}
                 onResetGame={resetGame}

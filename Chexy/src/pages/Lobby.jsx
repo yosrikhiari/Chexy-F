@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clock, Gamepad2, Sword, Trophy, User as UserIcon, UserPlus, Users, RefreshCw, MessageSquare } from "lucide-react";
+import { Clock, Gamepad2, Gamepad, Sword, Trophy, User as UserIcon, UserPlus, Users, RefreshCw, MessageSquare } from "lucide-react";
 import { friendshipService } from "@/services/FriendshipService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
@@ -871,7 +871,7 @@ const Lobby = () => {
           </p>
           <div className="mt-4">
             <span className="text-muted-foreground flex justify-center items-center">
-              Your rank points:&nbsp;<span className="text-primary font-bold flex items-center" key={userPoints}>
+              Your rank points:&nbsp;<span className="text-primary font-bold flex items-center">
                 {userPoints}<Trophy className="h-5 w-5 ml-1 text-primary" />
               </span>
             </span>

@@ -129,26 +129,16 @@ const GameEndModal: React.FC<ExtendedGameEndModalProps> = ({
     // 3. Fallback to 0
 
     if (typeof forcedPointsDelta === 'number') {
-      console.log("[MODAL] Using forcedPointsDelta:", forcedPointsDelta);
       return forcedPointsDelta;
     }
 
     if (actualPointsAwarded !== 0) {
-      console.log("[MODAL] Using actualPointsAwarded:", actualPointsAwarded);
       return actualPointsAwarded;
     }
 
     if (gameResult?.pointsAwarded !== undefined && gameResult.pointsAwarded !== 0) {
-      console.log("[MODAL] Using gameResult.pointsAwarded:", gameResult.pointsAwarded);
       return gameResult.pointsAwarded;
     }
-
-    console.log("[MODAL] No points to display, returning 0", {
-      isRankedMatch,
-      forcedPointsDelta,
-      actualPointsAwarded,
-      gameResultPoints: gameResult?.pointsAwarded,
-    });
     return 0;
   };
 

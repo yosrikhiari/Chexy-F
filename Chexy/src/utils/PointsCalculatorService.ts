@@ -233,19 +233,32 @@ export class PointCalculationService {
   ): Promise<StreakBasedPoints> {
     const targetStreak = await this.getUserStreakByUserId(targetUserId);
     const calc = this.calculateStreakBasedPoints(isWinner, isDraw, targetStreak, isRankedMatch, moveCount);
+
     if (calc.pointsAwarded !== 0) {
       const gameId: string = gameResult.gameid || gameResult.gameId || gameResult.id;
       const idempotencyKey = `points_processed:${gameId}:${targetUserId}`;
       const alreadyProcessed = localStorage.getItem(idempotencyKey);
+
       if (!alreadyProcessed) {
         try {
-          await this.applyPointsToUser(targetUserId, calc.pointsAwarded);
-          localStorage.setItem(idempotencyKey, JSON.stringify({ applied: true, at: Date.now(), delta: calc.pointsAwarded }));
-        } catch (err) {
-          console.error('[POINTS] Failed to apply points for user', targetUserId, err);
+          // Get current user points for logging purposes
+          const currentUser = await userService.getByUserId(targetUserId);
+          const currentPoints = currentUser?.points || 0;
+
+          // Apply the calculated points directly
+          const pointsDelta = calc.pointsAwarded;
+
+          await this.applyPointsToUser(targetUserId, pointsDelta);
+          localStorage.setItem(idempotencyKey, JSON.stringify({
+            applied: true,
+            at: Date.now(),
+            delta: pointsDelta,
+            currentPoints: currentPoints,
+            newTotal: currentPoints + pointsDelta
+          }));
+        } catch (error) {
+          console.error("[POINTS] Failed to apply points to user:", targetUserId, error);
         }
-      } else {
-        console.log(`[POINTS] Skipping duplicate points application for key ${idempotencyKey}`);
       }
     }
     return calc;

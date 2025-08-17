@@ -100,7 +100,6 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
                                                     player2Name,
                                                     currentPlayer: propCurrentPlayer,
                                                     onMove,
-                                                    onGameEnd,
                                                     gameState: propGameState,
                                                     onGameStateChange,
                                                     onMoveMade,
@@ -499,16 +498,12 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         winnerid: gameState.isDraw ? "" : (winner === "white" ? gameState.userId1 : gameState.userId2),
       };
 
-      if (onGameEnd) {
-        // Let parent handle modal and points logic
-        onGameEnd(gameResult);
-      } else {
-        // Fallback: show own modal if no parent handler is provided
-        setGameResult(gameResult);
-        setShowGameEndModal(true);
-      }
+      // Remove onGameEnd call to prevent duplicate point calculations
+      // The parent component (ChessGameLayoutPvP) will handle game end logic
+      setGameResult(gameResult);
+      setShowGameEndModal(true);
     }
-  }, [gameState?.isCheckmate, gameState?.isDraw, isInitialized, player1Name, player2Name, gameState?.gameSessionId, gameState?.userId1, gameState?.userId2, gameState?.checkedPlayer, onGameEnd]);
+      }, [gameState?.isCheckmate, gameState?.isDraw, isInitialized, player1Name, player2Name, gameState?.gameSessionId, gameState?.userId1, gameState?.userId2, gameState?.checkedPlayer]);
 
   // NOW EARLY RETURNS CAN GO HERE
   if (!isInitialized) {
@@ -598,19 +593,17 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
         </div>
       )}
 
-      {!onGameEnd && (
-        <GameEndModal
-          open={showGameEndModal}
-          gameResult={gameResult}
-          onClose={() => setShowGameEndModal(false)}
-          onPlayAgain={() => {
-            setShowGameEndModal(false);
-            navigate("/lobby");
-          }}
-          onReviewGame={() => setShowGameEndModal(false)}
-          onBackToMenu={() => navigate("/")}
-        />
-      )}
+      <GameEndModal
+        open={showGameEndModal}
+        gameResult={gameResult}
+        onClose={() => setShowGameEndModal(false)}
+        onPlayAgain={() => {
+          setShowGameEndModal(false);
+          navigate("/lobby");
+        }}
+        onReviewGame={() => setShowGameEndModal(false)}
+        onBackToMenu={() => navigate("/")}
+      />
     </div>
   );
 };

@@ -95,10 +95,11 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
 
   const handleTimeoutInternal = async (color: PieceColor) => {
     if (hasTimedOutRef.current || isGameOverRef.current) {
+      console.log(`[TIMEOUT] ${color} player timed out - already handled, ignoring`);
       return; // Prevent multiple timeout handling
     }
 
-    console.log(`[TIMEOUT] ${color} player timed out`);
+    console.log(`[TIMEOUT] ${color} player timed out - processing timeout event`);
     setHasTimedOut(true);
     hasTimedOutRef.current = true;
 
@@ -127,8 +128,10 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
         winnerId = session.whitePlayer?.userId || "";
         winnerName = session.whitePlayer?.username || whitePlayerName;
       } else {
-        winnerId = session.blackPlayer?.userId || "BOT";
-        winnerName = session.blackPlayer?.username || blackPlayerName;
+        // blackPlayer is an array, get the first player
+        const blackPlayer = session.blackPlayer && session.blackPlayer.length > 0 ? session.blackPlayer[0] : null;
+        winnerId = blackPlayer?.userId || "BOT";
+        winnerName = blackPlayer?.username || blackPlayerName;
       }
 
       // Handle bot games
@@ -148,16 +151,6 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
         winnerid: winnerId,
       };
 
-      // End the game session if it's still active
-      if (session.status === "ACTIVE") {
-        await gameSessionService.endGame(gameId, winnerId, false);
-
-        // Complete game history if it exists
-        if (session.gameHistoryId) {
-          await gameHistoryService.completeGameHistory(session.gameHistoryId, gameResult);
-        }
-      }
-
       // Show timeout notification
       toast({
         title: "Time's Up!",
@@ -166,6 +159,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
       });
 
       // Trigger the timeout callback to parent component
+      console.log("[TIMEOUT] Calling parent onTimeout handler");
       onTimeout(color);
 
     } catch (err) {
@@ -259,7 +253,9 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
 
         setGameMode(session.gameMode);
         setWhitePlayerName(session.whitePlayer?.username || 'White');
-        setBlackPlayerName(session.blackPlayer?.username || 'Bot');
+        // blackPlayer is an array, get the first player's username
+        const blackPlayer = session.blackPlayer && session.blackPlayer.length > 0 ? session.blackPlayer[0] : null;
+        setBlackPlayerName(blackPlayer?.username || 'Bot');
 
         // Initialize timers from session if not already set
         if (

@@ -44,7 +44,7 @@ const GameSelect: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState<string>("");
   const [unreadCounts, setUnreadCounts] = useState<Map<string, number>>(new Map());
-  
+
   // Use refs to track current chat state for WebSocket handlers
   const currentChatState = useRef<{
     isOpen: boolean;
@@ -53,7 +53,14 @@ const GameSelect: React.FC = () => {
     isOpen: false,
     selectedFriendId: null,
   });
-  
+  const currentProfileState = useRef<{
+    isOpen: boolean;
+    selectedFriendId: string | null;
+  }>({
+    isOpen: false,
+    selectedFriendId: null,
+  });
+
   const { client: stompClient, isConnected } = useWebSocket();
 
   useEffect(() => {
@@ -143,14 +150,14 @@ const GameSelect: React.FC = () => {
       try {
         const chatMessage: ChatMessage = JSON.parse(msg.body);
         console.log("[Chat WS] Received message:", chatMessage);
-        
+
         // Add message to chat if it's between the current user and the selected friend
-        if (currentChatState.current.isOpen && currentChatState.current.selectedFriendId && 
+        if (currentChatState.current.isOpen && currentChatState.current.selectedFriendId &&
             ((chatMessage.senderId === user.id && chatMessage.receiverId === currentChatState.current.selectedFriendId) ||
              (chatMessage.senderId === currentChatState.current.selectedFriendId && chatMessage.receiverId === user.id))) {
           setChatMessages(prev => [...prev, chatMessage]);
         }
-        
+
         // Update unread count for received messages
         if (chatMessage.receiverId === user.id) {
           const senderId = chatMessage.senderId;
@@ -160,9 +167,9 @@ const GameSelect: React.FC = () => {
             return newCounts;
           });
         }
-        
+
         // Show notification if chat is not open
-        if (!currentChatState.current.isOpen || !currentChatState.current.selectedFriendId || 
+        if (!currentChatState.current.isOpen || !currentChatState.current.selectedFriendId ||
             (chatMessage.senderId !== currentChatState.current.selectedFriendId && chatMessage.receiverId !== currentChatState.current.selectedFriendId)) {
           toast({
             title: `Message from ${chatMessage.senderName}`,
@@ -182,7 +189,7 @@ const GameSelect: React.FC = () => {
       try {
         const history: ChatMessage[] = JSON.parse(msg.body);
         console.log("[Chat History WS] Received history:", history);
-        
+
         // Set chat history when opening a chat
         if (currentChatState.current.isOpen && currentChatState.current.selectedFriendId) {
           setChatMessages(history);
@@ -392,34 +399,44 @@ const GameSelect: React.FC = () => {
     const selectedFriend = { id: friendId, username: friendUsername };
     setSelectedChatFriend(selectedFriend);
     setChatOpen(true);
-    
+
     // Update the ref immediately for WebSocket handlers
     currentChatState.current = {
       isOpen: true,
       selectedFriendId: friendId,
     };
-    
+
     // Clear previous messages when opening new chat
     setChatMessages([]);
-    
+
     // Clear unread count for this friend
     setUnreadCounts(prev => {
       const newCounts = new Map(prev);
       newCounts.set(friendId, 0);
       return newCounts;
     });
-    
+
     // Load chat history if WebSocket is connected
     if (stompClient && user) {
       chatService.getChatHistory(stompClient, user.id, friendId);
     }
   };
 
+  const OpenProfile = (friendId: string, friendUsername: string): void => {
+    currentProfileState.current = {
+      isOpen: true,
+      selectedFriendId: friendId
+    }
+
+
+
+  }
+
   const closeChat = (): void => {
     setChatOpen(false);
     setSelectedChatFriend(null);
     setChatMessages([]);
-    
+
     // Update the ref
     currentChatState.current = {
       isOpen: false,
@@ -760,7 +777,7 @@ const GameSelect: React.FC = () => {
                                 <UserIcon className="h-5 w-5" />
                               </div>
                               <div>
-                                <p 
+                                <p
                                   className="font-medium cursor-pointer hover:text-blue-600 transition-colors"
                                   onClick={() => openChat(friend.id, friend.username)}
                                 >
@@ -892,7 +909,7 @@ const GameSelect: React.FC = () => {
               <X className="h-4 w-4" />
             </Button>
           </div>
-          
+
           {/* Chat Messages */}
           <div className="flex-1 p-3 overflow-y-auto space-y-2">
             {chatMessages.length === 0 ? (
@@ -923,7 +940,7 @@ const GameSelect: React.FC = () => {
               ))
             )}
           </div>
-          
+
           {/* Chat Input */}
           <div className="p-3 border-t border-gray-200">
             <div className="flex gap-2">

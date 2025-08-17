@@ -50,13 +50,11 @@
                         onPlayerChange,
                         timers,
                         onTimeUpdate,
-                        onTimeout,
                         player1Name,
                         player2Name,
                         onResetGame,
                         currentPlayer: propCurrentPlayer,
                         onMove,
-                        onGameEnd,
                         gameState: propGameState,
                         onGameStateChange,
                         onMoveMade,
@@ -268,16 +266,11 @@
               gameid: gameState.gameSessionId,
               winnerid: winningPlayer === "white" ? gameState.userId1 : gameState.userId2,
             };
-            if (onGameEnd) {
-              onGameEnd(gameResultData);
-            } else {
-              setGameResult(gameResultData);
-              setShowGameEndModal(true);
-            }
-            await Promise.all([
-              await completeGameWithEnsuredHistory(gameResultData),
-              gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
-            ]);
+            // Remove onGameEnd call to prevent duplicate point calculations
+            // The parent component (ChessGameLayoutPvP) will handle game end logic
+            setGameResult(gameResultData);
+            setShowGameEndModal(true);
+            await completeGameWithEnsuredHistory(gameResultData);
           } else if (isDrawState) {
             const gameResultData: GameResult = {
               winner: null,
@@ -287,16 +280,11 @@
               gameid: gameState.gameSessionId,
               winnerid: null,
             };
-            if (onGameEnd) {
-              onGameEnd(gameResultData);
-            } else {
-              setGameResult(gameResultData);
-              setShowGameEndModal(true);
-            }
-            await Promise.all([
-              await completeGameWithEnsuredHistory(gameResultData),
-              gameSessionService.endGame(gameState.gameSessionId, null, true),
-            ]);
+            // Remove onGameEnd call to prevent duplicate point calculations
+            // The parent component (ChessGameLayoutPvP) will handle game end logic
+            setGameResult(gameResultData);
+            setShowGameEndModal(true);
+            await completeGameWithEnsuredHistory(gameResultData);
           }
         } catch (error) {
           console.error("Error in checkGameStatus:", error);
@@ -310,58 +298,6 @@
       checkGameStatus();
 
     }, [gameState.gameSessionId, gameState.gameHistoryId]);
-
-    useEffect(() => {
-      if (!timers || gameMode === "SINGLE_PLAYER_RPG") return;
-
-      const timerInterval = setInterval(() => {
-        if (timers[currentPlayer]?.active && timers[currentPlayer]?.timeLeft > 0) {
-          const updatedTimers = {
-            ...timers,
-            [currentPlayer]: {
-              ...timers[currentPlayer],
-              timeLeft: timers[currentPlayer].timeLeft - 1,
-            },
-          };
-
-          if (onTimeUpdate) {
-            onTimeUpdate(updatedTimers);
-          }
-
-          if (updatedTimers[currentPlayer].timeLeft === 0 && onTimeout) {
-            const winningPlayer = currentPlayer === "white" ? "black" : "white";
-            const winnerName = winningPlayer === "white" ? player1Name : player2Name;
-            const pointsAwarded = 75;
-
-            const gameResultData: GameResult = {
-              winner: winningPlayer,
-              winnerName: winnerName || "Unknown",
-              pointsAwarded,
-              gameEndReason: "timeout",
-              gameid: gameState.gameSessionId,
-              winnerid: winningPlayer === "white" ? gameState.userId1 : (gameState.userId2 || "BOT"),
-            };
-
-            setGameResult(gameResultData);
-            setShowGameEndModal(true);
-            onTimeout(currentPlayer);
-
-            Promise.all([
-              completeGameWithEnsuredHistory(gameResultData),
-              gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
-            ]).catch(() => {
-              toast({
-                title: "Error",
-                description: "Failed to finalize game timeout.",
-                variant: "destructive",
-              });
-            });
-          }
-        }
-      }, 1000);
-
-      return () => clearInterval(timerInterval);
-    }, [timers, currentPlayer, onTimeUpdate, onTimeout, gameState.gameSessionId, gameState.gameHistoryId, gameMode, player1Name, player2Name]);
 
     useEffect(() => {
       if (onPlayerChange) {
@@ -496,16 +432,11 @@
             gameid: gameState.gameSessionId,
             winnerid: winningPlayer === "white" ? gameState.userId1 : gameState.userId2,
           };
-          if (onGameEnd) {
-            onGameEnd(gameResultData);
-          } else {
-            setGameResult(gameResultData);
-            setShowGameEndModal(true);
-          }
-          await Promise.all([
-            completeGameWithEnsuredHistory(gameResultData),
-            gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid),
-          ]);
+          // Remove onGameEnd call to prevent duplicate point calculations
+          // The parent component (ChessGameLayoutPvP) will handle game end logic
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
+          await completeGameWithEnsuredHistory(gameResultData);
         } else if (isStalemate) {
           const gameResultData: GameResult = {
             winner: null,
@@ -515,16 +446,11 @@
             gameid: gameState.gameSessionId,
             winnerid: null,
           };
-          if (onGameEnd) {
-            onGameEnd(gameResultData);
-          } else {
-            setGameResult(gameResultData);
-            setShowGameEndModal(true);
-          }
-          await Promise.all([
-            completeGameWithEnsuredHistory(gameResultData),
-            gameSessionService.endGame(gameState.gameSessionId, null, true),
-          ]);
+          // Remove onGameEnd call to prevent duplicate point calculations
+          // The parent component (ChessGameLayoutPvP) will handle game end logic
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
+          await completeGameWithEnsuredHistory(gameResultData);
         }
 
         if (onMoveMade) {
@@ -603,9 +529,6 @@
 
         if (session.gameState.isCheckmate || session.gameState.isDraw) {
           console.log("[Bot] Game is over, ensuring end state");
-          if (session.status === "ACTIVE") {
-            await gameSessionService.endGame(gameState.gameSessionId, gameState.userId1);
-          }
           return;
         }
 
@@ -643,14 +566,11 @@
               gameid: gameState.gameSessionId,
               winnerid: gameState.userId1,
             };
-            if (onGameEnd) {
-              onGameEnd(gameResultData);
-            } else {
-              setGameResult(gameResultData);
-              setShowGameEndModal(true);
-            }
+            // Remove onGameEnd call to prevent duplicate point calculations
+            // The parent component (ChessGameLayoutPvP) will handle game end logic
+            setGameResult(gameResultData);
+            setShowGameEndModal(true);
             setGameStateValue({ ...gameState, isCheckmate: true, checkedPlayer: "black" });
-            await gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid);
           } else {
             const gameResultData: GameResult = {
               winner: null,
@@ -660,14 +580,11 @@
               gameid: gameState.gameSessionId,
               winnerid: null,
             };
-            if (onGameEnd) {
-              onGameEnd(gameResultData);
-            } else {
-              setGameResult(gameResultData);
-              setShowGameEndModal(true);
-            }
+            // Remove onGameEnd call to prevent duplicate point calculations
+            // The parent component (ChessGameLayoutPvP) will handle game end logic
+            setGameResult(gameResultData);
+            setShowGameEndModal(true);
             setGameStateValue({ ...gameState, isDraw: true });
-            await gameSessionService.endGame(gameState.gameSessionId, null, true);
           }
           return;
         }
@@ -724,13 +641,10 @@
             gameid: gameState.gameSessionId,
             winnerid: gameState.userId2 || "BOT",
           };
-          if (onGameEnd) {
-            onGameEnd(gameResultData);
-          } else {
-            setGameResult(gameResultData);
-            setShowGameEndModal(true);
-          }
-          await gameSessionService.endGame(gameState.gameSessionId, gameResultData.winnerid);
+          // Remove onGameEnd call to prevent duplicate point calculations
+          // The parent component (ChessGameLayoutPvP) will handle game end logic
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
         } else if (isStalemate) {
           const gameResultData: GameResult = {
             winner: null,
@@ -740,13 +654,10 @@
             gameid: gameState.gameSessionId,
             winnerid: null,
           };
-          if (onGameEnd) {
-            onGameEnd(gameResultData);
-          } else {
-            setGameResult(gameResultData);
-            setShowGameEndModal(true);
-          }
-          await gameSessionService.endGame(gameState.gameSessionId, null, true);
+          // Remove onGameEnd call to prevent duplicate point calculations
+          // The parent component (ChessGameLayoutPvP) will handle game end logic
+          setGameResult(gameResultData);
+          setShowGameEndModal(true);
         }
 
       } catch (error) {
