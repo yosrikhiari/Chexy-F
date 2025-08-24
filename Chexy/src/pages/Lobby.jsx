@@ -892,39 +892,7 @@ const Lobby = () => {
           </div>
         )}
 
-        {/* Quick Actions */}
-        <div className="mb-8">
-          <Card className="bg-gradient-to-r from-green-500/5 to-green-500/10 border-green-500/20">
-            <CardHeader className="text-center">
-              <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-4">
-                <Gamepad className="h-8 w-8 text-green-500" />
-              </div>
-              <CardTitle className="text-2xl text-green-600">Quick Actions</CardTitle>
-              <CardDescription>Start playing with friends or find opponents</CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button
-                  onClick={() => navigate("/game-select")}
-                  size="lg"
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <Users className="mr-2 h-5 w-5" />
-                  Manage Friends
-                </Button>
-                <Button
-                  onClick={joinQueue}
-                  size="lg"
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                  disabled={!isConnected || inQueue}
-                >
-                  <Sword className="mr-2 h-5 w-5" />
-                  Quick Match
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+
 
         {/* Error Status */}
         {loadingError && (

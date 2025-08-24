@@ -20,9 +20,11 @@
   import { gameService } from "@/services/GameService.ts";
   import { GameMode } from "@/Interfaces/enums/GameMode.ts";
   import { aiserervice } from "@/services/aiService.ts";
-  import {useLocation} from "react-router-dom";
-  import {bots} from "@/Interfaces/Bot.ts";
-  import {GameHistory} from "@/Interfaces/types/GameHistory.ts";
+  import { useLocation } from "react-router-dom";
+  import { bots } from "@/Interfaces/Bot.ts";
+  import { GameHistory } from "@/Interfaces/types/GameHistory.ts";
+  import { AIStrategy } from "@/Interfaces/enums/AIStrategy.ts";
+  import { getDifficultyConfig, getDifficultyPoints } from "@/utils/AIDifficultyMapper.ts";
 
   const ensureClassicBoard = (board: any): Piece[][] => {
     if (!Array.isArray(board) || board.length !== 8 || !board.every((row: any) => Array.isArray(row) && row.length === 8)) {
@@ -59,9 +61,18 @@
                         onGameStateChange,
                         onMoveMade,
                       }: ChessBoardProps) => {
-    const location = useLocation();
-    const { botId } = location.state || {};
-    const selectedBot = bots.find(bot => bot.id === botId);
+      const location = useLocation();
+  const { botId, aiStrategy } = location.state || {};
+  const selectedBot = bots.find(bot => bot.id === botId);
+  
+  // Get AI difficulty configuration
+  const aiDifficulty = aiStrategy ? getDifficultyConfig(aiStrategy as AIStrategy) : null;
+  const botPoints = aiDifficulty ? aiDifficulty.points : (selectedBot?.points || 600);
+  
+  // Debug logging
+  console.log("AI Strategy:", aiStrategy);
+  console.log("AI Difficulty Config:", aiDifficulty);
+  console.log("Bot Points:", botPoints);
     const [boardHistory, setBoardHistory] = useState<Piece[][][]>([initialBoard]);
     const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
     const [selectedPiece, setSelectedPiece] = useState<BoardPosition | null>(null);
@@ -540,10 +551,10 @@
         setGameStateValue(session.gameState);
         setCurrentPlayerValue(session.gameState.currentTurn);
 
-        const botPoints = selectedBot?.points || 600;
+        const botName = aiDifficulty ? aiDifficulty.name : (selectedBot?.name || 'Bot');
 
         toast({
-          title: `${selectedBot?.name || 'Bot'} is thinking...`,
+          title: `${botName} is thinking...`,
           description: `Difficulty: ${botPoints} points`,
           duration: 3000
         });
@@ -633,10 +644,10 @@
 
         // Handle game end conditions
         if (isCheckmate) {
-          const gameResultData: GameResult = {
-            winner: "black",
-            winnerName: player2Name || "Bot",
-            pointsAwarded: 100,
+                      const gameResultData: GameResult = {
+              winner: "black",
+              winnerName: player2Name || botName,
+              pointsAwarded: 100,
             gameEndReason: "checkmate",
             gameid: gameState.gameSessionId,
             winnerid: gameState.userId2 || "BOT",
