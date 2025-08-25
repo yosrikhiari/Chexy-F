@@ -82,9 +82,9 @@ const Leaderboard = () => {
         setCurrentUser(userResponse);
         setLeaderboardUsers(leaderboardResponse);
         setFriendsList(
-          friendsResponse.map((f: Friendship) =>
-            f.recipientId === keycloakId ? f.requesterId : f.recipientId
-          ).map((id: string) => leaderboardResponse.find((u) => u.id === id)!).filter(Boolean)
+          friendsResponse
+            .flat()
+            .filter((u): u is User => u !== undefined && u.id !== keycloakId)
         );
       } catch (error) {
         console.error("Error fetching leaderboard data:", error);
@@ -204,6 +204,14 @@ const Leaderboard = () => {
               <UserIcon className="h-4 w-4" /> Profile
             </Button>
           </div>
+        </div>
+
+        {/* Scroll Indicator */}
+        <div className="text-center mb-6 animate-bounce">
+          <div className="w-6 h-10 border-2 border-primary/50 rounded-full mx-auto relative">
+            <div className="w-1.5 h-3 bg-primary/70 rounded-full mx-auto mt-2 animate-pulse"></div>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2 font-elegant">Scroll to see more leaderboard details</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

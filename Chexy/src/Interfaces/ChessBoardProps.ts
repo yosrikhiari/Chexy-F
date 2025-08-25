@@ -13,7 +13,9 @@ export interface ChessBoardProps {
   flipped?: boolean;
   onPlayerChange?: (player: PieceColor) => void;
   timers?: GameTimers;
+  onGameEnd: (result: GameResult) => Promise<void>;
   onTimeUpdate?: (timers: GameTimers) => void;
+  onTimeout: (color: PieceColor) => void;
   player1Name?: string;
   player2Name?: string;
   onResetGame?: () => void;

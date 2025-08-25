@@ -8,225 +8,134 @@
     /* Fantasy Theme Colors */
     --background: 260 30% 8%;
     --foreground: 0 0% 95%;
-
     --card: 260 25% 12%;
     --card-foreground: 0 0% 95%;
-
     --popover: 260 25% 12%;
     --popover-foreground: 0 0% 95%;
-
     --primary: 45 100% 60%;
     --primary-foreground: 260 30% 8%;
-
     --secondary: 260 20% 16%;
     --secondary-foreground: 45 100% 60%;
-
     --muted: 260 20% 16%;
     --muted-foreground: 0 0% 70%;
-
     --accent: 280 60% 52%;
     --accent-foreground: 0 0% 100%;
-
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
-
     --border: 260 20% 25%;
     --input: 260 20% 25%;
     --ring: 45 100% 60%;
-
     --radius: 0.5rem;
-
-    --sidebar-background: 260 25% 12%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 45 100% 60%;
-    --sidebar-primary-foreground: 260 30% 8%;
-    --sidebar-accent: 260 20% 16%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 260 20% 25%;
-    --sidebar-ring: 45 100% 60%;
-
+    
     /* Chess colors */
     --chess-light: 40 70% 80%;
     --chess-dark: 30 60% 45%;
     --chess-highlight: 120 100% 75% / 0.5;
     --chess-valid-move: 200 100% 75% / 0.5;
-
+    
     /* Fantasy Theme Extras */
     --dragon-fire: linear-gradient(135deg, #ff6b35, #f7931e, #ffd700);
     --mystical-aura: 0 0 20px rgba(255, 193, 7, 0.3);
   }
-}
 
-@layer base {
   * {
     @apply border-border;
   }
 
   html, body {
     height: 100%;
-    overflow: hidden;
-    
+    overflow-x: hidden;
   }
 
   #root {
     height: 100vh;
-    overflow: hidden;
+    overflow-x: hidden;
   }
 
-
-  
   body {
     @apply bg-background text-foreground;
-    background: radial-gradient(ellipse at center, hsl(260 30% 12%), hsl(260 30% 8%));
     font-family: 'Crimson Text', serif;
   }
 
-  .chess-piece {
-    @apply transition-transform duration-200 ease-in-out;
+  /* Custom scrollbar hiding */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 
-  .chess-piece:hover {
-    @apply scale-105 cursor-pointer;
+  /* Smooth scrolling */
+  * {
+    scroll-behavior: smooth;
   }
 }
 
-.bg-chess-light {
-  background-color: hsl(var(--chess-light));
+@layer components {
+  /* Chess board styles */
+  .bg-chess-light { background-color: hsl(var(--chess-light)); }
+  .bg-chess-dark { background-color: hsl(var(--chess-dark)); }
+  .bg-chess-highlight { background-color: hsl(var(--chess-highlight)); }
+  .bg-chess-valid-move { background-color: hsl(var(--chess-valid-move)); }
+
+  /* Fantasy button styles */
+  .fantasy-button {
+    @apply bg-gradient-to-br from-primary to-orange-500 border-2 border-primary text-primary-foreground font-semibold shadow-lg transition-all duration-300;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+
+  .fantasy-button:hover {
+    @apply -translate-y-0.5 shadow-xl;
+    background: linear-gradient(135deg, hsl(35 100% 55%), hsl(45 100% 60%));
+  }
+
+  /* RPG card hover effects */
+  .rpg-card-hover {
+    @apply transition-all duration-300;
+  }
+
+  .rpg-card-hover:hover {
+    @apply -translate-y-1 scale-105 shadow-2xl;
+  }
 }
 
-.bg-chess-dark {
-  background-color: hsl(var(--chess-dark));
-}
+@layer utilities {
+  /* Main background - fixed to prevent scrolling issues */
+  .bg-mystical-gradient {
+    background: linear-gradient(135deg, hsl(260 30% 8%), hsl(260 25% 12%), hsl(260 20% 16%));
+    background-attachment: fixed;
+    background-size: cover;
+    position: relative;
+  }
 
-.bg-chess-highlight {
-  background-color: hsl(var(--chess-highlight));
-}
+  /* Custom fonts */
+  .font-medieval { font-family: 'MedievalSharp', cursive; }
+  .font-elegant { font-family: 'Crimson Text', serif; }
+  .font-serif { font-family: 'Cinzel', serif; }
 
-.bg-chess-valid-move {
-  background-color: hsl(var(--chess-valid-move));
-}
+  /* Custom animations */
+  .animate-float { animation: float 3s ease-in-out infinite; }
+  .animate-sparkle { animation: sparkle 2s ease-in-out infinite; }
 
-.bg-mystical-gradient {
-  background: linear-gradient(135deg, hsl(var(--background)), hsl(260 30% 15%));
-  position: relative;
-}
+  /* Effects */
+  .mystical-glow { box-shadow: var(--mystical-aura); }
+  .dragon-scale {
+    background-image: 
+      radial-gradient(circle at 25% 25%, rgba(255, 193, 7, 0.1) 2px, transparent 2px),
+      radial-gradient(circle at 75% 75%, rgba(255, 193, 7, 0.1) 2px, transparent 2px);
+    background-size: 8px 8px;
+  }
 
-.bg-mystical-gradient::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(45deg, transparent 30%, rgba(255, 193, 7, 0.1) 50%, transparent 70%);
-  animation: sparkle 3s ease-in-out infinite;
-  pointer-events: none;
-}
+  /* Keyframe animations */
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
 
-.bg-dragon-fire {
-  background: var(--dragon-fire);
-}
-
-.font-elegant {
-  font-family: 'Crimson Text', serif;
-}
-
-.font-medieval {
-  font-family: 'MedievalSharp', cursive;
-}
-
-.font-serif {
-  font-family: 'Cinzel', serif;
-}
-
-/* Sparkle animation */
-@keyframes sparkle {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.1); }
-}
-
-.animate-sparkle {
-  animation: sparkle 2s ease-in-out infinite;
-}
-
-/* Float animation */
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
-}
-
-.animate-float {
-  animation: float 3s ease-in-out infinite;
-}
-
-/* Dragon fire animation */
-@keyframes dragon-fire {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-.animate-dragon-fire {
-  background: var(--dragon-fire);
-  background-size: 200% 200%;
-  animation: dragon-fire 3s ease-in-out infinite;
-}
-
-/* Mystical glow effect */
-.mystical-glow {
-  box-shadow: var(--mystical-aura);
-}
-
-/* Fantasy button styles */
-.fantasy-button {
-  background: linear-gradient(135deg, hsl(45 100% 60%), hsl(35 100% 55%));
-  border: 2px solid hsl(45 100% 60%);
-  color: hsl(260 30% 8%);
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-  transition: all 0.3s ease;
-}
-
-.fantasy-button:hover {
-  background: linear-gradient(135deg, hsl(35 100% 55%), hsl(45 100% 60%));
-  transform: translateY(-2px);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
-}
-
-/* Dragon scale texture */
-.dragon-scale {
-  background-image: 
-    radial-gradient(circle at 25% 25%, rgba(255, 193, 7, 0.1) 2px, transparent 2px),
-    radial-gradient(circle at 75% 75%, rgba(255, 193, 7, 0.1) 2px, transparent 2px);
-  background-size: 8px 8px;
-}
-
-/* Mystical border */
-.mystical-border {
-  border: 2px solid transparent;
-  background: linear-gradient(45deg, hsl(45 100% 60%), hsl(280 60% 52%), hsl(45 100% 60%)) border-box;
-  background-clip: padding-box, border-box;
-}
-
-/* Animated background */
-.animated-bg {
-  background: linear-gradient(-45deg, hsl(260 30% 8%), hsl(260 25% 12%), hsl(260 20% 16%), hsl(260 30% 8%));
-  background-size: 400% 400%;
-  animation: gradient-shift 4s ease infinite;
-}
-
-@keyframes gradient-shift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-/* RPG card hover effects */
-.rpg-card-hover {
-  transition: all 0.3s ease;
-}
-
-.rpg-card-hover:hover {
-  transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  @keyframes sparkle {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.1); }
+  }
 }

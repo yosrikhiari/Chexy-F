@@ -76,6 +76,19 @@ export default {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)'
       },
+      fontFamily: {
+        'medieval': ['MedievalSharp', 'cursive'],
+        'elegant': ['Crimson Text', 'serif'],
+        'serif': ['Cinzel', 'serif'],
+      },
+      backgroundImage: {
+        'mystical-gradient': 'linear-gradient(to bottom right, #1a1f2c, #2e1e4a)',
+        'dragon-fire': 'linear-gradient(135deg, #ff6b35, #f7931e, #ffd700)',
+        'animated-bg': 'linear-gradient(-45deg, hsl(260 30% 8%), hsl(260 25% 12%), hsl(260 20% 16%), hsl(260 30% 8%))',
+      },
+      backgroundSize: {
+        '400': '400% 400%',
+      },
       keyframes: {
         'accordion-down': {
           from: {
@@ -96,15 +109,31 @@ export default {
         'float': {
           '0%, 100%': { transform: 'translateY(0)' },
           '50%': { transform: 'translateY(-5px)' }
+        },
+        'sparkle': {
+          '0%, 100%': { opacity: '1', transform: 'scale(1)' },
+          '50%': { opacity: '0.7', transform: 'scale(1.1)' }
+        },
+        'dragon-fire': {
+          '0%, 100%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' }
+        },
+        'gradient-shift': {
+          '0%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
+          '100%': { backgroundPosition: '0% 50%' }
         }
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
-        'float': 'float 3s ease-in-out infinite'
+        'float': 'float 3s ease-in-out infinite',
+        'sparkle': 'sparkle 2s ease-in-out infinite',
+        'dragon-fire': 'dragon-fire 3s ease-in-out infinite',
+        'gradient-shift': 'gradient-shift 4s ease infinite'
       },
-      backgroundImage: {
-        'mystical-gradient': 'linear-gradient(to bottom right, #1a1f2c, #2e1e4a)',
+      boxShadow: {
+        'mystical-aura': '0 0 20px rgba(255, 193, 7, 0.3)',
       }
     }
   },

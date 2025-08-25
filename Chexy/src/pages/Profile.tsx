@@ -208,6 +208,133 @@ const Profile = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Additional Profile Sections */}
+        <div className="mt-8 space-y-6">
+          {/* Game Statistics */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                📊 Game Statistics
+              </CardTitle>
+              <CardDescription>
+                Your performance metrics and game history
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-muted p-4 rounded-md text-center">
+                  <p className="text-sm text-muted-foreground mb-1">Games Played</p>
+                  <p className="text-2xl font-bold text-primary">24</p>
+                </div>
+                <div className="bg-muted p-4 rounded-md text-center">
+                  <p className="text-sm text-muted-foreground mb-1">Win Rate</p>
+                  <p className="text-2xl font-bold text-primary">68%</p>
+                </div>
+                <div className="bg-muted p-4 rounded-md text-center">
+                  <p className="text-sm text-muted-foreground mb-1">Best Streak</p>
+                  <p className="text-2xl font-bold text-primary">7</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Recent Activity */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                🕒 Recent Activity
+              </CardTitle>
+              <CardDescription>
+                Your latest games and achievements
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center gap-4 p-3 bg-muted rounded-md">
+                  <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
+                    <span className="text-lg">♟️</span>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-medium">Won against AI Master</h3>
+                    <p className="text-sm text-muted-foreground">Classic Match • 2 hours ago</p>
+                  </div>
+                  <span className="text-sm text-primary font-medium">+15 pts</span>
+                </div>
+                <div className="flex items-center gap-4 p-3 bg-muted rounded-md">
+                  <div className="w-10 h-10 bg-accent/20 rounded-full flex items-center justify-center">
+                    <span className="text-lg">⚔️</span>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-medium">Completed RPG Chapter 1</h3>
+                    <p className="text-sm text-muted-foreground">RPG Adventure • 1 day ago</p>
+                  </div>
+                  <span className="text-sm text-accent font-medium">+25 pts</span>
+                </div>
+                <div className="flex items-center gap-4 p-3 bg-muted rounded-md">
+                  <div className="w-10 h-10 bg-secondary/20 rounded-full flex items-center justify-center">
+                    <span className="text-lg">🏆</span>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-medium">Ranked Match Victory</h3>
+                    <p className="text-sm text-muted-foreground">Ranked Match • 3 days ago</p>
+                  </div>
+                  <span className="text-sm text-secondary-foreground font-medium">+20 pts</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Settings & Preferences */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                ⚙️ Settings & Preferences
+              </CardTitle>
+              <CardDescription>
+                Customize your gaming experience
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <h4 className="font-medium text-secondary-foreground">Game Preferences</h4>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Sound Effects</span>
+                      <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">On</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Music</span>
+                      <span className="text-xs bg-muted-foreground/20 text-muted-foreground px-2 py-1 rounded-full">Off</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Animations</span>
+                      <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">On</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <h4 className="font-medium text-secondary-foreground">Privacy</h4>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Profile Visibility</span>
+                      <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">Public</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Game History</span>
+                      <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">Public</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Online Status</span>
+                      <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full">Visible</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

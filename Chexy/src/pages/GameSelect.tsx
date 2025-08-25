@@ -149,7 +149,7 @@ const GameSelect: React.FC = () => {
               Welcome, brave {user?.username || "Adventurer"}! Choose your path to glory
             </p>
           </div>
-          
+
           {/* Player Stats */}
           <div className="bg-card/50 backdrop-blur-sm rounded-lg p-3 border border-border/50 mystical-glow max-w-md mx-auto">
             <p className="text-sm text-muted-foreground font-elegant">
@@ -198,16 +198,16 @@ const GameSelect: React.FC = () => {
         {/* Bottom Navigation */}
         <div className="mt-6 flex flex-col items-center flex-shrink-0">
           <div className="flex gap-4 mb-4">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="default"
               onClick={() => navigate("/profile")}
               className="fantasy-button font-elegant"
             >
               📜 Scroll of Legends
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="default"
               onClick={() => navigate("/leaderboard")}
               className="fantasy-button font-elegant"
@@ -215,9 +215,9 @@ const GameSelect: React.FC = () => {
               🏆 Hall of Fame
             </Button>
           </div>
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={handleLogout}
             className="font-elegant text-muted-foreground hover:text-primary"
           >
