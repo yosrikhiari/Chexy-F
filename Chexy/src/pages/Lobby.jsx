@@ -1094,9 +1094,9 @@ const Lobby = () => {
               ) : (
                 <>
                   <div className="space-y-3">
-                    {availableGames.map((game) => (
+                    {availableGames.map((game, idx) => (
                       <div
-                        key={game.gameId}
+                        key={game.gameId || `game-${idx}`}
                         className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
                       >
                         <div className="flex items-center space-x-3">
@@ -1163,9 +1163,9 @@ const Lobby = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {friends.map((friend) => (
+                  {friends.map((friend, idx) => (
                     <div
-                      key={friend.id}
+                      key={(friend.requesterId === user.id ? friend.recipientId : friend.requesterId) || `${friend.requesterId || 'req'}-${friend.recipientId || 'rec'}-${idx}`}
                       className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"
                     >
                       <div className="flex items-center space-x-3">
@@ -1214,9 +1214,9 @@ const Lobby = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {recentOpponents.map((opponent) => (
+                  {recentOpponents.map((opponent, idx) => (
                     <div
-                      key={opponent.id}
+                      key={opponent.id || `${opponent.username || 'user'}-${opponent.userId || 'id'}-${idx}`}
                       className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted/70 transition-colors"
                     >
                       <div className="flex items-center space-x-3">

@@ -110,8 +110,8 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
     });
 
     // Subscribe to chat messages
-    console.log("Subscribing to chat messages at: /queue/chat/" + user.id);
-    const chatSubscription = stompClient.subscribe(`/queue/chat/${user.id}`, (message) => {
+    console.log("Subscribing to chat messages at: /queue/chat." + user.id);
+    const chatSubscription = stompClient.subscribe(`/queue/chat.${user.id}`, (message) => {
       try {
         const data = JSON.parse(message.body);
         console.log("Chat message received:", data);
@@ -166,8 +166,8 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
     });
 
           // Subscribe to chat history responses
-      console.log("Subscribing to chat history at: /queue/chat/history/" + user.id);
-      const chatHistorySubscription = stompClient.subscribe(`/queue/chat/history/${user.id}`, (message) => {
+      console.log("Subscribing to chat history at: /queue/chat.history." + user.id);
+      const chatHistorySubscription = stompClient.subscribe(`/queue/chat.history.${user.id}`, (message) => {
         try {
           const data = JSON.parse(message.body);
           console.log("Chat history received:", data);
