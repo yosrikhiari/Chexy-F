@@ -36,6 +36,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                                                                  className = "",
                                                                  isRankedMatch,
                                                                }) => {
+  const [isOn, setIsOn] = useState(false);
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const [currentPlayer, setCurrentPlayer] = useState<PieceColor>("white");
@@ -620,7 +621,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         const loserId = winnerId === gameState.userId1 ? gameState.userId2 : gameState.userId1;
         // Use provided moveCount or fall back to localMoveHistory.length
         const effectiveMoveCount = moveCount !== undefined ? moveCount : localMoveHistory.length;
-        
+
         // Points calculation debug info
 
         if (isRankedMatch) {
@@ -649,7 +650,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         const currentStreak = await PointCalculationService.getCurrentUserStreak();
         const isCurrentUserWinner = correctedResult.winnerid === currentUserId;
         const isCurrentUserDraw = correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw";
-        
+
         // Calculate points for display only (don't apply again)
         const pointsCalculation = PointCalculationService.calculateStreakBasedPoints(
           isCurrentUserWinner,
@@ -658,7 +659,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
           isRankedMatch,
           effectiveMoveCount
         );
-        
+
         // Update game result with calculated points for UI display
         correctedResult = {
           ...correctedResult,
@@ -669,7 +670,7 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         try {
           const idempotencyKeyNow = `points_processed:${correctedResult.gameid}:${currentUserId}`;
           const cached = localStorage.getItem(idempotencyKeyNow);
-          
+
           if (cached) {
             const parsed = JSON.parse(cached);
             if (parsed && typeof parsed.delta === 'number') {
@@ -825,6 +826,12 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
       await loadMoveHistoryFromServer();
     }, 1000);
   };
+
+
+  const toggleAllowPeopleToWatchTheGame = () => {
+    setIsOn((prev) => !prev);
+  }
+
 
   const checkForGameEnd = async () => {
     if (!gameState.gameSessionId || isReviewMode) return;
@@ -982,8 +989,11 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                 player1Name={playerStats.white.name}
                 player2Name={playerStats.black.name}
                 onResetGame={resetGame}
-                onMoveMade={handleMoveMade}
-              />
+                onMoveMade={handleMoveMade} onGameEnd={function (result: GameResult): Promise<void> {
+                throw new Error("Function not implemented.");
+              }} onTimeout={function (color: PieceColor): void {
+                throw new Error("Function not implemented.");
+              }}              />
 
               <GameControls
                 playerColor={playerColor}
@@ -1051,6 +1061,18 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                     )}
                   </div>
                 </div>
+                <div>
+                  <h4 className="font-medium mb-1">Viewers Allowed</h4>
+                  <div>
+                    <button
+                      onClick={toggleAllowPeopleToWatchTheGame}
+                      className={`px-4 py-2 rounded-lg font-semibold transition-colors ${isOn ? "bg-green-500 text-white" : "bg-gray-300 text-black"
+                      }`}>
+                      {isOn ? "ON" : "OFF"}
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <h4 className="font-medium mb-1">Points at Stake</h4>
                   <p className="text-lg font-bold text-primary">
