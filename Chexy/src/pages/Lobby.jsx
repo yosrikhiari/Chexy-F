@@ -493,7 +493,7 @@ const Lobby = () => {
 
     return () => {
       // Cleanup function
-      if (inQueue && client && isConnected) {
+      if (inQueue && client?.connected && isConnected) {
         try {
           client.publish({
             destination: "/app/matchmaking/leave",
@@ -504,16 +504,18 @@ const Lobby = () => {
         }
       }
 
-      // Unsubscribe from all subscriptions
-      newSubscriptions.forEach(sub => {
-        try {
-          if (sub && typeof sub.unsubscribe === 'function') {
-            sub.unsubscribe();
+      // Unsubscribe from all subscriptions only if still connected
+      if (client?.connected) {
+        newSubscriptions.forEach(sub => {
+          try {
+            if (sub && typeof sub.unsubscribe === 'function') {
+              sub.unsubscribe();
+            }
+          } catch (error) {
+            console.error("Error unsubscribing:", error);
           }
-        } catch (error) {
-          console.error("Error unsubscribing:", error);
-        }
-      });
+        });
+      }
     };
   }, [client, isConnected, user.id, navigate]); // Keep only essential dependencies
 

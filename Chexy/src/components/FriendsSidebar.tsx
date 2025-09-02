@@ -221,9 +221,11 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
 
       return () => {
         try {
-          friendshipSubscription?.unsubscribe();
-          chatSubscription?.unsubscribe();
-          chatHistorySubscription?.unsubscribe();
+          if (stompClient?.connected) {
+            friendshipSubscription?.unsubscribe();
+            chatSubscription?.unsubscribe();
+            chatHistorySubscription?.unsubscribe();
+          }
         } catch (error) {
           console.error("Error unsubscribing from WebSocket:", error);
         }

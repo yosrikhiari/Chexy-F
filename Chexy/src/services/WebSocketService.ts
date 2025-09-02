@@ -148,7 +148,9 @@ export class WebSocketService {
     const existingSubscription = this.subscriptions.get(subscriptionKey);
     if (existingSubscription) {
       try {
-        existingSubscription.unsubscribe();
+        if (this.stompClient?.connected) {
+          existingSubscription.unsubscribe();
+        }
       } catch (error) {
         console.warn('Error unsubscribing from existing subscription:', error);
       }
@@ -204,8 +206,10 @@ export class WebSocketService {
     // Unsubscribe from all subscriptions
     this.subscriptions.forEach((subscription, key) => {
       try {
-        subscription.unsubscribe();
-        console.log(`Unsubscribed from ${key}`);
+        if (this.stompClient?.connected) {
+          subscription.unsubscribe();
+          console.log(`Unsubscribed from ${key}`);
+        }
       } catch (error) {
         console.warn(`Error unsubscribing from ${key}:`, error);
       }
