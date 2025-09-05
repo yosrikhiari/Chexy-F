@@ -110,6 +110,32 @@ export class GameSessionService {
     if (!response.ok) throw new Error("Failed to get games by mode");
     return await response.json();
   }
+
+  async joinSpectate(gameId: string, playerId:string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/game-session/${gameId}/Spectate/join/${playerId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to join games");
+    return await response.json();
+  }
+  async leaveSpectate(gameId: string, playerId:string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/game-session/${gameId}/Spectate/leave/${playerId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to join games");
+    return await response.json();
+  }
+  async getSpectators(gameId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/game-session/${gameId}/Spectators`, {
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to join games");
+    return await response.json();
+  }
+
+
 }
 
 export const gameSessionService = new GameSessionService();

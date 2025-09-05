@@ -25,7 +25,28 @@ export class GameService {
     }
 
     try {
-      console.log("[DEBUG] Sending HTTP move request:", { gameId, backendMove });
+      console.log("[DEBUG] Sending HTTP move request:", {
+        gameId,
+        backendMove,
+        url: `${this.baseUrl}/games/${gameId}/moves`,
+        token: JwtService.getToken() ? "Present" : "Missing"
+      });
+
+      // First, let's verify the game session exists
+      try {
+        const gameSessionResponse = await fetch(`${this.baseUrl}/game-session/${gameId}`, {
+          headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+        });
+        if (!gameSessionResponse.ok) {
+          console.error("[DEBUG] Game session not found:", gameSessionResponse.status, await gameSessionResponse.text());
+          throw new Error(`Game session not found: ${gameSessionResponse.status}`);
+        }
+        const gameSession = await gameSessionResponse.json();
+        console.log("[DEBUG] Game session found:", gameSession);
+      } catch (sessionError) {
+        console.error("[DEBUG] Failed to verify game session:", sessionError);
+        throw new Error("Game session verification failed");
+      }
 
       const response = await fetch(`${this.baseUrl}/games/${gameId}/moves`, {
         method: "POST",
@@ -36,8 +57,12 @@ export class GameService {
         body: JSON.stringify(backendMove),
       });
 
+      console.log("[DEBUG] Response status:", response.status);
+      console.log("[DEBUG] Response headers:", Object.fromEntries(response.headers.entries()));
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        console.error("[DEBUG] Error response body:", errorData);
         throw new Error(errorData.message || `HTTP ${response.status}: Failed to execute move`);
       }
 

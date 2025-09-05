@@ -307,7 +307,7 @@ const Lobby = () => {
       newSubscriptions.push(queueStatusSub);
 
       // Match found subscription
-      const matchFoundSub = client.subscribe(`/queue/matchmaking/matchFound/${user.id}`, (message) => {
+      const matchFoundSub = client.subscribe(`/queue/matchmaking.matchFound.${user.id}`, (message) => {
         try {
           const matchData = JSON.parse(message.body);
           console.log("Match found:", matchData);
@@ -332,7 +332,7 @@ const Lobby = () => {
       newSubscriptions.push(matchFoundSub);
 
       // Game ready subscription
-      const gameReadySub = client.subscribe(`/queue/matchmaking/gameReady/${user.id}`, (message) => {
+      const gameReadySub = client.subscribe(`/queue/matchmaking.gameReady.${user.id}`, (message) => {
         try {
           const gameData = JSON.parse(message.body);
           console.log("Game ready:", gameData);
@@ -356,7 +356,7 @@ const Lobby = () => {
       newSubscriptions.push(gameReadySub);
 
       // Match cancelled subscription
-      const matchCancelledSub = client.subscribe(`/queue/matchmaking/matchCancelled/${user.id}`, (message) => {
+      const matchCancelledSub = client.subscribe(`/queue/matchmaking.matchCancelled.${user.id}`, (message) => {
         try {
           const data = JSON.parse(message.body);
           console.log("Match cancelled:", data);
@@ -391,7 +391,7 @@ const Lobby = () => {
       newSubscriptions.push(matchCancelledSub);
 
       // Error subscription
-      const errorSub = client.subscribe(`/queue/matchmaking/error/${user.id}`, (message) => {
+      const errorSub = client.subscribe(`/queue/matchmaking.error.${user.id}`, (message) => {
         try {
           const data = JSON.parse(message.body);
           console.log("Matchmaking error:", data);

@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useWebSocket } from "@/WebSocket/WebSocketContext";
 import { chatService, ChatMessage } from "@/services/ChatService";
+import {GameSession} from "@/Interfaces/types/GameSession.ts";
 
 interface FriendsSidebarProps {
   isCollapsed: boolean;
@@ -42,13 +43,16 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
   const [friendSearchTerm, setFriendSearchTerm] = useState<string>("");
   const [friendError, setFriendError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [openChats, setOpenChats] = useState<Map<string, { 
-    id: string; 
-    username: string; 
+  const [openChats, setOpenChats] = useState<Map<string, {
+    id: string;
+    username: string;
     messages: ChatMessage[];
     newMessage: string;
   }>>(new Map());
   const [unreadCounts, setUnreadCounts] = useState<Map<string, number>>(new Map());
+  const [friendGameStatuses, setFriendGameStatuses] = useState<Map<string, GameSession | null>>(new Map());
+  const [loadingGameStatuses, setLoadingGameStatuses] = useState<boolean>(false);
+
 
   // Use refs to track current chat state for WebSocket handlers
   const currentChatState = useRef<{
@@ -101,7 +105,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
       try {
         const data = JSON.parse(message.body);
         console.log("Friendship update received:", data);
-        
+
         // Refresh friend data when updates are received
         fetchFriendData();
       } catch (error) {
@@ -117,29 +121,29 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
         console.log("Chat message received:", data);
         console.log("Message body:", message.body);
         console.log("Parsed data:", data);
-        
+
                   // Handle different message types
           if (data.type === 'CHAT_MESSAGE' || data.message || (data.senderId && data.receiverId)) {
             const chatMessage: ChatMessage = data;
-            
+
             // Determine the friend's ID (the other person in the conversation)
             console.log("User object:", user);
             console.log("ChatMessage:", chatMessage);
             console.log("chatMessage.senderId:", chatMessage.senderId);
             console.log("chatMessage.receiverId:", chatMessage.receiverId);
             console.log("user.id:", user?.id);
-            
+
             const friendId = chatMessage.senderId === user?.id ? chatMessage.receiverId : chatMessage.senderId;
             console.log("Processing message for friendId:", friendId);
             console.log("Open chat IDs:", Array.from(currentChatState.current.openChatIds));
             console.log("Is chat open?", currentChatState.current.openChatIds.has(friendId));
-            
+
             // Only process if we have a valid friendId and user
             if (!friendId || !user?.id) {
               console.error("Invalid friendId or user:", { friendId, userId: user?.id });
               return;
             }
-            
+
             // Add to chat messages if chat is open with this friend
             if (currentChatState.current.openChatIds.has(friendId)) {
               // Reload chat history from database to get the latest messages
@@ -149,7 +153,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
             } else {
               console.log("No messages found in chat history data");
             }
-            
+
             // Update unread count for received messages (only if we're the receiver)
             if (chatMessage.receiverId === user.id) {
               setUnreadCounts(prev => {
@@ -174,7 +178,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
           console.log("Data type:", typeof data);
           console.log("Is array:", Array.isArray(data));
           console.log("Has messages property:", data && typeof data === 'object' && 'messages' in data);
-          
+
           // Handle both cases: data.messages array or data is directly an array
           let messages: ChatMessage[] = [];
           if (data.messages && Array.isArray(data.messages)) {
@@ -182,19 +186,19 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
           } else if (Array.isArray(data)) {
             messages = data;
           }
-          
+
           if (messages.length > 0) {
             console.log("Processing chat history:", messages.length, "messages");
             console.log("First message:", messages[0]);
             console.log("Current user ID:", user.id);
-            
-            const friendId = data.friendId || (messages.length > 0 ? 
+
+            const friendId = data.friendId || (messages.length > 0 ?
               (messages[0].senderId === user.id ? messages[0].receiverId : messages[0].senderId) : null);
-            
+
             console.log("Calculated friendId:", friendId);
             console.log("Open chat IDs:", Array.from(currentChatState.current.openChatIds));
             console.log("Is friendId in open chats?", currentChatState.current.openChatIds.has(friendId));
-            
+
             if (friendId && currentChatState.current.openChatIds.has(friendId)) {
                               setOpenChats(prev => {
                   const newChats = new Map(prev);
@@ -283,7 +287,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
     sent.forEach(req => allUserIds.add(req.recipientId));
 
     const newRequestUsers = new Map<string, User>();
-    
+
     for (const userId of allUserIds) {
       try {
         const userData = await userService.getByUserId(userId);
@@ -292,7 +296,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
         console.error(`Failed to fetch user ${userId}:`, error);
       }
     }
-    
+
     setRequestUsers(newRequestUsers);
   };
 
@@ -303,7 +307,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
     try {
       const friendshipService = new FriendshipService();
       const recipient = await userService.getUserByUsername(newFriendUsername.trim());
-      
+
       if (recipient.id === user.id) {
         toast({ title: "Error", description: "You cannot send a friend request to yourself.", variant: "destructive" });
         return;
@@ -398,7 +402,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
 
   const openChat = (friendId: string, friendUsername: string): void => {
     console.log("Opening chat with:", friendId, friendUsername);
-    
+
     // Add chat to open chats (always create new entry - messages will be loaded from database)
     setOpenChats(prev => {
       const newChats = new Map(prev);
@@ -438,7 +442,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
       newChats.delete(friendId);
       return newChats;
     });
-    
+
     // Mark chat as closed
     currentChatState.current.openChatIds.delete(friendId);
     console.log("Chat closed:", friendId);
@@ -521,13 +525,13 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
         >
           <span className="font-medieval text-lg">◀</span>
         </Button>
-        
+
         {/* Friends count badge */}
         <div className="relative">
           <span className="font-medieval text-lg text-muted-foreground">👥</span>
           {friends.length > 0 && (
-            <Badge 
-              variant="secondary" 
+            <Badge
+              variant="secondary"
               className="absolute -top-2 -right-2 h-5 w-5 p-0 text-xs flex items-center justify-center bg-primary text-primary-foreground"
             >
               {friends.length}
@@ -539,8 +543,8 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
         {pendingRequests.length > 0 && (
           <div className="relative mt-4">
             <span className="font-medieval text-lg text-orange-500">⏰</span>
-            <Badge 
-              variant="destructive" 
+            <Badge
+              variant="destructive"
               className="absolute -top-2 -right-2 h-5 w-5 p-0 text-xs flex items-center justify-center"
             >
               {pendingRequests.length}
@@ -678,7 +682,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
                   />
                 )}
               </div>
-              
+
               <div className="flex-1 overflow-hidden">
                 {loadingFriends ? (
                   <div className="text-center py-4 text-sm text-muted-foreground font-elegant">Summoning...</div>
@@ -763,10 +767,10 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
        {Array.from(openChats.entries())
          .filter(([friendId]) => currentChatState.current.openChatIds.has(friendId))
          .map(([friendId, chat], index) => (
-         <div 
+         <div
            key={friendId}
            className="fixed bottom-4 w-80 h-96 bg-card border border-border rounded-lg shadow-lg z-[60] flex flex-col"
-           style={{ 
+           style={{
              bottom: '4px',
              right: `${320 + (index * 320)}px`
            }}
