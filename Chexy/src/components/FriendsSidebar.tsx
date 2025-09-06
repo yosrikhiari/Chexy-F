@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { useWebSocket } from "@/WebSocket/WebSocketContext";
 import { chatService, ChatMessage } from "@/services/ChatService";
 import {GameSession} from "@/Interfaces/types/GameSession.ts";
+import {unknown} from "zod";
 
 interface FriendsSidebarProps {
   isCollapsed: boolean;
@@ -235,6 +236,70 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
         }
       };
   }, [stompClient, isConnected, user?.id]);
+  const checkFriendGameStatuses = async () => {
+    if (friends.length === 0 ) return ;
+
+    setLoadingGameStatuses(true);
+
+    try{
+      const gameStatusPromises = friends.map(async (friend) => {
+        try {
+          const activeGames = await gameSessionService.getActiveGamesForPlayer(friend.id);
+          const activeGame = activeGames.length > 0 ? activeGames[0] : null ;
+          return {friendId: friend.id, game: activeGame};
+
+        } catch (error) {
+          console.error(`Failed to get game status for friend ${friend.id}:`, error);
+          return { friendId: friend.id, game: null };
+        }
+      });
+      const results = await Promise.all(gameStatusPromises);
+      const newStatuses = new Map<string,GameSession | null >()
+      results.forEach(({ friendId, game }) => {
+        newStatuses.set(friendId, game);
+      });
+      setFriendGameStatuses(newStatuses);
+    }
+    catch(error){
+      console.error("Error parsing friend game status:", error);
+    }
+    finally {
+      setLoadingGameStatuses(false);
+    }
+  }
+  useEffect(() => {
+    if (friends.length > 0)
+    {
+      checkFriendGameStatuses();
+
+      const interval = setInterval(checkFriendGameStatuses, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [friends]);
+
+  const handleSpectate = async (friendId : string) => {
+    const game = friendGameStatuses.get(friendId);
+    if (!game) {return null}
+    try{
+      gameSessionService.joinSpectate(game.gameId, user?.id || '');
+
+      navigate(`/spectate/${game.gameId}`);
+
+      const fren = await userService.getByUserId(friendId);
+      toast({
+        title: "Successfully joined the spectate",
+        description: `Now You're Spectating ${fren.username}'s game `,
+      })
+    }
+    catch(error){
+      console.error("Error parsing friend game status:", error);
+      toast({
+        title: "Failed to Spectate",
+        description: "Could not join spectate mode. The game might not allow spectators.",
+        variant: "destructive",
+      })
+    }
+  }
 
   const fetchFriendData = async (): Promise<void> => {
     if (!user?.id) return;
@@ -704,7 +769,10 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
                   </div>
                 ) : (
                   <div className="space-y-2 overflow-y-auto h-full pr-2">
-                    {filteredFriends.map((friend) => (
+                    {filteredFriends.map((friend) => {
+                      const friendGame = friendGameStatuses.get(friend.id);
+                      const isPlaying = friendGame && (friendGame.status === 'ACTIVE' || friendGame.status === 'WAITING_FOR_PLAYERS');
+                      return (
                       <Card key={friend.id} className="p-2 text-xs bg-secondary/50 border-border">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -713,10 +781,28 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="font-elegant truncate">{friend.username}</p>
-                              <p className="text-xs text-muted-foreground">{friend.points} power</p>
+                              <p className="text-xs text-muted-foreground">
+                                {
+                                  isPlaying ? (
+                                    <span className="text-green-500"> Playing {friendGame?.gameMode || 'Chess'}</span>
+                                  ) : (
+                                    `${friend.points} PTS`
+                                  )
+                                }
+                              </p>
                             </div>
                           </div>
                           <div className="flex gap-1">
+                            {isPlaying && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleSpectate(friend.id)}
+                                className="h-6 px-2 bg-green-600 hover:bg-green-700 text-white"
+                                disabled={loadingGameStatuses}
+                              >
+                                <span className="text-xs">👁️</span>
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               onClick={() => openChat(friend.id, friend.username)}
@@ -740,7 +826,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
                           </div>
                         </div>
                       </Card>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>
