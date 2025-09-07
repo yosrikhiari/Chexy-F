@@ -103,6 +103,7 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
                                                     gameState: propGameState,
                                                     onGameStateChange,
                                                     onMoveMade,
+                                                    isSpectateMode,
                                                   }) => {
   const { gameId } = useParams<{ gameId: string }>();
   const location = useLocation();
@@ -299,6 +300,9 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     validMoves.some((move) => move.row === row && move.col === col);
 
   const handleSquareClick = async (row: number, col: number) => {
+    if (isSpectateMode) {
+      return;
+    }
     if (isGameActuallyOver()) {
       console.log("[DEBUG] Click ignored: Game is over");
       return;

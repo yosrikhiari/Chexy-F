@@ -14,6 +14,7 @@ import ForgotPassword from "@/pages/ForgotPassword.tsx";
 import { WebSocketProvider } from "./WebSocket/WebSocketContext";
 import ChessGameLayoutPvP from "@/components/InterfacesService/ChessGameLayoutPvP.tsx";
 import MainLayout from "@/components/MainLayout.tsx";
+import SpectatePage from "@/components/InterfacesService/SpectatePage.tsx";
 
 
 // Create a wrapper component to handle the route state
@@ -46,6 +47,7 @@ const App = () => {
               <Route path="/game-select" element={<GameSelect />} />
               <Route path="/bot-select" element={<BotSelect />} />
               <Route path="/lobby" element={<Lobby />} />
+              <Route path="/spectate/:gameId" element={<SpectatePage />} />
               <Route path="/" element={<Index />} />
               <Route path="/leaderboard" element={<Leaderboard />} />
               <Route path="/profile" element={<Profile />} />

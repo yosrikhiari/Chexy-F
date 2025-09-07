@@ -10,21 +10,21 @@ import {
 import React from 'react';
 
 export interface ChessBoardProps {
-  flipped?: boolean;
-  onPlayerChange?: (player: PieceColor) => void;
-  timers?: GameTimers;
-  onGameEnd: (result: GameResult) => Promise<void>;
-  onTimeUpdate?: (timers: GameTimers) => void;
-  onTimeout: (color: PieceColor) => void;
-  player1Name?: string;
-  player2Name?: string;
-  onResetGame?: () => void;
-  currentPlayer?: PieceColor;
-  onMove?: (color: PieceColor) => void;
-  gameState?: GameState;
-  onGameStateChange?: React.Dispatch<React.SetStateAction<GameState>>;
-  board?: (Piece | null)[][];
-  playerColor?: PieceColor;
+  flipped?: boolean,
+  onPlayerChange?: (player: PieceColor) => void,
+  timers?: GameTimers,
+  onGameEnd: (result: GameResult) => Promise<void>,
+  onTimeUpdate?: (timers: GameTimers) => void,
+  onTimeout: (color: PieceColor) => void,
+  player1Name?: string,
+  player2Name?: string,
+  onResetGame?: () => void,
+  currentPlayer?: PieceColor,
+  onMove?: (color: PieceColor) => void,
+  gameState?: GameState,
+  onGameStateChange?: React.Dispatch<React.SetStateAction<GameState>>,
+  board?: (Piece | null)[][],
+  playerColor?: PieceColor,
   onMoveMade?: (move: {
     from: BoardPosition;
     to: BoardPosition;
@@ -33,5 +33,8 @@ export interface ChessBoardProps {
     resultsInCheck?: boolean;
     resultsInCheckmate?: boolean;
     resultsInStalemate?: boolean;
-  }) => void;
+  }) => void,
+  isSpectateMode?: boolean,
+  gameId?: string,
+  SpectatorId?: string
 }

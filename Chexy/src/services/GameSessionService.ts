@@ -127,7 +127,7 @@ export class GameSessionService {
     if (!response.ok) throw new Error("Failed to join games");
     return await response.json();
   }
-  async getSpectators(gameId: string): Promise<void> {
+  async getSpectators(gameId: string): Promise<string[]> {
     const response = await fetch(`${this.baseUrl}/game-session/${gameId}/Spectators`, {
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });

@@ -60,15 +60,18 @@
                         gameState: propGameState,
                         onGameStateChange,
                         onMoveMade,
+                        isSpectateMode,
+                        gameId,
+                        SpectatorId
                       }: ChessBoardProps) => {
       const location = useLocation();
   const { botId, aiStrategy } = location.state || {};
   const selectedBot = bots.find(bot => bot.id === botId);
-  
+
   // Get AI difficulty configuration
   const aiDifficulty = aiStrategy ? getDifficultyConfig(aiStrategy as AIStrategy) : null;
   const botPoints = aiDifficulty ? aiDifficulty.points : (selectedBot?.points || 600);
-  
+
   // Debug logging
   console.log("AI Strategy:", aiStrategy);
   console.log("AI Difficulty Config:", aiDifficulty);
@@ -328,6 +331,9 @@
       validMoves.some(move => move.row === row && move.col === col);
 
     const handleSquareClick = async (row: number, col: number) => {
+      if (isSpectateMode) {
+        return; // No moves allowed in spectate mode
+      }
       if (isProcessingRef.current) return;
       isProcessingRef.current = true;
       try {

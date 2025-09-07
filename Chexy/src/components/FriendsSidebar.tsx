@@ -784,7 +784,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
                               <p className="text-xs text-muted-foreground">
                                 {
                                   isPlaying ? (
-                                    <span className="text-green-500"> Playing {friendGame?.gameMode || 'Chess'}</span>
+                                    <span className="text-green-500"> Playing </span>
                                   ) : (
                                     `${friend.points} PTS`
                                   )
