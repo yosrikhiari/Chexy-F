@@ -111,13 +111,12 @@ export class GameSessionService {
     return await response.json();
   }
 
-  async joinSpectate(gameId: string, playerId:string): Promise<void> {
+  async joinSpectate(gameId: string, playerId: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/game-session/${gameId}/Spectate/join/${playerId}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
-    if (!response.ok) throw new Error("Failed to join games");
-    return await response.json();
+    if (!response.ok) throw new Error("Failed to join spectate");
   }
   async leaveSpectate(gameId: string, playerId:string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/game-session/${gameId}/Spectate/leave/${playerId}`, {
@@ -125,7 +124,6 @@ export class GameSessionService {
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
     if (!response.ok) throw new Error("Failed to join games");
-    return await response.json();
   }
   async getSpectators(gameId: string): Promise<string[]> {
     const response = await fetch(`${this.baseUrl}/game-session/${gameId}/Spectators`, {
@@ -133,6 +131,22 @@ export class GameSessionService {
     });
     if (!response.ok) throw new Error("Failed to join games");
     return await response.json();
+  }
+
+  async enableSpectators(gameId: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/game-session/${gameId}/mode/on`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!res.ok) throw new Error("Failed to enable spectators");
+  }
+
+  async disableSpectators(gameId: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/game-session/${gameId}/mode/off`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!res.ok) throw new Error("Failed to disable spectators");
   }
 
 
