@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Eye, EyeOff, Users, MessageSquare, Clock, Trophy } from 'lucide-react';
-import ChessBoard from '@/components/InterfacesService/ChessBoard';
+import ChessBoardPvP from '@/components/InterfacesService/ChessBoardPvP';
 import ChessTimer from '@/components/InterfacesService/ChessTimer';
 import PlayerInfo from '@/components/InterfacesService/PlayerInfo';
 import { GameSession } from '@/Interfaces/types/GameSession';
@@ -72,7 +72,7 @@ const SpectatePage: React.FC = () => {
         }
 
         // Try to get delayed session (for spectators)
-        let activeSession = session;
+        let activeSession: GameSession | null = null;
         try {
           setIsDelayedLoading(true);
           const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
@@ -81,7 +81,7 @@ const SpectatePage: React.FC = () => {
             setDelayedGameSession(delayedSession);
           }
         } catch (error) {
-          console.log('No delayed session available yet, using original session');
+          console.log('No delayed session available yet; waiting for delayed stream');
         } finally {
           setIsDelayedLoading(false);
         }
@@ -91,30 +91,38 @@ const SpectatePage: React.FC = () => {
         setIsSpectating(true);
 
         // Set up game state
-        setGameState(activeSession.gameState);
-        setTimers(activeSession.timers);
-        gameStateRef.current = activeSession.gameState;
-        timersRef.current = activeSession.timers;
+        if (activeSession) {
+          setGameState(activeSession.gameState);
+          setTimers(activeSession.timers);
+          gameStateRef.current = activeSession.gameState;
+          timersRef.current = activeSession.timers;
+        } else {
+          // Do not show live state; wait for delayed WS update or polling to pick up SpecSession
+          setGameState(null);
+          setTimers(null);
+        }
 
 
         // Set up player stats
-        const whitePlayer = activeSession.whitePlayer;
-        const blackPlayer = Array.isArray(activeSession.blackPlayer)
-          ? activeSession.blackPlayer[0]
-          : activeSession.blackPlayer;
+        const whitePlayer = (activeSession || session).whitePlayer;
+        const blackPlayer = Array.isArray((activeSession || session).blackPlayer)
+          ? (activeSession || session).blackPlayer[0]
+          : (activeSession || session).blackPlayer;
 
-        setPlayerStats({
-          white: {
-            playerId: whitePlayer?.userId || '',
-            name: whitePlayer?.username || 'White Player',
-            points: whitePlayer?.currentStats?.points || 0
-          },
-          black: {
-            playerId: blackPlayer?.userId || '',
-            name: blackPlayer?.username || 'Black Player',
-            points: blackPlayer?.currentStats?.points || 0
-          }
-        });
+        if ("userId" in blackPlayer) {
+          setPlayerStats({
+            white: {
+              playerId: whitePlayer?.userId || '',
+              name: whitePlayer?.username || 'White Player',
+              points: whitePlayer?.currentStats?.points || 0
+            },
+            black: {
+              playerId: blackPlayer?.userId || '',
+              name: blackPlayer?.username || 'Black Player',
+              points: blackPlayer?.currentStats?.points || 0
+            }
+          });
+        }
         try {
           const spectators = await gameSessionService.getSpectators(gameId);
           setSpectatorCount(spectators.length);
@@ -122,10 +130,12 @@ const SpectatePage: React.FC = () => {
           console.error('Failed to get spectator count:', error);
         }
         setConnectionStatus('connected');
-        toast({
-          title: "Joined Spectate Mode",
-          description: `Now spectating ${whitePlayer?.username || 'Unknown'} vs ${blackPlayer?.username || 'Unknown'}`,
-        });
+        if ("username" in blackPlayer) {
+          toast({
+            title: "Joined Spectate Mode",
+            description: `Now spectating ${whitePlayer?.username || 'Unknown'} vs ${blackPlayer?.username || 'Unknown'}`,
+          });
+        }
       } catch (error) {
         console.error('Failed to initialize spectate:', error);
         setError('Failed to join spectate mode. The game might not allow spectators.');
@@ -383,15 +393,15 @@ const SpectatePage: React.FC = () => {
               {/* Enhanced Chess Board */}
               <Card className="p-6">
                 <div className="flex justify-center">
-                  <ChessBoard
+                  <ChessBoardPvP
                     gameState={gameState}
-                    onMoveMade={() => {}} // No moves allowed in spectate mode
-                    isSpectateMode={true}
-                    gameId={gameId!}
-                    SpectatorId={currentUser?.id || ''}
-                    onGameEnd={() => Promise.resolve()}
-                    onTimeout={() => {}}
-                  />
+                    onMoveMade={() => {
+                    }}
+                    isSpectateMode={true} onGameEnd={function (result: GameResult): Promise<void> {
+                    throw new Error('Function not implemented.');
+                  }} onTimeout={function (color: PieceColor): void {
+                    throw new Error('Function not implemented.');
+                  }}                  />
                 </div>
               </Card>
 

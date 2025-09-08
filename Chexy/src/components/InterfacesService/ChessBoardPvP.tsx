@@ -168,21 +168,24 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
 
   // Initialize game
   useEffect(() => {
-    if (!gameId || !playerId || !color || !opponentId) {
-      console.error("[ERROR] Missing required game data:", { gameId, playerId, color, opponentId });
-      toast({
-        title: "Error",
-        description: "Missing game data. Redirecting to lobby.",
-        variant: "destructive",
-      });
-      navigate("/lobby");
-      return;
+    // In spectate mode, we don't require player route state
+    if (!isSpectateMode) {
+      if (!gameId || !playerId || !color || !opponentId) {
+        console.error("[ERROR] Missing required game data:", { gameId, playerId, color, opponentId });
+        toast({
+          title: "Error",
+          description: "Missing game data. Redirecting to lobby.",
+          variant: "destructive",
+        });
+        navigate("/lobby");
+        return;
+      }
     }
 
     const initializeGame = async () => {
       try {
         console.log("[DEBUG] Initializing game for gameId:", gameId);
-        const session = await gameSessionService.getGameSession(gameId);
+        const session = await gameSessionService.getGameSession(gameId!);
         const serverBoard = ensureClassicBoard(session.board);
         console.log("[DEBUG] Initial server board:", serverBoard);
 
@@ -191,13 +194,17 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
 
         const initialGameState = {
           ...session.gameState,
-          gameSessionId: gameId,
-          userId1: session.whitePlayer.userId,
+          gameSessionId: gameId!,
+          userId1: session.whitePlayer?.userId || "",
           userId2: (Array.isArray(session.blackPlayer) ? session.blackPlayer[0]?.userId : (session as any).blackPlayer?.userId) || "",
         };
         setGameStateValue(initialGameState);
         setCurrentPlayerValue(session.gameState.currentTurn);
-        setPlayerColor(color);
+        if (!isSpectateMode) {
+          setPlayerColor(color);
+        } else {
+          setPlayerColor("white");
+        }
 
         setIsInitialized(true);
         console.log("[DEBUG] Game initialization completed");
@@ -208,12 +215,14 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
           description: "Failed to initialize game.",
           variant: "destructive",
         });
-        navigate("/lobby");
+        if (!isSpectateMode) {
+          navigate("/lobby");
+        }
       }
     };
 
     initializeGame();
-  }, [gameId, navigate, playerId, color, opponentId]);
+  }, [gameId, navigate, playerId, color, opponentId, isSpectateMode]);
 
   // Auto-refresh game state every 2 seconds to get opponent's moves
   useEffect(() => {
