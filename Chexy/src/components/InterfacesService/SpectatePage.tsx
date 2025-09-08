@@ -1,27 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, Users, MessageSquare, Clock, Trophy } from 'lucide-react';
 import ChessBoard from '@/components/InterfacesService/ChessBoard';
 import ChessTimer from '@/components/InterfacesService/ChessTimer';
 import PlayerInfo from '@/components/InterfacesService/PlayerInfo';
-
 import { GameSession } from '@/Interfaces/types/GameSession';
-import { GameResult, GameState, GameTimers, PieceColor, PlayerStats} from '@/Interfaces/types/chess';
-import {gameSessionService} from '@/services/GameSessionService';
-import {authService} from '@/services/AuthService';
-import {User} from '@/Interfaces/user/User';
+import { GameResult, GameState, GameTimers, PieceColor, PlayerStats } from '@/Interfaces/types/chess';
+import { gameSessionService } from '@/services/GameSessionService';
+import { authService } from '@/services/AuthService';
+import { User } from '@/Interfaces/user/User';
+import { useWebSocket } from '@/WebSocket/WebSocketContext';
+import { userService } from '@/services/UserService';
+import {JwtService} from "@/services/JwtService.ts";
 import SpectatorChat from "@/components/InterfacesService/SpectatorChat.tsx";
 import SpectatorList from "@/components/InterfacesService/SpectatorList.tsx";
-import {userService} from "@/services/UserService.ts";
-import {JwtService} from "@/services/JwtService.ts";
 
 const SpectatePage: React.FC = () => {
-  const {gameId} = useParams<{ gameId: string }>();
+  const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
-  const {toast} = useToast();
+  const { toast } = useToast();
+  const { client: stompClient, isConnected } = useWebSocket();
 
   const [gameSession, setGameSession] = useState<GameSession | null>(null);
   const [delayedGameSession, setDelayedGameSession] = useState<GameSession | null>(null);
@@ -35,6 +37,12 @@ const SpectatePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSpectating, setIsSpectating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [spectatorCount, setSpectatorCount] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [lastMoveTime, setLastMoveTime] = useState<Date | null>(null);
+
+  const gameStateRef = useRef<GameState | null>(null);
+  const timersRef = useRef<GameTimers | null>(null);
 
   useEffect(() => {
     const initializeSpectate = async () => {
@@ -46,6 +54,7 @@ const SpectatePage: React.FC = () => {
 
       try {
         setIsLoading(true);
+        setConnectionStatus('connecting');
 
         // Get current user
         const user = await userService.getCurrentUser(JwtService.getKeycloakId());
@@ -63,12 +72,15 @@ const SpectatePage: React.FC = () => {
         }
 
         // Try to get delayed session (for spectators)
+        let activeSession = session;
         try {
           const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
-          setDelayedGameSession(delayedSession);
+          if (delayedSession) {
+            activeSession = delayedSession;
+            setDelayedGameSession(delayedSession);
+          }
         } catch (error) {
           console.log('No delayed session available yet, using original session');
-          setDelayedGameSession(session);
         }
 
         // Join spectate mode
@@ -76,9 +88,11 @@ const SpectatePage: React.FC = () => {
         setIsSpectating(true);
 
         // Set up game state
-        const activeSession = delayedGameSession || session;
         setGameState(activeSession.gameState);
         setTimers(activeSession.timers);
+        gameStateRef.current = activeSession.gameState;
+        timersRef.current = activeSession.timers;
+
 
         // Set up player stats
         const whitePlayer = activeSession.whitePlayer;
@@ -98,12 +112,17 @@ const SpectatePage: React.FC = () => {
             points: blackPlayer?.currentStats?.points || 0
           }
         });
-
+        try {
+          const spectators = await gameSessionService.getSpectators(gameId);
+          setSpectatorCount(spectators.length);
+        } catch (error) {
+          console.error('Failed to get spectator count:', error);
+        }
+        setConnectionStatus('connected');
         toast({
           title: "Joined Spectate Mode",
           description: `Now spectating ${whitePlayer?.username || 'Unknown'} vs ${blackPlayer?.username || 'Unknown'}`,
         });
-
       } catch (error) {
         console.error('Failed to initialize spectate:', error);
         setError('Failed to join spectate mode. The game might not allow spectators.');
@@ -116,7 +135,6 @@ const SpectatePage: React.FC = () => {
         setIsLoading(false);
       }
     };
-
     initializeSpectate();
 
     // Cleanup on unmount
@@ -126,6 +144,83 @@ const SpectatePage: React.FC = () => {
       }
     };
   }, [gameId, navigate, toast]);
+
+  useEffect(() => {
+    if (!stompClient || !gameId || !isSpectating ) return;
+
+    const setupWebSocketSubscriptions = () => {
+      const delayedGameStateSubscription = stompClient.subscribe(
+        `/topic/spectator-game-state/${gameId}`,
+        (message : any) => {
+          try {
+            const gameStateUpdate  = JSON.parse(message.body);
+            setGameState(gameStateUpdate);
+            gameStateRef.current = gameStateUpdate;
+            setLastMoveTime(new Date());
+          }
+          catch (error) {
+            console.log('Error parsing delayed game state :',error);
+          }
+        }
+      );
+      const timerSubscription = stompClient.subscribe(
+        `/topic/timer-updates/${gameId}`,
+        (message: any) => {
+          try {
+            const timerUpdate = JSON.parse(message.body);
+            setTimers(timerUpdate);
+            timersRef.current = timerUpdate;
+          } catch (error) {
+            console.error('Error parsing timer update:', error);
+          }
+        }
+      );
+
+      const spectatorCountSubscription = stompClient.subscribe(
+        `/topic/spectator-count/${gameId}`,
+        (message: any) => {
+          try {
+            const countUpdate = JSON.parse(message.body);
+            setSpectatorCount(countUpdate.count);
+          } catch (error) {
+            console.error('Error parsing spectator count:', error);
+          }
+        }
+      );
+
+      return () =>{
+        delayedGameStateSubscription.unsubscribe();
+        timerSubscription.unsubscribe();
+        spectatorCountSubscription.unsubscribe();
+      };
+    };
+    const cleanup = setupWebSocketSubscriptions();
+    setConnectionStatus(isConnected ? 'connected' : 'disconnected');
+
+    return cleanup;
+  }, [stompClient, gameId, isSpectating, isConnected]);
+
+  useEffect(() => {
+    if (!gameId || !isSpectating) return;
+
+    const refreshDelayedSession = async() => {
+      try {
+        const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
+        if (delayedSession) {
+          setDelayedGameSession(delayedSession);
+          setGameState(gameState);
+          setTimers(delayedSession.timers);
+          gameStateRef.current = delayedSession.gameState;
+          timersRef.current = delayedSession.timers;
+        }
+      }
+      catch (error) {
+        console.error('Error parsing delayed game state:', error);
+      }
+    };
+    const interval = setInterval(refreshDelayedSession, 3000);
+    return () => {clearInterval(interval);};
+  }, [gameId, isSpectating]);
 
   const handleLeaveSpectate = async () => {
     if (gameId && currentUser) {
@@ -191,98 +286,150 @@ const SpectatePage: React.FC = () => {
   return (
     <div className="min-h-screen bg-mystical-gradient">
       <div className="container mx-auto px-4 py-4">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-4">
+        {/* Enhanced Header */}
+        <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
             <Button
               variant="ghost"
               onClick={() => navigate('/lobby')}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 hover:bg-primary/10"
             >
               <ArrowLeft className="h-4 w-4"/>
               Back to Lobby
             </Button>
             <div>
-              <h1 className="text-xl font-bold flex items-center gap-2">
-                <Eye className="h-5 w-5"/>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <Eye className="h-6 w-6 text-primary" />
                 Spectating Game
               </h1>
-              <p className="text-sm text-muted-foreground">
-                {playerStats.white.name} vs {playerStats.black.name}
-              </p>
+              <div className="flex items-center gap-4 mt-1">
+                <p className="text-sm text-muted-foreground">
+                  {playerStats.white.name} vs {playerStats.black.name}
+                </p>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    connectionStatus === 'connected' ? 'bg-green-500' :
+                      connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+                  }`}></div>
+                  <span className="text-xs text-muted-foreground capitalize">
+                    {connectionStatus}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={handleLeaveSpectate}
-            className="flex items-center gap-2"
-          >
-            <EyeOff className="h-4 w-4"/>
-            Leave Spectate
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-muted/50 px-3 py-2 rounded-lg">
+              <Users className="h-4 w-4" />
+              <span className="text-sm font-medium">{spectatorCount} watching</span>
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleLeaveSpectate}
+              className="flex items-center gap-2"
+            >
+              <EyeOff className="h-4 w-4" />
+              Leave Spectate
+            </Button>
+          </div>
         </div>
 
         {/* Game Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Game Area */}
           <div className="lg:col-span-3">
-            <div className="flex flex-col-reverse md:flex-col gap-4">
-              {/* Player Info and Timer */}
+            <div className="flex flex-col gap-6">
+              {/* Enhanced Player Info and Timer */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <PlayerInfo
-                  name={playerStats.black.name}
-                  points={playerStats.black.points}
-                  color="black"
-                  isCurrentPlayer={gameState.currentTurn === "black"}
-                />
-                <ChessTimer
-                  timers={timers}
-                  gameId={gameId!}
-                  isGameOver={false}
-                  onError={() => {
-                  }} setTimers={function (value: React.SetStateAction<GameTimers>): void {
-                  throw new Error('Function not implemented.');
-                }} currentPlayer={'white'} onTimeout={function (color: PieceColor): void {
-                  throw new Error('Function not implemented.');
-                }}/>
-                <PlayerInfo
-                  name={playerStats.white.name}
-                  points={playerStats.white.points}
-                  color="white"
-                  isCurrentPlayer={gameState.currentTurn === "white"}
-                />
+                <Card className="p-4">
+                  <PlayerInfo
+                    name={playerStats.black.name}
+                    points={playerStats.black.points}
+                    color="black"
+                    isCurrentPlayer={gameState.currentTurn === "black"}
+                  />
+                </Card>
+                <Card className="p-4">
+                  <div className="text-center">
+                    <ChessTimer
+                      timers={timers}
+                      gameId={gameId!}
+                      isGameOver={false}
+                      onError={() => {}}
+                      setTimers={setTimers}
+                      currentPlayer={gameState.currentTurn}
+                      onTimeout={() => {}}
+                    />
+                    {lastMoveTime && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Last move: {lastMoveTime.toLocaleTimeString()}
+                      </p>
+                    )}
+                  </div>
+                </Card>
+                <Card className="p-4">
+                  <PlayerInfo
+                    name={playerStats.white.name}
+                    points={playerStats.white.points}
+                    color="white"
+                    isCurrentPlayer={gameState.currentTurn === "white"}
+                  />
+                </Card>
               </div>
 
-              {/* Chess Board */}
-              <div className="flex justify-center">
-                <ChessBoard
-                  gameState={gameState}
-                  onMoveMade={() => {
-                  }} // No moves allowed in spectate mode
-                  isSpectateMode={true}
-                  gameId={gameId!}
-                  SpectatorId={currentUser?.id || ''} onGameEnd={function (result: GameResult): Promise<void> {
-                  throw new Error('Function not implemented.');
-                }} onTimeout={function (color: PieceColor): void {
-                  throw new Error('Function not implemented.');
-                }}                />
-              </div>
+              {/* Enhanced Chess Board */}
+              <Card className="p-6">
+                <div className="flex justify-center">
+                  <ChessBoard
+                    gameState={gameState}
+                    onMoveMade={() => {}} // No moves allowed in spectate mode
+                    isSpectateMode={true}
+                    gameId={gameId!}
+                    SpectatorId={currentUser?.id || ''}
+                    onGameEnd={() => Promise.resolve()}
+                    onTimeout={() => {}}
+                  />
+                </div>
+              </Card>
+
+              {/* Game Status Bar */}
+              <Card className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      <span className="text-sm">Game Mode: {gameSession.gameMode || 'Classic'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Trophy className="h-4 w-4" />
+                      <span className="text-sm">
+                        {gameSession.isRankedMatch ? 'Ranked Match' : 'Casual Match'}
+                      </span>
+                    </div>
+                  </div>
+                  <Badge variant="secondary" className="flex items-center gap-1">
+                    <Eye className="h-3 w-3" />
+                    Spectator View
+                  </Badge>
+                </div>
+              </Card>
             </div>
           </div>
 
-          {/* Sidebar */}
+          {/* Enhanced Sidebar */}
           <div className="space-y-4">
             <SpectatorList gameId={gameId!} />
             <SpectatorChat gameId={gameId!} />
           </div>
         </div>
 
-        {/* Spectate Notice */}
-        <div className="mt-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            👁️ You are spectating this game. Moves are delayed by 2 plies to prevent cheating.
-          </p>
-        </div>
+        {/* Enhanced Spectate Notice */}
+        <Card className="mt-6 p-4 bg-primary/5 border-primary/20">
+          <div className="flex items-center justify-center gap-2 text-sm text-primary">
+            <Eye className="h-4 w-4" />
+            <span>You are spectating this game. Moves are delayed by 2 plies to prevent cheating.</span>
+          </div>
+        </Card>
       </div>
     </div>
   );

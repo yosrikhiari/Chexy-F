@@ -300,9 +300,6 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     validMoves.some((move) => move.row === row && move.col === col);
 
   const handleSquareClick = async (row: number, col: number) => {
-    if (isSpectateMode) {
-      return;
-    }
     if (isGameActuallyOver()) {
       console.log("[DEBUG] Click ignored: Game is over");
       return;
@@ -408,6 +405,18 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
 
     // Set processing flag to prevent multiple moves
     isProcessingRef.current = true;
+
+    if (isSpectateMode) {
+      const piece = currentBoard[row][col];
+      if (piece) {
+        toast({
+          title: "Piece Information",
+          description: `${piece.color} ${piece.type} at ${String.fromCharCode(97 + col)}${8 - row}`,
+          duration: 2000,
+        });
+      }
+      return;
+    }
 
     try {
       const move = {

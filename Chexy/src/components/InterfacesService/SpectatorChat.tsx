@@ -41,8 +41,8 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
   useEffect(() => {
     if (!stompClient || !currentUser) return;
 
-    const SpectatorChatDestination = `/topic/Spectator-chat/${gameId}`;
-    const subscription = stompClient.subscribe(SpectatorChatDestination, (message: any) =>{
+    const spectatorChatDestination = `/topic/spectator-chat/${gameId}`;
+    const subscription = stompClient.subscribe(spectatorChatDestination, (message: any) =>{
         try {
           const chatMessage: SpectatorChatMessage = JSON.parse(message.body) ;
           setMessages(prev => [...prev, {...chatMessage, isSpectatorMessage: true}]);
@@ -76,9 +76,9 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
     };
 
     stompClient.publish({
-      destination: `/topic/Spectator-chat/${gameId}`,
-      body: JSON.stringify(messageData),
-    })
+      destination: '/app/spectator-chat/send',
+      body: JSON.stringify(messageData)
+    });
 
     setNewMessage('');
   };
