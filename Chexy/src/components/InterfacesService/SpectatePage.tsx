@@ -17,9 +17,9 @@ import { useWebSocket } from '@/WebSocket/WebSocketContext';
 import { userService } from '@/services/UserService';
 import {JwtService} from "@/services/JwtService.ts";
 import SpectatorChat from "@/components/InterfacesService/SpectatorChat.tsx";
-import SpectatorList from "@/components/InterfacesService/SpectatorList.tsx";
 
 const SpectatePage: React.FC = () => {
+  const [isDelayedLoading, setIsDelayedLoading] = useState(false);
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -74,6 +74,7 @@ const SpectatePage: React.FC = () => {
         // Try to get delayed session (for spectators)
         let activeSession = session;
         try {
+          setIsDelayedLoading(true);
           const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
           if (delayedSession) {
             activeSession = delayedSession;
@@ -81,6 +82,8 @@ const SpectatePage: React.FC = () => {
           }
         } catch (error) {
           console.log('No delayed session available yet, using original session');
+        } finally {
+          setIsDelayedLoading(false);
         }
 
         // Join spectate mode
@@ -208,7 +211,7 @@ const SpectatePage: React.FC = () => {
         const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
         if (delayedSession) {
           setDelayedGameSession(delayedSession);
-          setGameState(gameState);
+          setGameState(delayedSession.gameState);
           setTimers(delayedSession.timers);
           gameStateRef.current = delayedSession.gameState;
           timersRef.current = delayedSession.timers;
@@ -335,7 +338,7 @@ const SpectatePage: React.FC = () => {
         </div>
 
         {/* Game Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-[70vh]">
           {/* Main Game Area */}
           <div className="lg:col-span-3">
             <div className="flex flex-col gap-6">
@@ -418,7 +421,6 @@ const SpectatePage: React.FC = () => {
 
           {/* Enhanced Sidebar */}
           <div className="space-y-4">
-            <SpectatorList gameId={gameId!} />
             <SpectatorChat gameId={gameId!} />
           </div>
         </div>
