@@ -109,7 +109,7 @@ const SpectatePage: React.FC = () => {
           ? (activeSession || session).blackPlayer[0]
           : (activeSession || session).blackPlayer;
 
-        if ("userId" in blackPlayer) {
+        if ("currentStats" in blackPlayer) {
           setPlayerStats({
             white: {
               playerId: whitePlayer?.userId || '',
@@ -372,6 +372,7 @@ const SpectatePage: React.FC = () => {
                       setTimers={setTimers}
                       currentPlayer={gameState.currentTurn}
                       onTimeout={() => {}}
+                      isSpectateMode={true}
                     />
                     {lastMoveTime && (
                       <p className="text-xs text-muted-foreground mt-2">

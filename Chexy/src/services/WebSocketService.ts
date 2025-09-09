@@ -48,12 +48,14 @@ export class WebSocketService {
     this.cleanup();
 
     const wsUrl = import.meta.env.DEV ? '/chess-websocket' : 'http://localhost:8081/chess-websocket';
+    console.log(`[WebSocket] Connecting to: ${wsUrl}`);
     const socket = new SockJS(wsUrl);
     this.stompClient = Stomp.over(socket);
 
-    // Disable debug in production
+    // Enable debug logging in development
     this.stompClient.debug = (str) => {
       if (process.env.NODE_ENV === 'development') {
+        console.log(`[STOMP Debug] ${str}`);
       }
     };
 
@@ -166,6 +168,7 @@ export class WebSocketService {
         `/topic/game/${gameId}/timer`,
         (message) => {
           try {
+            console.log(`[WebSocket] Received timer message for game ${gameId}:`, message.body);
             const timers: GameTimers = JSON.parse(message.body);
             onTimerUpdate(timers);
           } catch (parseError) {

@@ -17,6 +17,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
                                                  gameId,
                                                  playerId,
                                                  onError,
+                                                 isSpectateMode = false,
                                                }) => {
   const [localError, setLocalError] = useState<string | null>(null);
   const [gameMode, setGameMode] = useState<string | null>(null);
@@ -52,6 +53,8 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
 
   // In ChessTimer.tsx, update the handleTimerUpdate function:
   const handleTimerUpdate = (updatedTimers: GameTimers) => {
+    console.log('[TIMER] Received timer update:', updatedTimers);
+
     // Only update if the game is still active and hasn't timed out
     if (!isGameOverRef.current && !hasTimedOutRef.current) {
       setTimers(updatedTimers);
@@ -277,13 +280,14 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
           });
         }
 
-        // Connect to WebSocket for real-time updates
-        webSocketService.connect(
-          gameId,
-          handleTimerUpdate,
-          handleWebSocketError
-        );
-
+        // Connect to WebSocket for real-time updates if it's not in the spectate mode
+        if(!isSpectateMode) {
+          webSocketService.connect(
+            gameId,
+            handleTimerUpdate,
+            handleWebSocketError
+          );
+        }
       } catch (err) {
         if (!mounted) return;
 

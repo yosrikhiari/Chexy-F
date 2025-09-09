@@ -185,7 +185,8 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
     const initializeGame = async () => {
       try {
         console.log("[DEBUG] Initializing game for gameId:", gameId);
-        const session = await gameSessionService.getGameSession(gameId!);
+        const sessionId = isSpectateMode ? `SpecSession-${gameId}` : gameId;
+        const session = await gameSessionService.getGameSession(sessionId);
         const serverBoard = ensureClassicBoard(session.board);
         console.log("[DEBUG] Initial server board:", serverBoard);
 
@@ -230,7 +231,9 @@ const ChessBoardPvP: React.FC<ChessBoardProps> = ({
 
     const pollInterval = setInterval(async () => {
       try {
-        const session = await gameSessionService.getGameSession(gameId);
+        const sessionId = isSpectateMode ? `SpecSession-${gameId}` : gameId;
+        const session = await gameSessionService.getGameSession(sessionId);
+
         const serverBoard = ensureClassicBoard(session.board);
 
         // Only update if the board actually changed and we're at the latest move
