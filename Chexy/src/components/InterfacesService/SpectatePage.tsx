@@ -34,6 +34,11 @@ const SpectatePage: React.FC = () => {
     black: PlayerStats;
   } | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const [spectateAllowed, setSpectateAllowed] = useState(false);
+
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSpectating, setIsSpectating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,71 +76,19 @@ const SpectatePage: React.FC = () => {
           return;
         }
 
-        // Try to get delayed session (for spectators)
-        let activeSession: GameSession | null = null;
-        try {
-          setIsDelayedLoading(true);
-          const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
-          if (delayedSession) {
-            activeSession = delayedSession;
-            setDelayedGameSession(delayedSession);
-          }
-        } catch (error) {
-          console.log('No delayed session available yet; waiting for delayed stream');
-        } finally {
-          setIsDelayedLoading(false);
+        // Check spectate availability
+        const availability = await gameSessionService.getSpectateAvailability(gameId);
+
+        if (!availability.allowed) {
+          // Set countdown and wait
+          setSecondsRemaining(availability.secondsRemaining);
+          setIsLoading(false);
+          return;
         }
 
-        // Join spectate mode
-        await gameSessionService.joinSpectate(gameId, user.id);
-        setIsSpectating(true);
+        // Spectating is allowed, proceed with normal flow
+        await proceedWithSpectating(gameId, user, session);
 
-        // Set up game state
-        if (activeSession) {
-          setGameState(activeSession.gameState);
-          setTimers(activeSession.timers);
-          gameStateRef.current = activeSession.gameState;
-          timersRef.current = activeSession.timers;
-        } else {
-          // Do not show live state; wait for delayed WS update or polling to pick up SpecSession
-          setGameState(null);
-          setTimers(null);
-        }
-
-
-        // Set up player stats
-        const whitePlayer = (activeSession || session).whitePlayer;
-        const blackPlayer = Array.isArray((activeSession || session).blackPlayer)
-          ? (activeSession || session).blackPlayer[0]
-          : (activeSession || session).blackPlayer;
-
-        if ("currentStats" in blackPlayer) {
-          setPlayerStats({
-            white: {
-              playerId: whitePlayer?.userId || '',
-              name: whitePlayer?.username || 'White Player',
-              points: whitePlayer?.currentStats?.points || 0
-            },
-            black: {
-              playerId: blackPlayer?.userId || '',
-              name: blackPlayer?.username || 'Black Player',
-              points: blackPlayer?.currentStats?.points || 0
-            }
-          });
-        }
-        try {
-          const spectators = await gameSessionService.getSpectators(gameId);
-          setSpectatorCount(spectators.length);
-        } catch (error) {
-          console.error('Failed to get spectator count:', error);
-        }
-        setConnectionStatus('connected');
-        if ("username" in blackPlayer) {
-          toast({
-            title: "Joined Spectate Mode",
-            description: `Now spectating ${whitePlayer?.username || 'Unknown'} vs ${blackPlayer?.username || 'Unknown'}`,
-          });
-        }
       } catch (error) {
         console.error('Failed to initialize spectate:', error);
         setError('Failed to join spectate mode. The game might not allow spectators.');
@@ -148,6 +101,78 @@ const SpectatePage: React.FC = () => {
         setIsLoading(false);
       }
     };
+
+    const proceedWithSpectating = async (gameId: string, user: any, session: any) => {
+      // Try to get delayed session (for spectators)
+      let activeSession: GameSession | null = null;
+      try {
+        setIsDelayedLoading(true);
+        const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
+        if (delayedSession) {
+          activeSession = delayedSession;
+          setDelayedGameSession(delayedSession);
+        }
+      } catch (error) {
+        console.log('No delayed session available yet; waiting for delayed stream');
+      } finally {
+        setIsDelayedLoading(false);
+      }
+      const { allowed, secondsRemaining } = await gameSessionService.getSpectateAvailability(gameId);
+      setSpectateAllowed(allowed);
+      setSecondsRemaining(allowed ? 0 : secondsRemaining);
+      if (!allowed) { setIsLoading(false); return; }
+      // Join spectate mode
+      await gameSessionService.joinSpectate(gameId, user.id);
+      setIsSpectating(true);
+
+      // Set up game state
+      if (activeSession) {
+        setGameState(activeSession.gameState);
+        setTimers(activeSession.timers);
+        gameStateRef.current = activeSession.gameState;
+        timersRef.current = activeSession.timers;
+      } else {
+        setGameState(null);
+        setTimers(null);
+      }
+
+      // Set up player stats
+      const whitePlayer = (activeSession || session).whitePlayer;
+      const blackPlayer = Array.isArray((activeSession || session).blackPlayer)
+        ? (activeSession || session).blackPlayer[0]
+        : (activeSession || session).blackPlayer;
+
+      if ("currentStats" in blackPlayer) {
+        setPlayerStats({
+          white: {
+            playerId: whitePlayer?.userId || '',
+            name: whitePlayer?.username || 'White Player',
+            points: whitePlayer?.currentStats?.points || 0
+          },
+          black: {
+            playerId: blackPlayer?.userId || '',
+            name: blackPlayer?.username || 'Black Player',
+            points: blackPlayer?.currentStats?.points || 0
+          }
+        });
+      }
+
+      try {
+        const spectators = await gameSessionService.getSpectators(gameId);
+        setSpectatorCount(spectators.length);
+      } catch (error) {
+        console.error('Failed to get spectator count:', error);
+      }
+
+      setConnectionStatus('connected');
+      if ("username" in blackPlayer) {
+        toast({
+          title: "Joined Spectate Mode",
+          description: `Now spectating ${whitePlayer?.username || 'Unknown'} vs ${blackPlayer?.username || 'Unknown'}`,
+        });
+      }
+    };
+
     initializeSpectate();
 
     // Cleanup on unmount
@@ -177,7 +202,7 @@ const SpectatePage: React.FC = () => {
         }
       );
       const timerSubscription = stompClient.subscribe(
-        `/topic/timer-updates/${gameId}`,
+        `/topic/game/${gameId}/timer`,
         (message: any) => {
           try {
             const timerUpdate = JSON.parse(message.body);
@@ -250,6 +275,34 @@ const SpectatePage: React.FC = () => {
       }
     }
   };
+// Countdown effect
+useEffect(() => {
+  if (secondsRemaining === null || secondsRemaining <= 0 || spectateAllowed) return;
+
+  const timer = setTimeout(() => {
+    setSecondsRemaining(prev => {
+      if (prev === null || prev <= 1) {
+        if (gameId && currentUser) {
+          gameSessionService.joinSpectate(gameId, currentUser.id)
+            .then(() => {
+              setIsSpectating(true);
+              setSecondsRemaining(null);
+              // no window.location.reload()
+            })
+            .catch(async () => {
+              const availability = await gameSessionService.getSpectateAvailability(gameId);
+              setSecondsRemaining(availability.secondsRemaining);
+            });
+        }
+        return null;
+      }
+      return prev - 1;
+    });
+  }, 1000);
+
+  return () => clearTimeout(timer);
+}, [secondsRemaining, spectateAllowed, gameId, currentUser]);
+
 
   if (isLoading) {
     return (
@@ -273,6 +326,44 @@ const SpectatePage: React.FC = () => {
             <Button onClick={() => navigate('/lobby')}>
               <ArrowLeft className="h-4 w-4 mr-2"/>
               Back to Lobby
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Countdown screen
+  if (secondsRemaining !== null && secondsRemaining > 0 && !spectateAllowed) {
+    return (
+      <div className="min-h-screen bg-mystical-gradient flex items-center justify-center">
+        <Card className="w-[420px]">
+          <CardHeader>
+            <CardTitle className="text-center">Spectate available soon</CardTitle>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <div className="flex items-center justify-center gap-2">
+              <Clock className="h-5 w-5" />
+              <span>Starting in {secondsRemaining}s</span>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              To prevent live help, spectating is delayed by 2 minutes.
+            </div>
+            <Button
+              onClick={async () => {
+                try {
+                  const availability = await gameSessionService.getSpectateAvailability(gameId!);
+                  setSecondsRemaining(availability.secondsRemaining);
+                  setSpectateAllowed(availability.allowed);
+                  if (availability.allowed && currentUser) {
+                    await gameSessionService.joinSpectate(gameId!, currentUser.id);
+                    setIsSpectating(true);
+                    setSecondsRemaining(null);
+                  }
+                } catch {}
+              }}
+            >
+              Refresh
             </Button>
           </CardContent>
         </Card>

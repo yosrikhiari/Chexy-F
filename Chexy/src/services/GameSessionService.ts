@@ -149,6 +149,21 @@ export class GameSessionService {
     if (!res.ok) throw new Error("Failed to disable spectators");
   }
 
+  async getSpectateAvailability(gameId: string): Promise<{
+    allowed: boolean;
+    secondsRemaining: number;
+    message: string;
+  }> {const res = await fetch(`${this.baseUrl}/game-session/${gameId}/spectate-availability`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${JwtService.getToken()}`,
+      ContentType: "application/json",
+    },
+  });
+    if(!res.ok) throw new Error("Failed to get spectate availability");
+    return res.json();
+  }
+
 
 }
 
