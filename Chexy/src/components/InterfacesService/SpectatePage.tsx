@@ -53,6 +53,91 @@ const SpectatePage: React.FC = () => {
   const pendingTimerRef = useRef<GameTimers | null>(null);
   const processTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Hoisted so we can reuse after countdown and on refresh
+  const proceedWithSpectating = React.useCallback(async (activeGameId: string, user: User, originalSession: GameSession | null) => {
+    // Try to get delayed session (for spectators)
+    let activeSession: GameSession | null = null;
+    try {
+      setIsDelayedLoading(true);
+      const delayedSession = await gameSessionService.getGameSession(`SpecSession-${activeGameId}`);
+      if (delayedSession) {
+        activeSession = delayedSession;
+        setDelayedGameSession(delayedSession);
+      }
+    } catch (error) {
+      console.log('No delayed session available yet; waiting for delayed stream');
+    } finally {
+      setIsDelayedLoading(false);
+    }
+
+    const availability = await gameSessionService.getSpectateAvailability(activeGameId);
+    setSpectateAllowed(availability.allowed);
+    setSecondsRemaining(availability.allowed ? 0 : availability.secondsRemaining);
+    if (!availability.allowed) { return; }
+
+    // Join spectate mode
+    await gameSessionService.joinSpectate(activeGameId, user.id);
+    setIsSpectating(true);
+
+    // Set up game state
+    const sessionToUse = activeSession || originalSession;
+    if (sessionToUse && sessionToUse.gameState && sessionToUse.timers) {
+      setGameState(sessionToUse.gameState);
+      gameStateRef.current = sessionToUse.gameState;
+
+      const isWhiteTurn = sessionToUse.gameState.currentTurn?.toLowerCase() === 'white';
+      const normalizedTimers = {
+        white: {
+          timeLeft: sessionToUse.timers.white.timeLeft,
+          active: isWhiteTurn,
+        },
+        black: {
+          timeLeft: sessionToUse.timers.black.timeLeft,
+          active: !isWhiteTurn,
+        },
+        defaultTime: sessionToUse.timers.defaultTime,
+      } as GameTimers;
+
+      setTimers(normalizedTimers);
+      timersRef.current = normalizedTimers;
+    } else {
+      setGameState(null);
+      setTimers(null);
+    }
+
+    // Set up player stats
+    if (sessionToUse) {
+      const whitePlayer = sessionToUse.whitePlayer;
+      const blackPlayer = Array.isArray(sessionToUse.blackPlayer)
+        ? sessionToUse.blackPlayer[0]
+        : sessionToUse.blackPlayer;
+
+      if (blackPlayer && ("currentStats" in blackPlayer)) {
+        setPlayerStats({
+          white: {
+            playerId: whitePlayer?.userId || '',
+            name: whitePlayer?.username || 'White Player',
+            points: whitePlayer?.currentStats?.points || 0
+          },
+          black: {
+            playerId: blackPlayer?.userId || '',
+            name: blackPlayer?.username || 'Black Player',
+            points: blackPlayer?.currentStats?.points || 0
+          }
+        });
+      }
+    }
+
+    try {
+      const spectators = await gameSessionService.getSpectators(activeGameId);
+      setSpectatorCount(spectators.length);
+    } catch (error) {
+      console.error('Failed to get spectator count:', error);
+    }
+
+    setConnectionStatus('connected');
+  }, []);
+
   const scheduleProcessPendingUpdates = () => {
     if (processTimeoutRef.current) {
       clearTimeout(processTimeoutRef.current);
@@ -148,90 +233,7 @@ const SpectatePage: React.FC = () => {
       }
     };
 
-    const proceedWithSpectating = async (gameId: string, user: any, session: any) => {
-      // Try to get delayed session (for spectators)
-      let activeSession: GameSession | null = null;
-      try {
-        setIsDelayedLoading(true);
-        const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
-        if (delayedSession) {
-          activeSession = delayedSession;
-          setDelayedGameSession(delayedSession);
-        }
-      } catch (error) {
-        console.log('No delayed session available yet; waiting for delayed stream');
-      } finally {
-        setIsDelayedLoading(false);
-      }
-      const { allowed, secondsRemaining } = await gameSessionService.getSpectateAvailability(gameId);
-      setSpectateAllowed(allowed);
-      setSecondsRemaining(allowed ? 0 : secondsRemaining);
-      if (!allowed) { setIsLoading(false); return; }
-      // Join spectate mode
-      await gameSessionService.joinSpectate(gameId, user.id);
-      setIsSpectating(true);
-
-      // Set up game state
-      if (activeSession) {
-        setGameState(activeSession.gameState);
-        gameStateRef.current = activeSession.gameState;
-
-        const isWhiteTurn = activeSession.gameState.currentTurn?.toLowerCase() === 'white';
-        const normalizedTimers = {
-          white: {
-            timeLeft: activeSession.timers.white.timeLeft,
-            active: isWhiteTurn,
-          },
-          black: {
-            timeLeft: activeSession.timers.black.timeLeft,
-            active: !isWhiteTurn,
-          },
-          defaultTime: activeSession.timers.defaultTime,
-        };
-
-        setTimers(normalizedTimers);
-        timersRef.current = normalizedTimers;
-      } else {
-        setGameState(null);
-        setTimers(null);
-      }
-
-      // Set up player stats
-      const whitePlayer = (activeSession || session).whitePlayer;
-      const blackPlayer = Array.isArray((activeSession || session).blackPlayer)
-        ? (activeSession || session).blackPlayer[0]
-        : (activeSession || session).blackPlayer;
-
-      if ("currentStats" in blackPlayer) {
-        setPlayerStats({
-          white: {
-            playerId: whitePlayer?.userId || '',
-            name: whitePlayer?.username || 'White Player',
-            points: whitePlayer?.currentStats?.points || 0
-          },
-          black: {
-            playerId: blackPlayer?.userId || '',
-            name: blackPlayer?.username || 'Black Player',
-            points: blackPlayer?.currentStats?.points || 0
-          }
-        });
-      }
-
-      try {
-        const spectators = await gameSessionService.getSpectators(gameId);
-        setSpectatorCount(spectators.length);
-      } catch (error) {
-        console.error('Failed to get spectator count:', error);
-      }
-
-      setConnectionStatus('connected');
-      if ("username" in blackPlayer) {
-        toast({
-          title: "Joined Spectate Mode",
-          description: `Now spectating ${whitePlayer?.username || 'Unknown'} vs ${blackPlayer?.username || 'Unknown'}`,
-        });
-      }
-    };
+    // removed duplicate proceedWithSpectating (now hoisted)
 
     initializeSpectate();
 
@@ -355,16 +357,11 @@ useEffect(() => {
     setSecondsRemaining(prev => {
       if (prev === null || prev <= 1) {
         if (gameId && currentUser) {
-          gameSessionService.joinSpectate(gameId, currentUser.id)
-            .then(() => {
-              setIsSpectating(true);
-              setSecondsRemaining(null);
-              // no window.location.reload()
-            })
-            .catch(async () => {
-              const availability = await gameSessionService.getSpectateAvailability(gameId);
-              setSecondsRemaining(availability.secondsRemaining);
-            });
+          // At countdown completion, run full spectating setup
+          proceedWithSpectating(gameId, currentUser, gameSession).catch(async () => {
+            const availability = await gameSessionService.getSpectateAvailability(gameId);
+            setSecondsRemaining(availability.secondsRemaining);
+          });
         }
         return null;
       }
@@ -373,7 +370,7 @@ useEffect(() => {
   }, 1000);
 
   return () => clearTimeout(timer);
-}, [secondsRemaining, spectateAllowed, gameId, currentUser]);
+}, [secondsRemaining, spectateAllowed, gameId, currentUser, proceedWithSpectating, gameSession]);
 
 
   if (isLoading) {
@@ -428,8 +425,7 @@ useEffect(() => {
                   setSecondsRemaining(availability.secondsRemaining);
                   setSpectateAllowed(availability.allowed);
                   if (availability.allowed && currentUser) {
-                    await gameSessionService.joinSpectate(gameId!, currentUser.id);
-                    setIsSpectating(true);
+                    await proceedWithSpectating(gameId!, currentUser, gameSession);
                     setSecondsRemaining(null);
                   }
                 } catch {}
