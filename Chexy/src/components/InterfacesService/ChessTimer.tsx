@@ -246,7 +246,11 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
     }
 
     let mounted = true;
-    setConnectionStatus('connecting');
+    if (!isSpectateMode) {
+      setConnectionStatus('connecting');
+    } else {
+      setConnectionStatus('connected');
+    }
 
     const fetchGameSession = async () => {
       try {
@@ -319,7 +323,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
     return (
       <div className="text-yellow-600 text-center p-2 bg-yellow-50 rounded-md">
         <div>Loading timer data...</div>
-        {connectionStatus === 'connecting' && (
+        {connectionStatus === 'connecting' && !isSpectateMode && (
           <div className="text-xs mt-1">Connecting to real-time updates...</div>
         )}
       </div>
@@ -329,7 +333,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
   return (
     <div className={cn('space-y-2')}>
       {/* Connection status indicator */}
-      {connectionStatus !== 'connected' && !isGameOver && (
+      {connectionStatus !== 'connected' && !isGameOver && !isSpectateMode && (
         <div className={cn(
           'text-xs text-center py-1 px-2 rounded text-white',
           connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'

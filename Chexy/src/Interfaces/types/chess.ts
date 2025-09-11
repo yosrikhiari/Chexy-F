@@ -33,6 +33,7 @@ export interface GameTimers {
   white: PlayerTimer;
   black: PlayerTimer;
   defaultTime: number;
+  serverTimeMs?: number; // optional server timestamp indicating when timers are valid
 }
 
 export interface ChessOpening {

@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Eye, EyeOff, Users, MessageSquare, Clock, Trophy } from 'lucide-react';
 import ChessBoardPvP from '@/components/InterfacesService/ChessBoardPvP';
-import ChessTimer from '@/components/InterfacesService/ChessTimer';
 import PlayerInfo from '@/components/InterfacesService/PlayerInfo';
 import { GameSession } from '@/Interfaces/types/GameSession';
 import { GameResult, GameState, GameTimers, PieceColor, PlayerStats } from '@/Interfaces/types/chess';
@@ -17,6 +16,7 @@ import { useWebSocket } from '@/WebSocket/WebSocketContext';
 import { userService } from '@/services/UserService';
 import {JwtService} from "@/services/JwtService.ts";
 import SpectatorChat from "@/components/InterfacesService/SpectatorChat.tsx";
+import SpectateChessTimer from "@/components/InterfacesService/SpectateChessTimer.tsx";
 
 const SpectatePage: React.FC = () => {
   const [isDelayedLoading, setIsDelayedLoading] = useState(false);
@@ -48,6 +48,52 @@ const SpectatePage: React.FC = () => {
 
   const gameStateRef = useRef<GameState | null>(null);
   const timersRef = useRef<GameTimers | null>(null);
+  // Coalesce incoming WS messages to avoid flip-flop
+  const pendingGameStateRef = useRef<GameState | null>(null);
+  const pendingTimerRef = useRef<GameTimers | null>(null);
+  const processTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const scheduleProcessPendingUpdates = () => {
+    if (processTimeoutRef.current) {
+      clearTimeout(processTimeoutRef.current);
+    }
+    // Small delay to let both messages arrive, then process in order
+    processTimeoutRef.current = setTimeout(() => {
+      // Apply game-state first
+      if (pendingGameStateRef.current) {
+        const gs = pendingGameStateRef.current;
+        setGameState(gs);
+        gameStateRef.current = gs;
+        setLastMoveTime(new Date());
+        pendingGameStateRef.current = null;
+      }
+
+      // Then apply timer normalized against delayed turn
+      if (pendingTimerRef.current) {
+        const timerUpdate = pendingTimerRef.current;
+        const delayedTurn = gameStateRef.current?.currentTurn?.toLowerCase();
+        const shouldWhiteBeActive = delayedTurn === 'white';
+        const shouldBlackBeActive = delayedTurn === 'black';
+
+        const normalizedTimers: GameTimers = {
+          white: {
+            timeLeft: timerUpdate.white?.timeLeft ?? timersRef.current?.white.timeLeft ?? 0,
+            active: delayedTurn ? shouldWhiteBeActive : (timerUpdate.white?.active ?? timersRef.current?.white.active ?? false),
+          },
+          black: {
+            timeLeft: timerUpdate.black?.timeLeft ?? timersRef.current?.black.timeLeft ?? 0,
+            active: delayedTurn ? shouldBlackBeActive : (timerUpdate.black?.active ?? timersRef.current?.black.active ?? false),
+          },
+          defaultTime: timerUpdate.defaultTime ?? timersRef.current?.defaultTime ?? 0,
+          serverTimeMs: (timerUpdate as any).serverTimeMs,
+        };
+
+        setTimers(normalizedTimers);
+        timersRef.current = normalizedTimers;
+        pendingTimerRef.current = null;
+      }
+    }, 30);
+  };
 
   useEffect(() => {
     const initializeSpectate = async () => {
@@ -128,9 +174,23 @@ const SpectatePage: React.FC = () => {
       // Set up game state
       if (activeSession) {
         setGameState(activeSession.gameState);
-        setTimers(activeSession.timers);
         gameStateRef.current = activeSession.gameState;
-        timersRef.current = activeSession.timers;
+
+        const isWhiteTurn = activeSession.gameState.currentTurn?.toLowerCase() === 'white';
+        const normalizedTimers = {
+          white: {
+            timeLeft: activeSession.timers.white.timeLeft,
+            active: isWhiteTurn,
+          },
+          black: {
+            timeLeft: activeSession.timers.black.timeLeft,
+            active: !isWhiteTurn,
+          },
+          defaultTime: activeSession.timers.defaultTime,
+        };
+
+        setTimers(normalizedTimers);
+        timersRef.current = normalizedTimers;
       } else {
         setGameState(null);
         setTimers(null);
@@ -192,9 +252,8 @@ const SpectatePage: React.FC = () => {
         (message : any) => {
           try {
             const gameStateUpdate  = JSON.parse(message.body);
-            setGameState(gameStateUpdate);
-            gameStateRef.current = gameStateUpdate;
-            setLastMoveTime(new Date());
+            pendingGameStateRef.current = gameStateUpdate;
+            scheduleProcessPendingUpdates();
           }
           catch (error) {
             console.log('Error parsing delayed game state :',error);
@@ -202,12 +261,12 @@ const SpectatePage: React.FC = () => {
         }
       );
       const timerSubscription = stompClient.subscribe(
-        `/topic/game/${gameId}/timer`,
+        `/topic/game/SpecSession-${gameId}/timer`,
         (message: any) => {
           try {
             const timerUpdate = JSON.parse(message.body);
-            setTimers(timerUpdate);
-            timersRef.current = timerUpdate;
+            pendingTimerRef.current = timerUpdate;
+            scheduleProcessPendingUpdates();
           } catch (error) {
             console.error('Error parsing timer update:', error);
           }
@@ -230,6 +289,10 @@ const SpectatePage: React.FC = () => {
         delayedGameStateSubscription.unsubscribe();
         timerSubscription.unsubscribe();
         spectatorCountSubscription.unsubscribe();
+        if (processTimeoutRef.current) {
+          clearTimeout(processTimeoutRef.current);
+          processTimeoutRef.current = null;
+        }
       };
     };
     const cleanup = setupWebSocketSubscriptions();
@@ -244,12 +307,21 @@ const SpectatePage: React.FC = () => {
     const refreshDelayedSession = async() => {
       try {
         const delayedSession = await gameSessionService.getGameSession(`SpecSession-${gameId}`);
-        if (delayedSession) {
-          setDelayedGameSession(delayedSession);
-          setGameState(delayedSession.gameState);
-          setTimers(delayedSession.timers);
-          gameStateRef.current = delayedSession.gameState;
-          timersRef.current = delayedSession.timers;
+        if (!isConnected) {
+          // Use backend timer actives rather than deriving from turn
+          const normalizedTimers = {
+            white: {
+              timeLeft: delayedSession.timers.white.timeLeft,
+              active: delayedSession.timers.white.active,
+            },
+            black: {
+              timeLeft: delayedSession.timers.black.timeLeft,
+              active: delayedSession.timers.black.active,
+            },
+            defaultTime: delayedSession.timers.defaultTime,
+          };
+          setTimers(normalizedTimers);
+          timersRef.current = normalizedTimers;
         }
       }
       catch (error) {
@@ -258,7 +330,7 @@ const SpectatePage: React.FC = () => {
     };
     const interval = setInterval(refreshDelayedSession, 3000);
     return () => {clearInterval(interval);};
-  }, [gameId, isSpectating]);
+  }, [gameId, isSpectating, isConnected]);
 
   const handleLeaveSpectate = async () => {
     if (gameId && currentUser) {
@@ -455,15 +527,11 @@ useEffect(() => {
                 </Card>
                 <Card className="p-4">
                   <div className="text-center">
-                    <ChessTimer
+                    <SpectateChessTimer
                       timers={timers}
-                      gameId={gameId!}
                       isGameOver={false}
-                      onError={() => {}}
-                      setTimers={setTimers}
-                      currentPlayer={gameState.currentTurn}
-                      onTimeout={() => {}}
-                      isSpectateMode={true}
+                      whitePlayerName={playerStats.white.name}
+                      blackPlayerName={playerStats.black.name}
                     />
                     {lastMoveTime && (
                       <p className="text-xs text-muted-foreground mt-2">
