@@ -17,6 +17,7 @@ import { userService } from '@/services/UserService';
 import {JwtService} from "@/services/JwtService.ts";
 import SpectatorChat from "@/components/InterfacesService/SpectatorChat.tsx";
 import SpectateChessTimer from "@/components/InterfacesService/SpectateChessTimer.tsx";
+import SpectatorsList from "@/components/InterfacesService/SpectatorList";
 
 const SpectatePage: React.FC = () => {
   const [isDelayedLoading, setIsDelayedLoading] = useState(false);
@@ -350,27 +351,27 @@ const SpectatePage: React.FC = () => {
     }
   };
 // Countdown effect
-useEffect(() => {
-  if (secondsRemaining === null || secondsRemaining <= 0 || spectateAllowed) return;
+  useEffect(() => {
+    if (secondsRemaining === null || secondsRemaining <= 0 || spectateAllowed) return;
 
-  const timer = setTimeout(() => {
-    setSecondsRemaining(prev => {
-      if (prev === null || prev <= 1) {
-        if (gameId && currentUser) {
-          // At countdown completion, run full spectating setup
-          proceedWithSpectating(gameId, currentUser, gameSession).catch(async () => {
-            const availability = await gameSessionService.getSpectateAvailability(gameId);
-            setSecondsRemaining(availability.secondsRemaining);
-          });
+    const timer = setTimeout(() => {
+      setSecondsRemaining(prev => {
+        if (prev === null || prev <= 1) {
+          if (gameId && currentUser) {
+            // At countdown completion, run full spectating setup
+            proceedWithSpectating(gameId, currentUser, gameSession).catch(async () => {
+              const availability = await gameSessionService.getSpectateAvailability(gameId);
+              setSecondsRemaining(availability.secondsRemaining);
+            });
+          }
+          return null;
         }
-        return null;
-      }
-      return prev - 1;
-    });
-  }, 1000);
+        return prev - 1;
+      });
+    }, 1000);
 
-  return () => clearTimeout(timer);
-}, [secondsRemaining, spectateAllowed, gameId, currentUser, proceedWithSpectating, gameSession]);
+    return () => clearTimeout(timer);
+  }, [secondsRemaining, spectateAllowed, gameId, currentUser, proceedWithSpectating, gameSession]);
 
 
   if (isLoading) {
@@ -507,7 +508,7 @@ useEffect(() => {
         </div>
 
         {/* Game Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 min-h-[70vh]">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Game Area */}
           <div className="lg:col-span-3">
             <div className="flex flex-col gap-6">
@@ -585,9 +586,17 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Enhanced Sidebar */}
-          <div className="space-y-4">
-            <SpectatorChat gameId={gameId!} />
+          {/* Fixed Sidebar with proper sizing */}
+          <div className="lg:col-span-1 flex flex-col gap-4 h-fit lg:h-[calc(100vh-12rem)] lg:sticky lg:top-4">
+            {/* Spectators List - Fixed height */}
+            <div className="h-64 lg:h-1/3 flex-shrink-0">
+              <SpectatorsList gameId={gameId!} />
+            </div>
+
+            {/* Spectator Chat - Takes remaining space */}
+            <div className="flex-1 min-h-96 lg:min-h-0">
+              <SpectatorChat gameId={gameId!} />
+            </div>
           </div>
         </div>
 

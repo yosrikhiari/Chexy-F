@@ -79,11 +79,15 @@ export class GameSessionService {
   }
 
   async getActiveGamesForPlayer(playerId: string): Promise<GameSession[]> {
-    const response = await fetch(`${this.baseUrl}/game-session/active/${playerId}`, {
+    const res = await fetch(`${this.baseUrl}/game-session/active/${playerId}`, {
       headers: { Authorization: `Bearer ${JwtService.getToken()}` },
     });
-    if (!response.ok) throw new Error("Failed to get active games");
-    return await response.json();
+    if (res.status === 404) return []; // treat as none
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Failed to get active games: ${res.status} ${text}`);
+    }
+    return await res.json();
   }
 
   async getAvailableGames(): Promise<GameSession[]> {

@@ -95,6 +95,24 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
   useEffect(() => {
     if (user?.id) {
       fetchFriendData();
+
+      // Connectivity probe: detect if backend expects a prefix (e.g., /api)
+      // We do a lightweight call and warn if 404 persists, suggesting base URL adjustment.
+      (async () => {
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_BASE_URL || "http://localhost:8081"}/game-session/available`, {
+            headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+          });
+          if (res.status === 404) {
+            const base = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8081");
+            if (!base.endsWith('/api')) {
+              console.warn('[Config] /game-session/available returned 404. If your backend is mounted under /api, set VITE_API_BASE_URL to', `${base}/api`);
+            }
+          }
+        } catch (e) {
+          // network errors are logged elsewhere
+        }
+      })();
     }
   }, [user?.id]);
 
@@ -249,7 +267,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
           return {friendId: friend.id, game: activeGame};
 
         } catch (error) {
-          console.error(`Failed to get game status for friend ${friend.id}:`, error);
+          // Treat failures (e.g., 404 = no active games) as no active game without noisy logs
           return { friendId: friend.id, game: null };
         }
       });
@@ -272,7 +290,7 @@ const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isCollapsed, onToggleCo
     {
       checkFriendGameStatuses();
 
-      const interval = setInterval(checkFriendGameStatuses, 3000);
+      const interval = setInterval(checkFriendGameStatuses, 8000);
       return () => clearInterval(interval);
     }
   }, [friends]);

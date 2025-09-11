@@ -21,55 +21,49 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
   const [messages, setMessages] = useState<SpectatorChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { client: stompClient } = useWebSocket();
+  const { client: stompClient, isConnected } = useWebSocket();
 
   useEffect(() => {
-    const fetchCurrentUser = async () => {
+    (async () => {
       try {
         const user: User = await userService.getCurrentUser(JwtService.getKeycloakId()!);
         setCurrentUser(user);
       } catch (error) {
         console.error('Failed to get current user:', error);
       }
-    };
-    fetchCurrentUser();
-    }, []
-  );
+    })();
+  }, []);
 
   useEffect(() => {
-    if (!stompClient || !currentUser) return;
+    if (!stompClient || !currentUser || !isConnected) return;
 
     const spectatorChatDestination = `/topic/spectator-chat/${gameId}`;
     const subscription = stompClient.subscribe(spectatorChatDestination, (message: any) =>{
-        try {
-          const chatMessage: SpectatorChatMessage = JSON.parse(message.body) ;
-          setMessages(prev => [...prev, {...chatMessage, isSpectatorMessage: true}]);
-        }
-        catch (error) {
-          console.error('Failed to get current user:', error);
-        }
+      try {
+        const chatMessage: SpectatorChatMessage = JSON.parse(message.body);
+        setMessages(prev => [...prev, {...chatMessage, isSpectatorMessage: true}]);
+      } catch (error) {
+        console.error('Error parsing spectator message:', error);
       }
-    );
-    setIsConnected(true);
-    return() => {
+    });
+
+    return () => {
       subscription.unsubscribe();
-      setIsConnected(false);
     };
-  }, [stompClient, gameId, currentUser]);
+  }, [stompClient, isConnected, gameId, currentUser]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({behavior: "smooth"});
   }, [messages]);
 
   const sendMessage = () => {
-    if (!newMessage.trim() || !stompClient || !currentUser) return;
+    if (!newMessage.trim() || !stompClient || !currentUser || !isConnected) return;
 
     const messageData = {
       senderId: currentUser.id,
       senderName: currentUser.username,
-      gameId: gameId,
+      gameId,
       message: newMessage.trim(),
       timestamp: new Date().toISOString(),
       isSpectatorMessage: true
@@ -113,25 +107,25 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
           ) : (
             messages.map((message, index) => (
               <div key={index} className={`text-xs p-2 rounded-lg ${
-                message.senderId === currentUser.id
-                ? 'bg-primary/20 ml-4'
+                message.senderId === currentUser?.id
+                  ? 'bg-primary/20 ml-4'
                   : 'bg-muted/50 mr-4'
-              }`}
-              >
+              }`}>
                 <div className='font-medium text-xs'>
                   {message.senderName}
                   {message.isSpectatorMessage && (
                     <span className="text-muted-foreground ml-1">👁️</span>
                   )}
                 </div>
+                <div className='text-xs break-words'>
+                  {message.message}
+                </div>
               </div>
             ))
-            )
-          }
+          )}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
         <div className="flex gap-2">
           <Input
             value={newMessage}
@@ -144,7 +138,7 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
           <Button
             onClick={sendMessage}
             size="sm"
-            disabled={newMessage.length === 0 || !newMessage.trim() || !isConnected}
+            disabled={!newMessage.trim() || !isConnected}
             className="px-3"
           >
             Send
@@ -153,6 +147,6 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
       </CardContent>
     </Card>
   )
-
 };
+
 export default SpectatorChat;
