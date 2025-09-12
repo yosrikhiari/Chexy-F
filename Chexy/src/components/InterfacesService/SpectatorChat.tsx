@@ -13,14 +13,20 @@ interface SpectatorChatProps {
   className?: string;
 }
 
-interface SpectatorChatMessage extends ChatMessage {
-  isSpectatorMessage?: boolean;
-}
+interface SpectatorChatMessage {
+     senderId: string;
+     senderName: string;
+     gameId: string;
+     message: string;
+     timestamp: string;
+     isSpectatorMessage?: boolean;
+   }
 
 const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" }) => {
   const [messages, setMessages] = useState<SpectatorChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isSubscribed, setIsSubscribed] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { client: stompClient, isConnected } = useWebSocket();
 
@@ -36,30 +42,34 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
   }, []);
 
   useEffect(() => {
-    if (!stompClient || !currentUser || !isConnected) return;
-
+    if (!stompClient || !isConnected) return;
+  
     const spectatorChatDestination = `/topic/spectator-chat/${gameId}`;
-    const subscription = stompClient.subscribe(spectatorChatDestination, (message: any) =>{
+    console.log("Subscribing spectator chat", spectatorChatDestination, { isConnected, hasClient: !!stompClient });
+    const subscription = stompClient.subscribe(spectatorChatDestination, (message: any) => {
       try {
+        console.log("Spectator message received:", message.body);
         const chatMessage: SpectatorChatMessage = JSON.parse(message.body);
-        setMessages(prev => [...prev, {...chatMessage, isSpectatorMessage: true}]);
+        setMessages(prev => [...prev, { ...chatMessage, isSpectatorMessage: true }]);
       } catch (error) {
         console.error('Error parsing spectator message:', error);
       }
     });
-
+    setIsSubscribed(true);
+  
     return () => {
+      setIsSubscribed(false);
       subscription.unsubscribe();
     };
-  }, [stompClient, isConnected, gameId, currentUser]);
+  }, [stompClient, isConnected, gameId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({behavior: "smooth"});
   }, [messages]);
 
   const sendMessage = () => {
-    if (!newMessage.trim() || !stompClient || !currentUser || !isConnected) return;
-
+    if (!newMessage.trim() || !stompClient || !isConnected || !isSubscribed) return;
+    
     const messageData = {
       senderId: currentUser.id,
       senderName: currentUser.username,
@@ -73,6 +83,9 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
       destination: '/app/spectator-chat/send',
       body: JSON.stringify(messageData)
     });
+    setMessages(prev => [...prev, { ...messageData }]);
+    
+    console.log("Broadcasting spectator message to {}: {}", stompClient, messageData);
 
     setNewMessage('');
   };
@@ -138,7 +151,7 @@ const SpectatorChat: React.FC<SpectatorChatProps> = ({ gameId, className = "" })
           <Button
             onClick={sendMessage}
             size="sm"
-            disabled={!newMessage.trim() || !isConnected}
+            disabled={!newMessage.trim() || !isConnected || !isSubscribed}
             className="px-3"
           >
             Send
