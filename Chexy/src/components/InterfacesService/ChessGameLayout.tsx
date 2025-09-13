@@ -369,7 +369,13 @@ const ChessGameLayoutOverride: React.FC<ChessGameLayoutProps> = ({
       if (gameSession) {
         const history = await gameHistoryService.createGameHistory(gameSession.gameId);
         await gameHistoryService.completeGameHistory(history.id, result);
-        await gameSessionService.endGame(gameSession.gameId, result.winnerid, result.gameEndReason === "draw" || result.gameEndReason === "tie_resolved");
+        await gameSessionService.endGame(
+          gameSession.gameId,
+          result.winnerid,
+          result.gameEndReason === "draw" || result.gameEndReason === "tie_resolved",
+          undefined,
+          result.gameEndReason === "resignation" ? "resignation" : undefined
+        );
       }
     } catch (error) {
       toast({

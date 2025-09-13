@@ -22,9 +22,11 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({
     name || (color === "white" ? player1Name : player2Name) || "Unknown"
   );
   const [playerPoints, setPlayerPoints] = useState<number>(points || 0);
-  const [isActive, setIsActive] = useState<boolean>(
-    isCurrentPlayer || currentPlayer === color || false
-  );
+  const [isActive, setIsActive] = useState<boolean>(() => {
+    const initialActive = isCurrentPlayer !== undefined ? isCurrentPlayer : (currentPlayer === color || false);
+    console.log(`[PlayerInfo] ${color} player - initial isActive:`, initialActive, 'isCurrentPlayer:', isCurrentPlayer, 'currentPlayer:', currentPlayer);
+    return initialActive;
+  });
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,24 +50,27 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({
         // Fetch game session data if gameId is provided
         if (gameId) {
           const gameSession: GameSession = await gameSessionService.getGameSession(gameId);
-          const player = color === "white" ? gameSession.whitePlayer : gameSession.blackPlayer;
+          const player = color === "white" ? gameSession.whitePlayer : 
+            (Array.isArray(gameSession.blackPlayer) ? gameSession.blackPlayer[0] : gameSession.blackPlayer);
 
-          if (player) {
+          if (player && !Array.isArray(player)) {
             // Set display name with fallback chain
             setDisplayName(
               name || player.displayName || (color === "white" ? player1Name : player2Name) || "Unknown"
             );
             // Safely access points with fallback
             setPlayerPoints(points || (player.currentStats?.points ?? 0));
-            // Determine if the player is active
-            setIsActive(isCurrentPlayer || gameSession.gameState?.currentTurn === color);
+            // Determine if the player is active - prioritize isCurrentPlayer prop when provided
+            const newActiveState = isCurrentPlayer !== undefined ? isCurrentPlayer : gameSession.gameState?.currentTurn === color;
+            console.log(`[PlayerInfo] ${color} player - fetchData setting isActive:`, newActiveState, 'isCurrentPlayer:', isCurrentPlayer, 'gameSession.currentTurn:', gameSession.gameState?.currentTurn);
+            setIsActive(newActiveState);
           } else {
             // Handle case where player is not found
             setDisplayName(
               name || (color === "white" ? player1Name : player2Name) || "Unknown"
             );
             setPlayerPoints(points || 0);
-            setIsActive(isCurrentPlayer || false);
+            setIsActive(isCurrentPlayer !== undefined ? isCurrentPlayer : false);
           }
         }
       } catch (err) {
@@ -83,6 +88,14 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({
       fetchData();
     }
   }, [userId, gameId, name, points, color, isCurrentPlayer, player1Name, player2Name, currentPlayer]);
+
+  // Update isActive when isCurrentPlayer prop changes
+  useEffect(() => {
+    if (isCurrentPlayer !== undefined) {
+      console.log(`[PlayerInfo] ${color} player - isCurrentPlayer changed to:`, isCurrentPlayer);
+      setIsActive(isCurrentPlayer);
+    }
+  }, [isCurrentPlayer, color]);
 
   return (
     <div

@@ -106,14 +106,33 @@ const SpectatePage: React.FC = () => {
       setTimers(null);
     }
 
-    // Set up player stats
+    // Set up player stats with actual user points
     if (sessionToUse) {
       const whitePlayer = sessionToUse.whitePlayer;
       const blackPlayer = Array.isArray(sessionToUse.blackPlayer)
         ? sessionToUse.blackPlayer[0]
         : sessionToUse.blackPlayer;
 
-      if (blackPlayer && ("currentStats" in blackPlayer)) {
+      try {
+        // Fetch actual user points for both players
+        const whiteUser = whitePlayer?.userId ? await userService.getByUserId(whitePlayer.userId) : null;
+        const blackUser = blackPlayer?.userId ? await userService.getByUserId(blackPlayer.userId) : null;
+
+        setPlayerStats({
+          white: {
+            playerId: whitePlayer?.userId || '',
+            name: whitePlayer?.username || 'White Player',
+            points: whiteUser?.points || 0
+          },
+          black: {
+            playerId: blackPlayer?.userId || '',
+            name: blackPlayer?.username || 'Black Player',
+            points: blackUser?.points || 0
+          }
+        });
+      } catch (error) {
+        console.error('Failed to fetch player points for spectate:', error);
+        // Fallback to currentStats if available
         setPlayerStats({
           white: {
             playerId: whitePlayer?.userId || '',
@@ -326,6 +345,27 @@ const SpectatePage: React.FC = () => {
           setTimers(normalizedTimers);
           timersRef.current = normalizedTimers;
         }
+
+        // Refresh player points periodically
+        if (playerStats) {
+          try {
+            const whiteUser = playerStats.white.playerId ? await userService.getByUserId(playerStats.white.playerId) : null;
+            const blackUser = playerStats.black.playerId ? await userService.getByUserId(playerStats.black.playerId) : null;
+
+            setPlayerStats(prev => prev ? {
+              white: {
+                ...prev.white,
+                points: whiteUser?.points || prev.white.points,
+              },
+              black: {
+                ...prev.black,
+                points: blackUser?.points || prev.black.points,
+              },
+            } : null);
+          } catch (error) {
+            console.error('Failed to refresh player points during spectate:', error);
+          }
+        }
       }
       catch (error) {
         console.error('Error parsing delayed game state:', error);
@@ -333,7 +373,7 @@ const SpectatePage: React.FC = () => {
     };
     const interval = setInterval(refreshDelayedSession, 3000);
     return () => {clearInterval(interval);};
-  }, [gameId, isSpectating, isConnected]);
+  }, [gameId, isSpectating, isConnected, playerStats]);
 
   const handleLeaveSpectate = async () => {
     if (gameId && currentUser) {
@@ -514,12 +554,18 @@ const SpectatePage: React.FC = () => {
             <div className="flex flex-col gap-6">
               {/* Enhanced Player Info and Timer */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Debug info */}
+                <div className="text-xs text-muted-foreground mb-2 col-span-3">
+                  Debug: Current Turn = {gameState.currentTurn}, White Active = {gameState.currentTurn === "white" ? "true" : "false"}, Black Active = {gameState.currentTurn === "black" ? "true" : "false"}
+                </div>
                 <Card className="p-4">
                   <PlayerInfo
                     name={playerStats.black.name}
                     points={playerStats.black.points}
                     color="black"
                     isCurrentPlayer={gameState.currentTurn === "black"}
+                    userId={playerStats.black.playerId}
+                    gameId={gameId}
                   />
                 </Card>
                 <Card className="p-4">
@@ -543,6 +589,8 @@ const SpectatePage: React.FC = () => {
                     points={playerStats.white.points}
                     color="white"
                     isCurrentPlayer={gameState.currentTurn === "white"}
+                    userId={playerStats.white.playerId}
+                    gameId={gameId}
                   />
                 </Card>
               </div>

@@ -57,12 +57,13 @@ export class GameSessionService {
     }
     return await response.json();
   }
-  async endGame(gameId: string, winnerId?: string, isDraw: boolean = false, tieOption?: string): Promise<GameSession> {
+  async endGame(gameId: string, winnerId?: string, isDraw: boolean = false, tieOption?: string, reason?: string): Promise<GameSession> {
     let url = `${this.baseUrl}/game-session/end/${gameId}`;
     const params = new URLSearchParams();
     if (winnerId) params.append("winnerId", winnerId);
     if (isDraw) params.append("isDraw", "true");
     if (tieOption) params.append("tieOption", tieOption);
+    if (reason) params.append("reason", reason);
     url += `?${params.toString()}`;
 
     const response = await fetch(url, {

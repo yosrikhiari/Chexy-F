@@ -349,16 +349,20 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
 
         setCurrentPlayer(session.gameState.currentTurn);
 
+        // Fetch actual user points for both players
+        const whiteUser = await userService.getByUserId(normalizedWhitePlayer.userId);
+        const blackUser = normalizedBlackPlayer?.userId ? await userService.getByUserId(normalizedBlackPlayer.userId) : null;
+
         setPlayerStats({
           white: {
             playerId: normalizedWhitePlayer.userId,
             name: normalizedWhitePlayer.username || "White Player",
-            points: 0,
+            points: whiteUser?.points || 0,
           },
           black: {
             playerId: normalizedBlackPlayer?.userId || "",
             name: normalizedBlackPlayer?.username || "Waiting for player...",
-            points: 0,
+            points: blackUser?.points || 0,
           },
         });
 
@@ -387,6 +391,36 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
     initializeGame();
   }, [gameId, navigate]);
 
+
+  // Poll for player points updates
+  useEffect(() => {
+    if (!gameId || isLoading || isGameOver || isReviewMode || gameResult !== null) {
+      return;
+    }
+
+    const pollForPlayerUpdates = setInterval(async () => {
+      try {
+        // Refresh player points
+        const whiteUser = await userService.getByUserId(playerStats.white.playerId);
+        const blackUser = playerStats.black.playerId ? await userService.getByUserId(playerStats.black.playerId) : null;
+
+        setPlayerStats(prev => ({
+          white: {
+            ...prev.white,
+            points: whiteUser?.points || 0,
+          },
+          black: {
+            ...prev.black,
+            points: blackUser?.points || 0,
+          },
+        }));
+      } catch (error) {
+        console.error("Failed to refresh player points:", error);
+      }
+    }, 10000); // Poll every 10 seconds
+
+    return () => clearInterval(pollForPlayerUpdates);
+  }, [gameId, isLoading, isGameOver, isReviewMode, gameResult, playerStats.white.playerId, playerStats.black.playerId]);
 
   useEffect(() => {
     // Stop polling if game is over, still loading, in review mode, OR if we have a game result
@@ -620,43 +654,24 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
         await gameSessionService.endGame(
           correctedResult.gameid,
           correctedResult.winner !== "draw" ? correctedResult.winnerid : undefined,
-          correctedResult.gameEndReason === "draw" || correctedResult.winner === "draw"
+          correctedResult.gameEndReason === "draw" || correctedResult.winner === "draw",
+          undefined,
+          "resignation"
         );
       } catch (persistErr) {
         console.error("[ERROR] Failed to persist game end to backend:", persistErr);
       }
 
-      // Calculate and apply points for both players strictly on the client with idempotency guards
+      // Calculate points only for display; application is done on the server now
       try {
         const isDraw = correctedResult.winner === "draw" || correctedResult.gameEndReason === "draw";
         const winnerId = correctedResult.winnerid;
-        const loserId = winnerId === gameState.userId1 ? gameState.userId2 : gameState.userId1;
         // Use provided moveCount or fall back to localMoveHistory.length
         const effectiveMoveCount = moveCount !== undefined ? moveCount : localMoveHistory.length;
 
         // Points calculation debug info
 
-        if (isRankedMatch) {
-          if (!isDraw) {
-            // Only process points for the current user, not for both players
-            // This prevents duplicate point application when both players call handleGameEnd
-            if (winnerId === currentUserId) {
-              // Current user is the winner
-              console.log("[DEBUG] Processing points for current user (winner):", currentUserId);
-              await PointCalculationService.processPointsForUser(correctedResult, currentUserId, true, true, false, effectiveMoveCount);
-            } else if (loserId === currentUserId) {
-              // Current user is the loser
-              console.log("[DEBUG] Processing points for current user (loser):", currentUserId);
-              await PointCalculationService.processPointsForUser(correctedResult, currentUserId, true, false, false, effectiveMoveCount);
-            } else {
-              console.log("[DEBUG] Current user not involved in game result, skipping point processing");
-            }
-          } else {
-            // Draw: only award draw points to current user
-            console.log("[DEBUG] Processing draw points for current user:", currentUserId);
-            await PointCalculationService.processPointsForUser(correctedResult, currentUserId, true, false, true, effectiveMoveCount);
-          }
-        }
+        // No-op: server applies points. Keep display calculation below.
 
         // For UI: get the points that were already calculated and applied above
         const currentStreak = await PointCalculationService.getCurrentUserStreak();
@@ -951,6 +966,8 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                   points={playerStats.black.points}
                   color="black"
                   isCurrentPlayer={currentPlayer === "black" && !isReviewMode}
+                  userId={playerStats.black.playerId}
+                  gameId={gameId}
                 />
                 <ChessTimer
                   timers={timers}
@@ -997,6 +1014,8 @@ const ChessGameLayoutPvP: React.FC<ChessGameLayoutPvPProps> = ({
                   points={playerStats.white.points}
                   color="white"
                   isCurrentPlayer={currentPlayer === "white" && !isReviewMode}
+                  userId={playerStats.white.playerId}
+                  gameId={gameId}
                 />
               </div>
 
