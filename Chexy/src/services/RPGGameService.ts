@@ -134,6 +134,74 @@ export class RPGGameService {
     if (!response.ok) throw new Error("Failed to purchase shop item");
     return this.normalize(await response.json());
   }
+
+  // NEW: MVP client methods
+  async chooseSpecialization(gameId: string, pieceId: string, specialization: string, playerId: string): Promise<RPGGameState> {
+    const response = await fetch(`${this.baseUrl}/rpg-game/specialization/${gameId}/${pieceId}?specialization=${encodeURIComponent(specialization)}&playerId=${playerId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to choose specialization");
+    return this.normalize(await response.json());
+  }
+
+  async equipItem(gameId: string, pieceId: string, item: any, playerId: string): Promise<RPGGameState> {
+    const response = await fetch(`${this.baseUrl}/rpg-game/equip/${gameId}/${pieceId}?playerId=${playerId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${JwtService.getToken()}`,
+      },
+      body: JSON.stringify(item),
+    });
+    if (!response.ok) throw new Error("Failed to equip item");
+    return this.normalize(await response.json());
+  }
+
+  async resolveTie(gameId: string, playerId: string, choice: string): Promise<RPGGameState> {
+    const response = await fetch(`${this.baseUrl}/rpg-game/resolve-tie/${gameId}?playerId=${playerId}&choice=${encodeURIComponent(choice)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to resolve tie");
+    return this.normalize(await response.json());
+  }
+
+  async spawnQuests(gameId: string, playerId: string): Promise<RPGGameState> {
+    const response = await fetch(`${this.baseUrl}/rpg-game/quests/spawn/${gameId}?playerId=${playerId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to spawn quests");
+    return this.normalize(await response.json());
+  }
+
+  async acceptQuest(gameId: string, questId: string, playerId: string): Promise<RPGGameState> {
+    const response = await fetch(`${this.baseUrl}/rpg-game/quests/accept/${gameId}/${questId}?playerId=${playerId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to accept quest");
+    return this.normalize(await response.json());
+  }
+
+  async completeQuest(gameId: string, questId: string, playerId: string): Promise<RPGGameState> {
+    const response = await fetch(`${this.baseUrl}/rpg-game/quests/complete/${gameId}/${questId}?playerId=${playerId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to complete quest");
+    return this.normalize(await response.json());
+  }
+
+  async awardXp(gameId: string, pieceId: string, xp: number, playerId: string): Promise<RPGGameState> {
+    const response = await fetch(`${this.baseUrl}/rpg-game/xp/${gameId}/${pieceId}?xp=${xp}&playerId=${playerId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to award XP");
+    return this.normalize(await response.json());
+  }
 }
 
 export const rpgGameService = new RPGGameService();

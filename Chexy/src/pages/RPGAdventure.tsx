@@ -14,6 +14,8 @@ import RPGShop from "@/components/InterfacesService/RPGShop";
 import { calculateArmyCapacity, canAddPieceToArmy, getArmyStats } from "@/utils/armyCapacityUtils";
 import { generateDynamicBoardModifiers, calculateProgressiveBoardSize } from "@/utils/dynamicBoardEffects";
 import { rpgGameService } from "@/services/RPGGameService";
+import { gameSessionService } from "@/services/GameSessionService";
+import { GameMode } from "@/Interfaces/enums/GameMode";
 import { AIService } from "@/services/aiService";
 
 const RPGAdventure = () => {
@@ -29,11 +31,17 @@ const RPGAdventure = () => {
   useEffect(() => {
     const initializeGame = async () => {
       try {
-        const newGameId = `game_${Date.now()}`;
-        const rpgGameState = await rpgGameService.createRPGGame(userInfo.id, newGameId);
+        // Create an RPG GameSession first (invite-only, single player by default)
+        const session = await gameSessionService.createGameSession(
+          userInfo.id,
+          'SINGLE_PLAYER_RPG',
+          true
+        );
+        const rpgGameState = await rpgGameService.createRPGGame(userInfo.id, session.gameId, false);
         const enhancedState: EnhancedGameState = {
           ...rpgGameState,
-          gameid: newGameId, // Use consistent gameId property
+          gameid: rpgGameState.gameId || session.gameId,
+          gameSessionId: session.gameId,
           difficulty: 1,
           enemyArmy: [],
           aiStrategy: "defensive",
@@ -178,11 +186,16 @@ const RPGAdventure = () => {
 
   const resetGame = async () => {
     try {
-      const newGameId = `game_${Date.now()}`;
-      const newGameState = await rpgGameService.createRPGGame(userInfo.id, newGameId);
+      const session = await gameSessionService.createGameSession(
+        userInfo.id,
+        'SINGLE_PLAYER_RPG',
+        true
+      );
+      const newGameState = await rpgGameService.createRPGGame(userInfo.id, session.gameId, false);
       const enhancedState: EnhancedGameState = {
         ...newGameState,
-        gameid: newGameId,
+        gameid: newGameState.gameId || session.gameId,
+        gameSessionId: session.gameId,
         difficulty: 1,
         enemyArmy: [],
         aiStrategy: "defensive",
@@ -227,7 +240,7 @@ const RPGAdventure = () => {
 
   if (gamePhase === "battle") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950">
         <div className="container mx-auto px-4 py-8">
           <EnhancedRPGChessBoard
             gameState={gameState}
@@ -241,7 +254,7 @@ const RPGAdventure = () => {
 
   if (gamePhase === "shop") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950">
         <div className="container mx-auto px-4 py-8">
           <RPGShop
             shopItems={shopItems}
@@ -258,48 +271,48 @@ const RPGAdventure = () => {
 
   if (gamePhase === "draft") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-amber-800 via-orange-900 to-red-900">
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950">
         <div className="container mx-auto px-4 py-8">
           <div className="text-center mb-8">
             <div className="flex items-center justify-center gap-2 mb-4">
               <Crown className="h-8 w-8 text-yellow-400 animate-pulse" />
-              <Sparkles className="h-6 w-6 text-yellow-300" />
+              <Sparkles className="h-6 w-6 text-indigo-300" />
             </div>
             <h1 className="text-4xl font-bold text-yellow-300 mb-2 font-serif">🏆 Boss Victory! 🏆</h1>
-            <p className="text-amber-200 text-lg">Choose a dynamic battlefield enhancement!</p>
+            <p className="text-indigo-200 text-lg">Choose a dynamic battlefield enhancement!</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
             {availableRewards.map((reward) => (
               <Card
                 key={reward.id}
-                className="cursor-pointer hover:border-yellow-400 transition-all transform hover:scale-105 bg-gradient-to-br from-amber-50 to-orange-100 border-2 border-amber-300 shadow-lg hover:shadow-xl"
+                className="cursor-pointer hover:border-indigo-400 transition-all transform hover:scale-105 bg-white/5 backdrop-blur border border-white/10 shadow-lg hover:shadow-xl"
                 onClick={() => selectReward(reward)}
               >
                 <CardHeader className="text-center">
                   <div className="flex items-center justify-center mb-2">
-                    <Star className="h-6 w-6 text-yellow-600" />
+                    <Star className="h-6 w-6 text-yellow-400" />
                   </div>
-                  <CardTitle className="text-xl text-amber-900 font-serif">{reward.name}</CardTitle>
-                  <CardDescription className="text-amber-700">{reward.description}</CardDescription>
+                  <CardTitle className="text-xl text-white font-serif">{reward.name}</CardTitle>
+                  <CardDescription className="text-indigo-200">{reward.description}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-center gap-2">
                     <span
-                      className={`px-3 py-2 rounded-full text-sm font-bold shadow-md ${
+                      className={`px-3 py-2 rounded-full text-xs font-bold shadow-md ${
                         reward.rarity === "legendary"
-                          ? "bg-gradient-to-r from-yellow-400 to-yellow-600 text-yellow-900"
+                          ? "bg-yellow-500/20 text-yellow-300 border border-yellow-400/30"
                           : reward.rarity === "epic"
-                            ? "bg-gradient-to-r from-purple-400 to-purple-600 text-white"
+                            ? "bg-purple-500/20 text-purple-200 border border-purple-400/30"
                             : reward.rarity === "rare"
-                              ? "bg-gradient-to-r from-blue-400 to-blue-600 text-white"
-                              : "bg-gradient-to-r from-gray-300 to-gray-500 text-gray-800"
+                              ? "bg-blue-500/20 text-blue-200 border border-blue-400/30"
+                              : "bg-slate-500/20 text-slate-200 border border-slate-400/30"
                       }`}
                     >
                       ✨ {reward.rarity.toUpperCase()} ✨
                     </span>
                   </div>
                   <div className="text-center mt-2">
-                    <span className="text-sm font-bold text-amber-800">
+                    <span className="text-sm font-bold text-indigo-200">
                       Size Change: {reward.sizeModifier > 0 ? "+" : ""}{reward.sizeModifier}
                     </span>
                   </div>
@@ -316,22 +329,22 @@ const RPGAdventure = () => {
   const isBossRound = gameState.currentRound % 5 === 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950">
       <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 sticky top-0 z-10 backdrop-blur bg-black/20 rounded-lg border border-white/10 px-3 py-2">
           <Button
             variant="ghost"
             onClick={() => navigate("/game-select")}
-            className="bg-purple-800/50 hover:bg-purple-700/70 text-white border border-purple-400"
+            className="bg-white/10 hover:bg-white/20 text-white border border-white/20"
           >
             <ArrowLeft className="h-4 w-4 mr-2" /> Back to Game Select
           </Button>
-          <div className="text-right bg-purple-800/30 p-3 rounded-lg border border-purple-400">
-            <p className="text-sm text-purple-200">
+          <div className="text-right p-3 rounded-lg">
+            <p className="text-sm text-indigo-200">
               🧙 Adventurer: <span className="font-bold text-yellow-300">{userInfo.name}</span>
             </p>
-            <p className="text-xs text-purple-300">⭐ Score: {gameState.score}</p>
-            <p className="text-xs text-purple-300">🎯 Difficulty: {gameState.difficulty.toFixed(1)}</p>
+            <p className="text-xs text-indigo-300">⭐ Score: {gameState.score}</p>
+            <p className="text-xs text-indigo-300">🎯 Difficulty: {gameState.difficulty.toFixed(1)}</p>
           </div>
         </div>
 
@@ -342,62 +355,62 @@ const RPGAdventure = () => {
             <Shield className="h-8 w-8 text-yellow-400" />
           </div>
           <h1 className="text-5xl font-bold text-yellow-300 mb-2 font-serif">⚔️ RPG Chess Adventure ⚔️</h1>
-          <p className="text-purple-200 text-lg">Embark on an epic turn-based roguelike quest!</p>
+          <p className="text-indigo-200 text-lg">Embark on an epic turn-based roguelike quest!</p>
         </div>
 
         {/* Game Status */}
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
-          <Card className="bg-gradient-to-br from-red-600 to-red-800 border-red-400 shadow-lg">
+          <Card className="bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardContent className="p-4 text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Sword className="h-5 w-5 text-yellow-300" />
-                <span className="font-bold text-white">Round</span>
+                <span className="font-bold text-indigo-100">Round</span>
               </div>
               <p className="text-2xl font-bold text-yellow-300">{gameState.currentRound}</p>
-              {isBossRound && <p className="text-xs text-red-200 font-bold animate-pulse">👹 BOSS ROUND 👹</p>}
+              {isBossRound && <p className="text-xs text-indigo-200 font-bold animate-pulse">👹 BOSS ROUND 👹</p>}
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-yellow-600 to-yellow-800 border-yellow-400 shadow-lg">
+          <Card className="bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardContent className="p-4 text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Coins className="h-5 w-5 text-yellow-200" />
-                <span className="font-bold text-yellow-900">Gold</span>
+                <span className="font-bold text-indigo-100">Gold</span>
               </div>
-              <p className="text-2xl font-bold text-yellow-900">{gameState.coins}</p>
+              <p className="text-2xl font-bold text-yellow-300">{gameState.coins}</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-red-500 to-pink-600 border-red-400 shadow-lg">
+          <Card className="bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardContent className="p-4 text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Heart className="h-5 w-5 text-red-200" />
-                <span className="font-bold text-white">Lives</span>
+                <span className="font-bold text-indigo-100">Lives</span>
               </div>
-              <p className="text-2xl font-bold text-red-200">{gameState.lives}</p>
+              <p className="text-2xl font-bold text-red-300">{gameState.lives}</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-blue-600 to-blue-800 border-blue-400 shadow-lg">
+          <Card className="bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardContent className="p-4 text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Shield className="h-5 w-5 text-blue-200" />
-                <span className="font-bold text-white">Board Size</span>
+                <span className="font-bold text-indigo-100">Board Size</span>
               </div>
               <p className="text-2xl font-bold text-blue-200">{gameState.boardSize}x{gameState.boardSize}</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-green-600 to-green-800 border-green-400 shadow-lg">
+          <Card className="bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardContent className="p-4 text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Zap className="h-5 w-5 text-green-200" />
-                <span className="font-bold text-white">Portals</span>
+                <span className="font-bold text-indigo-100">Portals</span>
               </div>
               <p className="text-2xl font-bold text-green-200">{gameState.teleportPortals}</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-purple-600 to-purple-800 border-purple-400 shadow-lg">
+          <Card className="bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardContent className="p-4 text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Crown className="h-5 w-5 text-purple-200" />
-                <span className="font-bold text-white">Army</span>
+                <span className="font-bold text-indigo-100">Army</span>
               </div>
               <p className="text-2xl font-bold text-purple-200">
                 {armyStats.total}/{gameState.armyCapacity.maxTotalPieces}
@@ -407,33 +420,33 @@ const RPGAdventure = () => {
         </div>
 
         {/* Army Capacity Status */}
-        <Card className="mb-6 bg-purple-800/50 border-purple-400 shadow-lg">
+        <Card className="mb-6 bg-white/5 backdrop-blur border border-white/10 shadow-lg">
           <CardHeader>
             <CardTitle className="text-yellow-300 font-serif">🏰 Army Capacity</CardTitle>
-            <CardDescription className="text-purple-200">
+            <CardDescription className="text-indigo-200">
               🗺️ Board Size: {gameState.boardSize}x{gameState.boardSize} |
               ⚔️ Base Capacity: {gameState.armyCapacity.maxTotalPieces - gameState.armyCapacity.bonusCapacity} |
               ✨ Bonus: +{gameState.armyCapacity.bonusCapacity}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm text-purple-200">
-              <div className="bg-purple-700/50 p-2 rounded">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm text-indigo-200">
+              <div className="bg-white/5 p-2 rounded border border-white/10">
                 <span className="font-bold">👑 Queens:</span> {armyStats.queens}/{gameState.armyCapacity.maxQueens}
               </div>
-              <div className="bg-purple-700/50 p-2 rounded">
+              <div className="bg-white/5 p-2 rounded border border-white/10">
                 <span className="font-bold">🏰 Rooks:</span> {armyStats.rooks}/{gameState.armyCapacity.maxRooks}
               </div>
-              <div className="bg-purple-700/50 p-2 rounded">
+              <div className="bg-white/5 p-2 rounded border border-white/10">
                 <span className="font-bold">⛪ Bishops:</span> {armyStats.bishops}/{gameState.armyCapacity.maxBishops}
               </div>
-              <div className="bg-purple-700/50 p-2 rounded">
+              <div className="bg-white/5 p-2 rounded border border-white/10">
                 <span className="font-bold">🐎 Knights:</span> {armyStats.knights}/{gameState.armyCapacity.maxKnights}
               </div>
-              <div className="bg-purple-700/50 p-2 rounded">
+              <div className="bg-white/5 p-2 rounded border border-white/10">
                 <span className="font-bold">⚔️ Pawns:</span> {armyStats.pawns}/{gameState.armyCapacity.maxPawns}
               </div>
-              <div className="bg-purple-700/50 p-2 rounded">
+              <div className="bg-white/5 p-2 rounded border border-white/10">
                 <span className="font-bold">👑 Kings:</span> {armyStats.kings}
               </div>
             </div>
@@ -441,12 +454,12 @@ const RPGAdventure = () => {
         </Card>
 
         {/* Current Objective */}
-        <Card className="mb-6 bg-gradient-to-r from-amber-600 to-orange-700 border-amber-400 shadow-lg">
+        <Card className="mb-6 bg-white/5 backdrop-blur border border-white/10 shadow-lg">
           <CardHeader>
-            <CardTitle className="text-white font-serif">🎯 Current Quest</CardTitle>
-            <CardDescription className="text-amber-100">
+            <CardTitle className="text-yellow-300 font-serif">🎯 Current Quest</CardTitle>
+            <CardDescription className="text-indigo-200">
               📜 Round {gameState.currentRound} - {getCurrentObjective().description}
-              {isBossRound && <span className="text-red-300 font-bold animate-pulse"> 👹 (BOSS ROUND) 👹</span>}
+              {isBossRound && <span className="text-indigo-300 font-bold animate-pulse"> 👹 (BOSS ROUND) 👹</span>}
               <br />
               <span className="text-xs">🗺️ Current Board Size: {gameState.boardSize}x{gameState.boardSize}</span>
             </CardDescription>
@@ -454,10 +467,10 @@ const RPGAdventure = () => {
         </Card>
 
         {/* Player Army */}
-        <Card className="mb-6 bg-blue-800/50 border-blue-400 shadow-lg">
+        <Card className="mb-6 bg-white/5 backdrop-blur border border-white/10 shadow-lg">
           <CardHeader>
             <CardTitle className="text-yellow-300 font-serif">⚔️ Your Mighty Army</CardTitle>
-            <CardDescription className="text-blue-200">
+            <CardDescription className="text-indigo-200">
               Manage your legendary chess warriors and their mystical abilities
             </CardDescription>
           </CardHeader>
@@ -482,10 +495,10 @@ const RPGAdventure = () => {
 
         {/* Active Board Modifiers */}
         {(gameState.activeBoardModifiers?.length || 0) > 0 && (
-          <Card className="mb-6 bg-purple-800/50 border-purple-400 shadow-lg">
+          <Card className="mb-6 bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardHeader>
               <CardTitle className="text-yellow-300 font-serif">🔮 Active Battlefield Enchantments</CardTitle>
-              <CardDescription className="text-purple-200">Mystical modifications affecting the arena</CardDescription>
+              <CardDescription className="text-indigo-200">Mystical modifications affecting the arena</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -504,21 +517,21 @@ const RPGAdventure = () => {
 
         {/* Active Capacity Modifiers */}
         {(gameState.activeCapacityModifiers?.length || 0) > 0 && (
-          <Card className="mb-6 bg-green-800/50 border-green-400 shadow-lg">
+          <Card className="mb-6 bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardHeader>
               <CardTitle className="text-yellow-300 font-serif">💪 Active Army Enhancements</CardTitle>
-              <CardDescription className="text-green-200">Upgrades that expand your military might</CardDescription>
+              <CardDescription className="text-indigo-200">Upgrades that expand your military might</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {(gameState.activeCapacityModifiers || []).map((modifier) => (
                   <div
                     key={modifier.id}
-                    className="p-3 bg-gradient-to-br from-green-200 to-green-300 rounded-lg border-2 border-green-500 shadow-md"
+                    className="p-3 bg-white/5 rounded-lg border border-white/10 shadow-md"
                   >
-                    <h4 className="font-bold text-green-900">✨ {modifier.name}</h4>
-                    <p className="text-sm text-green-700">{modifier.description}</p>
-                    <p className="text-xs text-green-600 mt-1 font-semibold">
+                    <h4 className="font-bold text-indigo-100">✨ {modifier.name}</h4>
+                    <p className="text-sm text-indigo-200">{modifier.description}</p>
+                    <p className="text-xs text-indigo-300 mt-1 font-semibold">
                       +{modifier.capacityBonus}{" "}
                       {modifier.type === "piece_type_limit" ? modifier.pieceType : "total capacity"}
                     </p>
@@ -531,7 +544,7 @@ const RPGAdventure = () => {
 
         {/* Active Modifiers */}
         {(gameState.activeModifiers?.length || 0) > 0 && (
-          <Card className="mb-6 bg-indigo-800/50 border-indigo-400 shadow-lg">
+          <Card className="mb-6 bg-white/5 backdrop-blur border border-white/10 shadow-lg">
             <CardHeader>
               <CardTitle className="text-yellow-300 font-serif">🌟 Active Magical Artifacts</CardTitle>
               <CardDescription className="text-indigo-200">
@@ -553,7 +566,7 @@ const RPGAdventure = () => {
           <Button
             onClick={startBattle}
             size="lg"
-            className="bg-gradient-to-r from-red-600 to-red-800 hover:from-red-700 hover:to-red-900 text-white border-2 border-red-400 shadow-lg transform hover:scale-105 transition-all font-bold text-lg px-8"
+            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 shadow-lg transform hover:scale-105 transition-all font-bold text-lg px-8"
           >
             <Sword className="h-5 w-5 mr-2" />
             ⚔️ START ENHANCED BATTLE ⚔️
@@ -562,7 +575,7 @@ const RPGAdventure = () => {
             onClick={openShop}
             variant="outline"
             size="lg"
-            className="bg-gradient-to-r from-yellow-600 to-yellow-800 hover:from-yellow-700 hover:to-yellow-900 text-yellow-900 border-2 border-yellow-400 shadow-lg transform hover:scale-105 transition-all font-bold text-lg px-8"
+            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 shadow-lg transform hover:scale-105 transition-all font-bold text-lg px-8"
           >
             <ShoppingCart className="h-5 w-5 mr-2" />
             🛒 ENHANCED SHOP ({gameState.coins} <Coins className="h-4 w-4 ml-1" />)
@@ -571,7 +584,7 @@ const RPGAdventure = () => {
             onClick={resetGame}
             variant="outline"
             size="lg"
-            className="bg-gradient-to-r from-gray-600 to-gray-800 hover:from-gray-700 hover:to-gray-900 text-white border-2 border-gray-400 shadow-lg transform hover:scale-105 transition-all font-bold"
+            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 shadow-lg transform hover:scale-105 transition-all font-bold"
           >
             🔄 Reset Enhanced Adventure
           </Button>

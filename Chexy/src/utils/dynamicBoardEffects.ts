@@ -55,18 +55,17 @@ export const generateTeleportPortals = async (
 
   // Persist portals as BoardEffects to the backend
   for (const portal of portals) {
-    const boardEffect: BoardEffect = {
-      id: portal.id,
+    const payload = {
       name: `Teleport Portal ${portal.id}`,
       description: `Teleports pieces to ${portal.to.row},${portal.to.col}`,
-      type: 'portal',
-      positions: [[portal.position.row, portal.position.col]],
-      effect: { to: [portal.to.row, portal.to.col] },
+      type: 'PORTAL',
+      positions: [{ row: portal.position.row, col: portal.position.col }],
+      effect: { to: { row: portal.to.row, col: portal.to.col } },
       isActive: portal.isActive,
-    };
+    } as any;
 
     try {
-      await rpgGameService.addBoardEffect(gameId, boardEffect, playerId);
+      await rpgGameService.addBoardEffect(gameId, payload, playerId);
     } catch (error) {
       console.error(`Failed to add portal ${portal.id}:`, error);
       throw new Error(`Failed to persist portal ${portal.id}`);
@@ -182,16 +181,15 @@ export const generateDynamicBoardModifiers = async (
         const portalCount = calculateTeleportPortals(currentBoardSize + 2);
         await generateTeleportPortals(gameId, playerId, currentBoardSize, portalCount);
       } else if (modifier.effect === 'add_trap_tiles') {
-        const trapEffect: BoardEffect = {
-          effect: undefined,
-          id: modifier.id,
+        const trapEffect = {
           name: modifier.name,
           description: modifier.description,
-          type: 'trap',
+          type: 'TRAP',
           isActive: modifier.isActive,
-          positions: [] // Backend should generate trap positions
+          positions: [] as any[], // Backend can populate positions
+          effect: null
         };
-        await rpgGameService.addBoardEffect(gameId, trapEffect, playerId);
+        await rpgGameService.addBoardEffect(gameId, trapEffect as any, playerId);
       } else {
         // Size modifiers go to EnhancedRPGService
         await enhancedRPGService.applyBoardEffect(gameId, modifier, playerId);

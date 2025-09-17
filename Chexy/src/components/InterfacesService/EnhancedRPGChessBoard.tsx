@@ -104,11 +104,12 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
     return basePiece as EnhancedRPGPiece;
   };
 
-  /** Initialize the board with player and enemy pieces, and set up teleport portals */
+  /** Initialize the board with player and enemy pieces */
   const initializeEnhancedBoard = async () => {
     try {
       setIsLoading(true);
-      const session = await gameSessionService.getGameSession(gameState.gameid);
+      const sessionId = (gameState as any).gameSessionId || gameState.gameid;
+      const session = await gameSessionService.getGameSession(sessionId);
       setGameSession(session);
 
       let newBoard: (EnhancedRPGPiece | null)[][];
@@ -119,12 +120,13 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
       if (session.board && isEnhancedRPGPieceArray(session.board)) {
         newBoard = session.board.map((row) => row.map((piece) => (piece ? convertToEnhancedRPGPiece(piece) : null)));
       } else {
+        // Initialize empty board
         const size = gameState.boardSize;
         newBoard = Array(size)
           .fill(null)
           .map(() => Array(size).fill(null));
 
-        // Place player pieces
+        // Place player pieces in the bottom rows
         let playerPieceIndex = 0;
         for (let row = size - 2; row < size && playerPieceIndex < gameState.playerArmy.length; row++) {
           for (let col = 0; col < size && playerPieceIndex < gameState.playerArmy.length; col++) {
@@ -153,40 +155,10 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
             enemyIndex++;
           }
         }
-
-        // Update backend with initial board state
-        await gameService.executeMove(gameState.gameid, { from: { row: 0, col: 0 }, to: { row: 0, col: 0 } });
       }
 
-      // Generate teleport portals
-      const portalCount = calculateTeleportPortals(gameState.boardSize);
-      const rawPortals = await generateTeleportPortals(gameState.gameid,currentPlayer, gameState.boardSize, portalCount);
-      const portals: TeleportPortal[] = rawPortals.map((p) => {
-        const linkedPortal = rawPortals.find((lp) => lp.id === p.linkedPortal);
-        return {
-          id: p.id || `portal-${Math.random().toString(36).slice(2)}`,
-          position: { row: p.position[0], col: p.position[1] },
-          to: linkedPortal ? { row: linkedPortal.position[0], col: linkedPortal.position[1] } : { row: p.position[0], col: p.position[1] },
-          linkedPortal: p.linkedPortal,
-          isActive: true,
-        };
-      });
-      setTeleportPortals(portals);
-
-      const playerId = JwtService.getKeycloakId() || session.whitePlayer.userId || "";
-      await rpgGameService.addBoardEffect(
-        gameState.gameid,
-        {
-          id: `teleport-${Date.now()}`,
-          name: "Teleport Portals",
-          description: "Allows pieces to teleport between linked portals",
-          effect: "add_portal_pairs",
-          rarity: "rare",
-          specialTiles: portalCount,
-          isActive: true,
-        },
-        playerId
-      );
+      // Do not auto-create portals here. They are added only via modifiers/drafts.
+      setTeleportPortals([]);
 
       setBoard(newBoard);
       setIsLoading(false);
@@ -442,7 +414,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         );
       }
 
-      await gameService.executeMove(gameState.gameid, { from, to: finalDestination });
+      await gameService.executeMove((gameState as any).gameSessionId || gameState.gameid, { from, to: finalDestination });
       newBoard[finalDestination.row][finalDestination.col] = { ...movingPiece, position: finalDestination };
       newBoard[from.row][from.col] = null;
       setBoard(newBoard);

@@ -94,36 +94,37 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
   };
 
   const renderRPGPiece = (p: RPGPiece | EnhancedRPGPiece) => {
-    const { name, rarity, hp, maxHp, specialAbility } = p;
     const isEnhanced = isEnhancedRPGPiece(p);
-    const currentHp = isEnhanced ? p.pluscurrentHp : hp;
-    const maxHpValue = isEnhanced ? p.plusmaxHp : maxHp;
-    const icon = rpgPieceIcons[rarity] || '♟';
+    const currentHp = isEnhanced ? p.pluscurrentHp : p.hp;
+    const maxHpValue = isEnhanced ? p.plusmaxHp : p.maxHp;
+    const level = isEnhanced ? p.pluslevel : undefined;
+
+    // Reuse existing piece icons by type/color
+    const type = (p.type || 'pawn').toString().toLowerCase();
+    const color = (p.color || 'white').toString().toLowerCase();
+    const colorCapitalized = color.charAt(0).toUpperCase() + color.slice(1);
+    const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+    const imagePath = `/chessassets/${colorCapitalized}-${typeCapitalized}.png`;
 
     return (
-      <div
-        className={cn(
-          'chess-piece relative text-2xl sm:text-3xl cursor-pointer p-2 rounded',
-          isSelected && 'ring-2 ring-blue-500',
-          rarity === 'legendary' && 'bg-yellow-200',
-          rarity === 'epic' && 'bg-purple-200',
-          rarity === 'rare' && 'bg-blue-200',
-          rarity === 'common' && 'bg-gray-200'
-        )}
-        onClick={gameId && playerId ? handleClick : undefined}
-        title={`${name}: ${specialAbility}\nHP: ${currentHp}/${maxHpValue}`}
-      >
-        <span className="text-center">{icon}</span>
-        <div className="absolute top-0 right-0 text-xs bg-black text-white px-1 rounded">
+      <div className={cn('relative w-full h-full', isSelected && 'ring-2 ring-blue-500')} title={`${p.name}: ${p.specialAbility || 'none'}\nHP: ${currentHp}/${maxHpValue}${level ? `\nLevel: ${level}` : ''}`}>
+        <img
+          src={imagePath}
+          alt={`${color} ${type}`}
+          className={cn('chess-piece w-full h-full object-contain')}
+          onClick={gameId && playerId ? handleClick : undefined}
+          onError={() => console.error(`Failed to load image: ${imagePath}`)}
+        />
+        <div className="absolute top-0 right-0 text-[10px] sm:text-xs bg-black/70 text-white px-1 rounded">
           {currentHp}/{maxHpValue}
         </div>
-        {isEnhanced && (
-          <div className="absolute bottom-0 right-0 text-xs bg-green-500 text-white px-1 rounded">
-            Lvl {p.pluslevel}
+        {level !== undefined && (
+          <div className="absolute bottom-0 right-0 text-[10px] sm:text-xs bg-green-600/80 text-white px-1 rounded">
+            Lvl {level}
           </div>
         )}
         {error && (
-          <div className="absolute top-0 left-0 text-xs bg-red-500 text-white px-1 rounded">
+          <div className="absolute top-0 left-0 text-[10px] sm:text-xs bg-red-600/80 text-white px-1 rounded">
             {error}
           </div>
         )}
