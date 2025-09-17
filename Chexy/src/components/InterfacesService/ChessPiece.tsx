@@ -60,12 +60,9 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
             console.error('Failed to add piece:', err);
           });
       } else if (isEnhancedRPGPiece(piece) && gameMode === 'ENHANCED_RPG') {
-        enhancedRPGService.resolveCombat(piece, piece, gameId, playerId)
-          .then(combatResult => console.log('Combat resolved:', combatResult))
-          .catch(err => {
-            setError('Combat failed');
-            console.error('Combat failed:', err);
-          });
+        // Defer combat to board logic; here we only signal selection
+        if (onClick) onClick(piece as any, { row: -1, col: -1 } as any);
+        return;
       }
     } catch (err) {
       setError('Action failed');
@@ -76,7 +73,7 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
   const renderClassicPiece = (p: Piece) => {
     const { type, color } = p;
     const colorCapitalized = color.charAt(0).toUpperCase() + color.slice(1);
-    const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+    const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
     const imagePath = `/chessassets/${colorCapitalized}-${typeCapitalized}.png`;
 
     return (
@@ -103,7 +100,7 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
     const type = (p.type || 'pawn').toString().toLowerCase();
     const color = (p.color || 'white').toString().toLowerCase();
     const colorCapitalized = color.charAt(0).toUpperCase() + color.slice(1);
-    const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+    const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
     const imagePath = `/chessassets/${colorCapitalized}-${typeCapitalized}.png`;
 
     return (

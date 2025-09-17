@@ -44,12 +44,7 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
       }
 
       try {
-        // Validate game session
-        const session = await gameSessionService.getGameSession(gameId);
-        if (session.rpgGameStateId !== gameId) {
-          throw new Error("Invalid game session for RPG game");
-        }
-
+        // Fetch game state directly using RPG gameId
         const gameState = await rpgGameService.getRPGGame(gameId);
         const updatedPiece = [
           ...(gameState.playerArmy || []),

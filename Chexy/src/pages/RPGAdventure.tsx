@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Sword, Shield, Heart, Zap, ShoppingCart, Coins, Crown, Star, Sparkles } from "lucide-react";
@@ -20,28 +20,36 @@ import { AIService } from "@/services/aiService";
 
 const RPGAdventure = () => {
   const navigate = useNavigate();
+  const location = useLocation() as any;
   const userInfo = JSON.parse(localStorage.getItem("user") || '{"name": "Guest", "id": "guest"}');
 
   const [gameState, setGameState] = useState<EnhancedGameState | null>(null);
   const [gamePhase, setGamePhase] = useState<"preparation" | "battle" | "draft" | "shop">("preparation");
   const [availableRewards, setAvailableRewards] = useState<DynamicBoardModifier[]>([]);
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
+  const [session, setSession] = useState<any>(null);
 
   // Initialize game state with backend
   useEffect(() => {
     const initializeGame = async () => {
       try {
-        // Create an RPG GameSession first (invite-only, single player by default)
-        const session = await gameSessionService.createGameSession(
+        console.log("Initializing RPG game...");
+        // Always create a new session for now to avoid 404 issues
+        const sessionObj = await gameSessionService.createGameSession(
           userInfo.id,
           'SINGLE_PLAYER_RPG',
           true
         );
-        const rpgGameState = await rpgGameService.createRPGGame(userInfo.id, session.gameId, false);
+        console.log("Created session:", sessionObj);
+        setSession(sessionObj);
+        
+        const rpgGameState = await rpgGameService.createRPGGame(userInfo.id, sessionObj.gameId, false);
+        console.log("Created RPG game state:", rpgGameState);
+        
         const enhancedState: EnhancedGameState = {
           ...rpgGameState,
-          gameid: rpgGameState.gameId || session.gameId,
-          gameSessionId: session.gameId,
+          gameid: rpgGameState.gameId, // Use the exact gameId from RPG state
+          gameSessionId: sessionObj.gameId,
           difficulty: 1,
           enemyArmy: [],
           aiStrategy: "defensive",
@@ -54,9 +62,12 @@ const RPGAdventure = () => {
             difficultyMultiplier: 1.2,
           },
         };
+        console.log("Setting enhanced state:", enhancedState);
         setGameState(enhancedState);
       } catch (error) {
         console.error("Failed to initialize game:", error);
+        // Show error to user
+        alert("Failed to initialize game: " + error.message);
       }
     };
     initializeGame();
@@ -357,6 +368,28 @@ const RPGAdventure = () => {
           <h1 className="text-5xl font-bold text-yellow-300 mb-2 font-serif">⚔️ RPG Chess Adventure ⚔️</h1>
           <p className="text-indigo-200 text-lg">Embark on an epic turn-based roguelike quest!</p>
         </div>
+
+        {/* Inline Lobby (invite and members) */}
+        {session && (
+          <Card className="mb-6 bg-white/5 backdrop-blur border border-white/10 shadow-lg">
+            <CardHeader>
+              <CardTitle className="text-yellow-300 font-serif">Lobby</CardTitle>
+              <CardDescription className="text-indigo-200">
+                Invite code: <span className="font-mono text-yellow-200">{session.inviteCode}</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-indigo-200 font-semibold mb-2">Players</div>
+              <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {[session.whitePlayer, ...(session.blackPlayer || [])].filter(Boolean).map((p: any) => (
+                  <li key={p.userId} className="bg-white/5 rounded px-3 py-2 border border-white/10">
+                    {p.displayName || p.username}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Game Status */}
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
