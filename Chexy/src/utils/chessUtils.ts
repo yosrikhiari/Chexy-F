@@ -118,8 +118,52 @@ export const calculateValidMoves = async (
   checkForCheck: boolean = true,
   enPassantTarget: BoardPosition | null = null
 ): Promise<BoardPosition[]> => {
+  // For RPG modes, use simple movement validation
+  if (gameMode === 'SINGLE_PLAYER_RPG' || gameMode === 'MULTIPLAYER_RPG' || gameMode === 'ENHANCED_RPG') {
+    return calculateRPGValidMoves(pos, board, currentPlayer, boardSize);
+  }
+  
   await verifyBoardState(gameId);
   return calculateValidMovesForPiece(pos, board, currentPlayer, gameId, gameMode, boardSize, checkForCheck, enPassantTarget);
+};
+
+/** Calculate valid moves for RPG mode - simple 1-square movement in all 8 directions */
+export const calculateRPGValidMoves = (
+  pos: BoardPosition,
+  board: (Piece | RPGPiece | null)[][],
+  currentPlayer: PieceColor,
+  boardSize: number
+): BoardPosition[] => {
+  const piece = board[pos.row][pos.col];
+  if (!piece || piece.color !== currentPlayer) {
+    return [];
+  }
+
+  const moves: BoardPosition[] = [];
+  
+  // Check all 8 directions (up, down, left, right, and diagonals)
+  const directions = [
+    [-1, -1], [-1, 0], [-1, 1],  // Top row
+    [0, -1],           [0, 1],   // Middle row (left and right)
+    [1, -1],  [1, 0],  [1, 1]    // Bottom row
+  ];
+
+  for (const [rowOffset, colOffset] of directions) {
+    const newRow = pos.row + rowOffset;
+    const newCol = pos.col + colOffset;
+    
+    // Check if the position is within board bounds
+    if (newRow >= 0 && newRow < boardSize && newCol >= 0 && newCol < boardSize) {
+      const targetPiece = board[newRow][newCol];
+      
+      // Can move to empty squares or capture enemy pieces
+      if (!targetPiece || targetPiece.color !== currentPlayer) {
+        moves.push({ row: newRow, col: newCol });
+      }
+    }
+  }
+
+  return moves;
 };
 
 const verifyBoardState = async (gameId: string) => {

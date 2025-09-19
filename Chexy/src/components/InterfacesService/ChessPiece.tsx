@@ -34,39 +34,44 @@ const ChessPiece: React.FC<ChessPieceProps> = ({
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    // For classic pieces in classic modes, do nothing and let the event bubble up
+    // Classic modes: let square handle selection, do nothing
     if (isClassicPiece(piece) && (gameMode === 'CLASSIC_MULTIPLAYER' || gameMode === 'CLASSIC_SINGLE_PLAYER')) {
-      return; // No e.stopPropagation() and no action, preserving selection via square
-    }
-
-    // For RPG modes, stop propagation and handle specific logic
-    e.stopPropagation();
-    if (!gameId || !playerId) {
-      console.warn('Click ignored: Missing gameId or playerId', { gameId, playerId });
-      return;
-    }
-    if (!piece) {
-      console.warn('Click ignored: No piece provided');
       return;
     }
 
-    try {
-      setError(null);
-      if (isRPGPiece(piece) && (gameMode === 'SINGLE_PLAYER_RPG' || gameMode === 'MULTIPLAYER_RPG')) {
-        rpgGameService.addPieceToArmy(gameId, piece, playerId)
-          .then(() => console.log('Piece added to army'))
-          .catch(err => {
-            setError('Failed to add piece to army');
-            console.error('Failed to add piece:', err);
-          });
-      } else if (isEnhancedRPGPiece(piece) && gameMode === 'ENHANCED_RPG') {
-        // Defer combat to board logic; here we only signal selection
-        if (onClick) onClick(piece as any, { row: -1, col: -1 } as any);
-        return;
+    // If parent provided an onClick handler (e.g., board piece click), prefer delegating to it
+    if (onClick) {
+      // Do NOT stop propagation so the square click can also fire and highlight
+      try {
+        setError(null);
+        onClick(piece as any, { row: -1, col: -1 } as any);
+      } catch (err) {
+        setError('Action failed');
+        console.error('Action failed:', err);
       }
-    } catch (err) {
-      setError('Action failed');
-      console.error('Action failed:', err);
+      return;
+    }
+
+    // Otherwise, handle standalone RPG interactions (e.g., adding to army from cards)
+    if (!gameId || !playerId || !piece) {
+      return;
+    }
+
+    // For basic RPG modes, allow add-to-army when used outside the board
+    if (isRPGPiece(piece) && (gameMode === 'SINGLE_PLAYER_RPG' || gameMode === 'MULTIPLAYER_RPG')) {
+      e.stopPropagation();
+      rpgGameService.addPieceToArmy(gameId, piece, playerId)
+        .then(() => console.log('Piece added to army'))
+        .catch(err => {
+          setError('Failed to add piece to army');
+          console.error('Failed to add piece:', err);
+        });
+      return;
+    }
+
+    // Enhanced RPG pieces: defer to board logic
+    if (isEnhancedRPGPiece(piece) && gameMode === 'ENHANCED_RPG') {
+      return;
     }
   };
 

@@ -329,7 +329,8 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
     if (!selectedSquare) {
       if (clickedPiece && clickedPiece.color === currentPlayer) {
         setSelectedSquare({ row, col });
-        const moves = await calculateValidMoves({ row, col }, board, currentPlayer, gameState.gameid, gameSession.gameMode,gameState.boardSize);
+        // Use RPG movement validation for RPG modes
+        const moves = await calculateValidMoves({ row, col }, board, currentPlayer, gameState.gameid, "ENHANCED_RPG", gameState.boardSize);
         setValidMoves(moves);
       }
       return;
@@ -348,7 +349,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
       setValidMoves([]);
     } else if (clickedPiece && clickedPiece.color === currentPlayer) {
       setSelectedSquare({ row, col });
-      const moves = await calculateValidMoves({ row, col }, board, currentPlayer, gameState.gameid, gameSession.gameMode,gameState.boardSize);
+      const moves = await calculateValidMoves({ row, col }, board, currentPlayer, gameState.gameid, "ENHANCED_RPG", gameState.boardSize);
       setValidMoves(moves);
     } else {
       setSelectedSquare(null);
@@ -362,12 +363,6 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
       const movingPiece = board[from.row][from.col];
       if (!movingPiece || movingPiece.color !== currentPlayer) return;
 
-      const isValid = await chessGameService.validateMove(gameState.gameid, { row: from.row,col: from.col, torow:to.row,tocol:to.col });
-      if (!isValid) {
-        toast({ title: "Invalid Move", description: "This move is not allowed.", variant: "destructive" });
-        return;
-      }
-
       const newBoard = board.map((row) => [...row]);
       const targetPiece = newBoard[to.row][to.col];
       let finalDestination = to;
@@ -376,31 +371,37 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
 
       // Handle combat
       if (targetPiece && targetPiece.color !== movingPiece.color) {
-        const combatResult: CombatResult = await enhancedRPGService.resolveCombat(movingPiece, targetPiece, gameState.gameid, playerId);
-        if (combatResult.defenderDefeated) {
-          newBoard[to.row][to.col] = null;
-          newBoard[from.row][from.col] = {
-            ...movingPiece,
-            plusexperience: (movingPiece.plusexperience || 0) + 10,
-            position: to,
-          };
-          toast({ title: "Combat Victory", description: `${targetPiece.name} was defeated!` });
-        } else {
-          newBoard[to.row][to.col] = {
-            ...targetPiece,
-            pluscurrentHp: targetPiece.pluscurrentHp - combatResult.damage,
-          };
-          toast({
-            title: "Combat",
-            description: `${targetPiece.name} survived with ${targetPiece.pluscurrentHp - combatResult.damage} HP!`,
-          });
-        }
+        try {
+          const combatResult: CombatResult = await enhancedRPGService.resolveCombat(movingPiece, targetPiece, gameState.gameid, playerId);
+          if (combatResult.defenderDefeated) {
+            newBoard[to.row][to.col] = null;
+            newBoard[from.row][from.col] = {
+              ...movingPiece,
+              plusexperience: (movingPiece.plusexperience || 0) + 10,
+              position: to,
+            };
+            toast({ title: "Combat Victory", description: `${targetPiece.name} was defeated!` });
+          } else {
+            newBoard[to.row][to.col] = {
+              ...targetPiece,
+              pluscurrentHp: targetPiece.pluscurrentHp - combatResult.damage,
+            };
+            toast({
+              title: "Combat",
+              description: `${targetPiece.name} survived with ${targetPiece.pluscurrentHp - combatResult.damage} HP!`,
+            });
+          }
 
-        if (combatResult.attackerCounterDamage && movingPiece.pluscurrentHp <= combatResult.attackerCounterDamage) {
-          newBoard[from.row][from.col] = null;
-          setBoard(newBoard);
-          await checkGameOver(newBoard);
-          if (!gameOver) setCurrentPlayer(currentPlayer === "white" ? "black" : "white");
+          if (combatResult.attackerCounterDamage && movingPiece.pluscurrentHp <= combatResult.attackerCounterDamage) {
+            newBoard[from.row][from.col] = null;
+            setBoard(newBoard);
+            await checkGameOver(newBoard);
+            if (!gameOver) setCurrentPlayer(currentPlayer === "white" ? "black" : "white");
+            return;
+          }
+        } catch (combatError) {
+          console.error("Combat error:", combatError);
+          toast({ title: "Combat Error", description: "Failed to resolve combat.", variant: "destructive" });
           return;
         }
       }
@@ -414,36 +415,46 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         );
       }
 
-      await gameService.executeMove((gameState as any).gameSessionId || gameState.gameid, { from, to: finalDestination });
+      // Execute the move locally
       newBoard[finalDestination.row][finalDestination.col] = { ...movingPiece, position: finalDestination };
       newBoard[from.row][from.col] = null;
       setBoard(newBoard);
 
       // Record player action
-      if (!gameSession) {
-        toast({ title: "Error", description: "Game session not initialized.", variant: "destructive" });
-        return;
+      if (gameSession) {
+        try {
+          const historyId = gameSession.gameHistoryId;
+          const playerAction: PlayerAction = {
+            gameId: gameState.gameid,
+            playerId,
+            actionType: targetPiece ? "capture" : "move",
+            from: [from.row, from.col],
+            to: [finalDestination.row, finalDestination.col],
+            timestamp: Date.now(),
+            sequenceNumber: Date.now(), // Use timestamp as sequence number for now
+          };
+          const playerActionId = `${historyId}-${playerAction.timestamp}`;
+          await gameHistoryService.addPlayerAction(historyId, playerActionId);
+        } catch (actionError) {
+          console.warn("Failed to record player action:", actionError);
+        }
       }
-      const historyId = gameSession.gameHistoryId;
-      const playerAction: PlayerAction = {
-        gameId: gameState.gameid,
-        playerId,
-        actionType: targetPiece ? "capture" : "move",
-        from: [from.row, from.col],
-        to: [finalDestination.row, finalDestination.col],
-        timestamp: Date.now(),
-      };
-      const playerActionId = `${historyId}-${playerAction.timestamp}`;
-      await gameHistoryService.addPlayerAction(historyId, playerActionId);
 
-      await realtimeService.broadcastGameState(gameState.gameid);
+      // Broadcast game state update
+      try {
+        await realtimeService.broadcastGameState(gameState.gameid);
+      } catch (broadcastError) {
+        console.warn("Failed to broadcast game state:", broadcastError);
+      }
 
+      // Check for game over and switch turns
       const isGameOver = await checkGameOver(newBoard);
       if (!isGameOver) {
         setCurrentPlayer(currentPlayer === "white" ? "black" : "white");
-        if (currentPlayer === "white") {
-          setTimeout(() => makeAIMove(newBoard), 1000);
-        }
+        // For now, skip AI moves in RPG mode
+        // if (currentPlayer === "white") {
+        //   setTimeout(() => makeAIMove(newBoard), 1000);
+        // }
       }
     } catch (error) {
       console.error("Move error:", error);
