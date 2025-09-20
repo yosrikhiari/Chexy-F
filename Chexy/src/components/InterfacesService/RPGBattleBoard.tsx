@@ -11,7 +11,7 @@ import { authService } from "@/services/AuthService.ts";
 import { rpgGameService } from "@/services/RPGGameService.ts";
 import { enhancedRPGService } from "@/services/EnhancedRPGService.ts";
 import { JwtService } from "@/services/JwtService.ts";
-import { realtimeService } from "@/services/RealtimeService.ts";
+// Realtime broadcasting disabled for RPG games
 
 const RPGBattleBoard: React.FC<RPGBattleBoardProps> = ({
                                                          gameState,
@@ -130,8 +130,7 @@ const RPGBattleBoard: React.FC<RPGBattleBoardProps> = ({
       setCurrentGameState(updatedState);
       setTurnsRemaining(updatedState.turnsRemaining);
 
-      // Broadcast state change
-      await realtimeService.broadcastGameState(currentGameState.gameid);
+      // broadcasting disabled
 
       // Handle combat outcome
       const victory = combatResult.defenderDefeated;
@@ -162,7 +161,7 @@ const RPGBattleBoard: React.FC<RPGBattleBoardProps> = ({
       setBattlePhase("setup");
       setBattleProgress(0);
       toast.success(`Progressed to Round ${updatedState.currentRound}`);
-      await realtimeService.broadcastGameState(currentGameState.gameid);
+      // broadcasting disabled
     } catch (err) {
       toast.error(`Failed to progress to next round: ${(err as Error).message}`);
     }

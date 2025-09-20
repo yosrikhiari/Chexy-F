@@ -13,7 +13,7 @@ import { rpgGameService } from "@/services/RPGGameService.ts";
 import { enhancedRPGService } from "@/services/EnhancedRPGService.ts";
 import { authService } from "@/services/AuthService.ts";
 import { gameSessionService } from "@/services/GameSessionService.ts";
-import { realtimeService } from "@/services/RealtimeService.ts";
+// Realtime broadcasting disabled for RPG games
 import { JwtService } from "@/services/JwtService.ts";
 
 const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
@@ -97,7 +97,9 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
         const updatedState = await rpgGameService.addPieceToArmy(gameId, currentPiece, playerId);
         setCurrentPiece(updatedState.playerArmy.find((p) => p.id === currentPiece.id) || currentPiece);
         onPieceUpdate?.(updatedState.playerArmy.find((p) => p.id === currentPiece.id) || currentPiece);
-        await realtimeService.broadcastGameState(gameId);
+        // broadcasting disabled
+        onPieceUpdate?.(updatedState.playerArmy.find((p) => p.id === currentPiece.id) || currentPiece);
+        // broadcasting disabled
         toast.success(`${currentPiece.name} added to your army!`);
       } else {
         toast.info(`${currentPiece.name} is already in your army.`);
@@ -133,7 +135,7 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
         );
         setCurrentPiece(combatResult.attacker);
         onPieceUpdate?.(combatResult.attacker);
-        await realtimeService.broadcastGameState(gameId);
+        // broadcasting disabled
         toast.success(`${currentPiece.specialAbility} activated!`);
       } else {
         // Use rpgGameService for other modes
@@ -149,7 +151,7 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
         const updatedState = await rpgGameService.addModifier(gameId, modifier, playerId);
         setCurrentPiece(updatedState.playerArmy.find((p) => p.id === currentPiece.id) || currentPiece);
         onPieceUpdate?.(updatedState.playerArmy.find((p) => p.id === currentPiece.id) || currentPiece);
-        await realtimeService.broadcastGameState(gameId);
+        // broadcasting disabled
         toast.success(`${currentPiece.specialAbility} activated!`);
       }
     } catch (error) {

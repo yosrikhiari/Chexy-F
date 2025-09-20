@@ -101,8 +101,8 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
       className={cn(
         'w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 flex items-center justify-center relative cursor-pointer',
         specialEffect ? effectClass : isLight ? 'bg-chess-light' : 'bg-chess-dark',
-        isSelected && 'ring-2 ring-blue-500',
-        isValidMove && !specialEffect && 'bg-chess-valid-move',
+        isSelected && 'ring-2 ring-yellow-500',
+        isValidMove && !specialEffect && 'bg-yellow-400 bg-opacity-80',
         isCheck && 'bg-red-200',
         localError && 'border-2 border-red-500'
       )}
@@ -140,7 +140,14 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
 
       {/* Highlight if this is a valid capture */}
       {isValidMove && piece && (
-        <div className="absolute inset-0 border-2 border-red-500 rounded-sm"></div>
+        <div className="absolute inset-0 border-2 border-yellow-600 rounded-sm"></div>
+      )}
+
+      {/* Show dot for empty valid move squares */}
+      {isValidMove && !piece && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-3 h-3 bg-yellow-400 rounded-full opacity-90"></div>
+        </div>
       )}
 
       {/* Show check indicator */}

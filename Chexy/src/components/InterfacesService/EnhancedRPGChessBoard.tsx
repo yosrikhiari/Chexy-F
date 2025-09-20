@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge.tsx";
 import { EnhancedGameState, EnhancedRPGPiece, TeleportPortal, CombatResult } from "@/Interfaces/types/enhancedRpgChess.ts";
 import { BoardPosition, PieceColor, Piece } from "@/Interfaces/types/chess.ts";
 import { RPGPiece } from "@/Interfaces/types/rpgChess.ts";
-import { calculateValidMoves } from "@/utils/chessUtils.ts";
+import { calculateValidMoves, calculateRPGValidMoves } from "@/utils/chessUtils.ts";
 import { generateTeleportPortals, calculateTeleportPortals } from "@/utils/dynamicBoardEffects.ts";
 import ChessSquare from "./ChessSquare.tsx";
 import { ArrowLeft, RotateCcw, Move, ZoomIn, ZoomOut, RotateCw } from "lucide-react";
@@ -19,7 +19,7 @@ import { gameService } from "@/services/GameService.ts";
 import { JwtService } from "@/services/JwtService.ts";
 import { gameHistoryService } from "@/services/GameHistoryService.ts";
 import { chessGameService } from "@/services/ChessGameService.ts";
-import { realtimeService } from "@/services/RealtimeService.ts";
+// Realtime broadcasting disabled for RPG games
 import { enhancedRPGService } from "@/services/EnhancedRPGService.ts";
 
 const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
@@ -330,7 +330,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
       if (clickedPiece && clickedPiece.color === currentPlayer) {
         setSelectedSquare({ row, col });
         // Use RPG movement validation for RPG modes
-        const moves = await calculateValidMoves({ row, col }, board, currentPlayer, gameState.gameid, "ENHANCED_RPG", gameState.boardSize);
+        const moves = calculateRPGValidMoves({ row, col }, board, currentPlayer, gameState.boardSize);
         setValidMoves(moves);
       }
       return;
@@ -349,7 +349,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
       setValidMoves([]);
     } else if (clickedPiece && clickedPiece.color === currentPlayer) {
       setSelectedSquare({ row, col });
-      const moves = await calculateValidMoves({ row, col }, board, currentPlayer, gameState.gameid, "ENHANCED_RPG", gameState.boardSize);
+      const moves = calculateRPGValidMoves({ row, col }, board, currentPlayer, gameState.boardSize);
       setValidMoves(moves);
     } else {
       setSelectedSquare(null);
@@ -440,12 +440,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         }
       }
 
-      // Broadcast game state update
-      try {
-        await realtimeService.broadcastGameState(gameState.gameid);
-      } catch (broadcastError) {
-        console.warn("Failed to broadcast game state:", broadcastError);
-      }
+      // Broadcasting disabled
 
       // Check for game over and switch turns
       const isGameOver = await checkGameOver(newBoard);
@@ -470,12 +465,10 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         for (let col = 0; col < gameState.boardSize; col++) {
           const piece = currentBoard[row][col];
           if (piece && piece.color === "black") {
-            const moves = await calculateValidMoves(
+            const moves = calculateRPGValidMoves(
               { row, col },
               currentBoard,
               "black",
-              gameState.gameid,
-              "ENHANCED_RPG",
               gameState.boardSize
             );
             moves.forEach((m) => possibleMoves.push({ from: { row, col }, to: m }));
@@ -504,14 +497,37 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
   /** Generate a basic enemy army if none exists in server state */
   const generateDefaultEnemyArmy = (boardSize: number): EnhancedRPGPiece[] => {
     const pieces: EnhancedRPGPiece[] = [];
-    const addPiece = (type: string, row: number, col: number) =>
+    
+    const customEnemyNames = [
+      "Obsidian Guard",
+      "Shadow Knight", 
+      "Cursed Bishop",
+      "Dark Queen",
+      "Shadow King",
+      "Void Bishop",
+      "Night Knight",
+      "Iron Guard",
+    ];
+    
+    const customPawnNames = [
+      "Shadow Pawn",
+      "Dark Warrior",
+      "Void Soldier", 
+      "Night Guard",
+      "Cursed Footman",
+      "Iron Soldier",
+      "Shadow Warrior",
+      "Dark Footman",
+    ];
+    
+    const addPiece = (type: string, row: number, col: number, customName: string) =>
       pieces.push({
         id: `${type}-${row}-${col}-${Math.random().toString(36).slice(2)}`,
         type: type as any,
         color: "black",
-        name: type,
-        description: `${type} piece`,
-        specialAbility: "none",
+        name: customName,
+        description: `A powerful ${type} with dark powers`,
+        specialAbility: "Dark Magic",
         hp: 10,
         maxHp: 10,
         attack: 5,
@@ -528,10 +544,10 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
       } as EnhancedRPGPiece);
 
     // Pawns on row 1
-    for (let c = 0; c < Math.min(boardSize, 8); c++) addPiece("pawn", 1, c);
+    for (let c = 0; c < Math.min(boardSize, 8); c++) addPiece("pawn", 1, c, customPawnNames[c] || "Shadow Pawn");
     // Back rank basics on row 0
     const backRank = ["rook", "knight", "bishop", "queen", "king", "bishop", "knight", "rook"];
-    for (let c = 0; c < Math.min(boardSize, 8); c++) addPiece(backRank[c], 0, c);
+    for (let c = 0; c < Math.min(boardSize, 8); c++) addPiece(backRank[c], 0, c, customEnemyNames[c] || `Enemy ${backRank[c]}`);
     return pieces;
   };
 

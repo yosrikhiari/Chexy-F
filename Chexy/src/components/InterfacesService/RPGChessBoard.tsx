@@ -3,14 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card.t
 import { Button } from "@/components/ui/button.tsx";
 import { RPGGameState, BoardEffect } from "@/Interfaces/types/rpgChess.ts"; // Changed to EnhancedRPGPiece
 import { BoardPosition, PieceColor, GameState, PieceType } from "@/Interfaces/types/chess.ts";
-import { calculateValidMoves, isEnPassantMove, canPromotePawn } from "@/utils/chessUtils.ts";
+import { calculateValidMoves, calculateRPGValidMoves, isEnPassantMove, canPromotePawn } from "@/utils/chessUtils.ts";
 import ChessSquare from "./ChessSquare.tsx";
 import TieResolutionModal from "./TieResolutionModal.tsx";
 import PromotionModal from "./PromotionModal.tsx";
 import { ArrowLeft, RotateCcw } from "lucide-react";
 import { JwtService } from "@/services/JwtService.ts";
 import { rpgGameService } from "@/services/RPGGameService.ts";
-import { realtimeService } from "@/services/RealtimeService.ts";
+// Realtime broadcasting disabled for RPG games
 import { chessGameService } from "@/services/ChessGameService.ts";
 import { gameService } from "@/services/GameService.ts";
 import { tieResolutionService } from "@/services/TieResolutionService.ts";
@@ -50,6 +50,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     userId2: "AI", // Set to "AI" for single-player RPG mode
     isCheck: false,
     isCheckmate: false,
+    isDraw: false,
     checkedPlayer: null,
     enPassantTarget: null,
     currentTurn: "white",
@@ -90,7 +91,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
           currentTurn: "white",
           moveCount: fetchedGameState.currentRound || 0,
         }));
-        await realtimeService.broadcastGameState(gameSessionId);
+        // broadcasting disabled
       } catch (err) {
         setError("Failed to load game state from server");
         console.error(err);
@@ -148,7 +149,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         }
       });
     } else {
-      // Fallback: Default enemy pieces
+      // Fallback: Default enemy pieces with custom RPG names
       const defaultEnemyTypes: PieceType[] = [
         "rook",
         "knight",
@@ -159,14 +160,24 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         "knight",
         "rook",
       ];
+      const customEnemyNames = [
+        "Obsidian Guard",
+        "Shadow Knight",
+        "Cursed Bishop",
+        "Dark Queen",
+        "Shadow King",
+        "Void Bishop",
+        "Night Knight",
+        "Iron Guard",
+      ];
       for (let col = 0; col < Math.min(size, defaultEnemyTypes.length); col++) {
         newBoard[0][col] = {
           id: `enemy-${col}`,
           type: defaultEnemyTypes[col],
           color: "black",
-          name: `Enemy ${defaultEnemyTypes[col]}`,
-          description: `Standard ${defaultEnemyTypes[col]}`,
-          specialAbility: "",
+          name: customEnemyNames[col] || `Enemy ${defaultEnemyTypes[col]}`,
+          description: `A powerful ${defaultEnemyTypes[col]} with dark powers`,
+          specialAbility: "Dark Magic",
           hp: 100,
           maxHp: 100,
           attack: 10,
@@ -183,14 +194,24 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
           plusexperience: 0,
         };
       }
+      const customPawnNames = [
+        "Shadow Pawn",
+        "Dark Warrior",
+        "Void Soldier",
+        "Night Guard",
+        "Cursed Footman",
+        "Iron Soldier",
+        "Shadow Warrior",
+        "Dark Footman",
+      ];
       for (let col = 0; col < size; col++) {
         newBoard[1][col] = {
           id: `enemy-pawn-${col}`,
           type: "pawn",
           color: "black",
-          name: "Enemy Pawn",
-          description: "Standard enemy pawn",
-          specialAbility: "",
+          name: customPawnNames[col] || "Shadow Pawn",
+          description: "A dark warrior with shadow powers",
+          specialAbility: "Shadow Strike",
           hp: 50,
           maxHp: 50,
           attack: 5,
@@ -210,46 +231,39 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     }
 
     await applyBoardModifiers(rpgGameState);
+    console.log('Board initialized:', newBoard);
+    console.log('Player pieces:', newBoard.flat().filter(p => p && p.color === 'white'));
     setBoard(newBoard);
     setCurrentPlayer("white");
     setSelectedSquare(null);
     setValidMoves([]);
     setGameOver(false);
     setWinner(null);
-    await realtimeService.broadcastGameState(gameSessionId);
+    // broadcasting disabled
   };
 
-  const isStalemate = async (board: (EnhancedRPGPiece | null)[][], color: PieceColor): Promise<boolean> => {
+  const hasAnyValidMoves = async (board: (EnhancedRPGPiece | null)[][], color: PieceColor): Promise<boolean> => {
     for (let row = 0; row < gameState.boardSize; row++) {
       for (let col = 0; col < gameState.boardSize; col++) {
         const piece = board[row][col];
-        const gamesession = await gameSessionService.getGameSessionByGameStateId(gameState.gameid);
         if (piece && piece.color === color) {
-          const moves = await calculateValidMoves(
+          const moves = calculateRPGValidMoves(
             { row, col },
             board,
             color,
-            gamesession.gameId,
-            gamesession.gameMode,
             gameState.boardSize,
-            true,
             gameStateInfo.enPassantTarget
           );
-          for (const move of moves) {
-            try {
-              const isValid = await chessGameService.validateMove(gameSessionId, {
-                from: { row, col },
-                to: { row: move.row, col: move.col },
-              });
-              if (isValid) return false;
-            } catch (err) {
-              console.error("Move validation failed:", err);
-            }
-          }
+          // If any valid moves exist, return true
+          if (moves.length > 0) return true;
         }
       }
     }
-    return true;
+    return false;
+  };
+
+  const isStalemate = async (board: (EnhancedRPGPiece | null)[][], color: PieceColor): Promise<boolean> => {
+    return !(await hasAnyValidMoves(board, color));
   };
 
   const applyBoardModifiers = async (rpgGameState: RPGGameState) => {
@@ -441,33 +455,34 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     if (gameOver || showPromotion || !playerId) return;
 
     const clickedPiece = board[row][col];
+    console.log('Square clicked:', { row, col, piece: clickedPiece, currentPlayer, selectedSquare });
 
     if (!selectedSquare) {
       if (clickedPiece && clickedPiece.color === currentPlayer) {
+        console.log('Selecting piece:', clickedPiece);
+        console.log('Piece type check:', {
+          hasHp: 'hp' in clickedPiece,
+          hasPlusCurrentHp: 'pluscurrentHp' in clickedPiece,
+          pieceType: clickedPiece.type,
+          pieceColor: clickedPiece.color
+        });
         setSelectedSquare({ row, col });
-        const moves = await calculateValidMoves(
+        const moves = calculateRPGValidMoves(
           { row, col },
           board,
           currentPlayer,
-          gameSessionId,
-          'SINGLE_PLAYER_RPG',
           gameState.boardSize,
-          true,
           gameStateInfo.enPassantTarget
         );
-        const validatedMoves: BoardPosition[] = [];
-        for (const move of moves) {
-          try {
-            const isValid = await chessGameService.validateMove(gameSessionId, {
-              from: { row, col },
-              to: { row: move.row, col: move.col },
-            });
-            if (isValid) validatedMoves.push(move);
-          } catch (err) {
-            console.error("Move validation failed:", err);
-          }
-        }
-        setValidMoves(validatedMoves);
+        console.log('Valid moves calculated:', moves);
+        // For RPG mode, use the calculated moves directly without backend validation
+        setValidMoves(moves);
+      } else {
+        console.log('Cannot select piece:', { 
+          hasPiece: !!clickedPiece, 
+          pieceColor: clickedPiece?.color, 
+          currentPlayer 
+        });
       }
       return;
     }
@@ -479,35 +494,23 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     }
 
     const isValidMove = validMoves.some((move) => move.row === row && move.col === col);
+    console.log('Move validation:', { isValidMove, validMoves, targetRow: row, targetCol: col });
     if (isValidMove) {
+      console.log('Executing move from', selectedSquare, 'to', { row, col });
       await makeMove(selectedSquare, { row, col });
       setSelectedSquare(null);
       setValidMoves([]);
     } else if (clickedPiece && clickedPiece.color === currentPlayer) {
       setSelectedSquare({ row, col });
-      const moves = await calculateValidMoves(
+      const moves = calculateRPGValidMoves(
         { row, col },
         board,
         currentPlayer,
-        gameSessionId,
-        'SINGLE_PLAYER_RPG',
         gameState.boardSize,
-        true,
         gameStateInfo.enPassantTarget
       );
-      const validatedMoves: BoardPosition[] = [];
-      for (const move of moves) {
-        try {
-          const isValid = await chessGameService.validateMove(gameSessionId, {
-            from: { row, col },
-            to: { row: move.row, col: move.col },
-          });
-          if (isValid) validatedMoves.push(move);
-        } catch (err) {
-          console.error("Move validation failed:", err);
-        }
-      }
-      setValidMoves(validatedMoves);
+      // For RPG mode, use the calculated moves directly without backend validation
+      setValidMoves(moves);
     } else {
       setSelectedSquare(null);
       setValidMoves([]);
@@ -520,12 +523,8 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
       return;
     }
     try {
+      // For RPG mode, skip backend validation and execute move directly
       const move = { from, to };
-      const isValid = await chessGameService.validateMove(gameSessionId, move);
-      if (!isValid) {
-        setError("Invalid move according to server rules");
-        return;
-      }
 
       const newBoard = board.map((row) => [...row]);
       const piece = newBoard[from.row][from.col];
@@ -558,7 +557,8 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         newBoard[from.row][from.col] = null;
       }
 
-      const updatedGameState = await gameService.executeMove(gameSessionId, move);
+      // For RPG mode, we handle moves locally without backend validation
+      // No need to call gameService.executeMove for RPG games
       setLastMove({
         from,
         to: finalDestination ? { row: finalDestination[0], col: finalDestination[1] } : to,
@@ -570,7 +570,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         moveCount: prev.moveCount + 1,
       }));
       setBoard(newBoard);
-      await realtimeService.broadcastGameState(gameSessionId);
+      // broadcasting disabled
 
       if (needsPromotion && finalDestination) {
         setPromotionData({
@@ -612,7 +612,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         type: pieceType,
         position: promotionData.position,
       }, playerId);
-      await realtimeService.broadcastGameState(gameSessionId);
+      // broadcasting disabled
       await continueAfterMove(newBoard);
     } catch (err) {
       setError(`Failed to process promotion: ${(err as Error).message}`);
@@ -624,25 +624,27 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     const opponentColor = currentPlayer === "white" ? "black" : "white";
 
     try {
-      const checkmate = await chessGameService.isCheckmate(gameSessionId, opponentColor);
-      if (checkmate) {
+      // For RPG mode, skip backend check validation and use local logic
+      // Check if opponent has any valid moves (simplified checkmate detection)
+      const hasValidMoves = await hasAnyValidMoves(currentBoard, opponentColor);
+      if (!hasValidMoves) {
         setGameOver(true);
         setWinner(currentPlayer);
         onBattleComplete(currentPlayer === "white");
         await rpgGameService.endRPGGame(gameState.gameid, currentPlayer === "white");
-        await realtimeService.broadcastGameState(gameSessionId);
+        // broadcasting disabled
         return;
       }
 
-      const inCheck = await chessGameService.isCheck(gameSessionId, opponentColor);
+      // For RPG mode, we'll skip the detailed check validation
       setGameStateInfo((prev) => ({
         ...prev,
-        isCheck: inCheck,
-        checkedPlayer: inCheck ? opponentColor : null,
+        isCheck: false, // Simplified for RPG mode
+        checkedPlayer: null,
       }));
 
       const stalemate = await isStalemate(currentBoard, opponentColor);
-      if (stalemate && !inCheck) {
+      if (stalemate) {
         console.log("Stalemate detected!");
         setShowTieResolution(true);
         return;
@@ -695,7 +697,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     try {
       const fetchedGameState = await rpgGameService.getRPGGame(gameState.gameid);
       await initializeBoard(fetchedGameState);
-      await realtimeService.broadcastGameState(gameSessionId);
+      // broadcasting disabled
     } catch (err) {
       setError(`Failed to reset board: ${(err as Error).message}`);
       console.error(err);
@@ -719,7 +721,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
           setWinner("white");
           onBattleComplete(true);
           await rpgGameService.endRPGGame(gameState.gameid, true);
-          await realtimeService.broadcastGameState(gameSessionId);
+          // broadcasting disabled
           break;
         case "showdown":
           let playerValue = 0;
@@ -739,7 +741,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
           setWinner(playerWins ? "white" : "black");
           onBattleComplete(playerWins);
           await rpgGameService.endRPGGame(gameState.gameid, playerWins);
-          await realtimeService.broadcastGameState(gameSessionId);
+          // broadcasting disabled
           break;
         case "blood":
           await resetBoard();

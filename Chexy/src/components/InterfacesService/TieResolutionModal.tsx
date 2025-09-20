@@ -7,7 +7,7 @@ import { TieResolutionOption } from "@/Interfaces/TieResolutionOption.ts";
 import { toast } from "@/components/ui/use-toast.tsx";
 import {JwtService} from "@/services/JwtService.ts";
 import {tieResolutionService} from "@/services/TieResolutionService.ts";
-import {realtimeService} from "@/services/RealtimeService.ts";
+// Realtime broadcasting disabled for RPG games
 import {TieResolutionModalProps} from "@/Interfaces/TieResolutionModalProps.ts";
 
 const TieResolutionModal: React.FC<TieResolutionModalProps> = ({
@@ -195,8 +195,7 @@ const TieResolutionModal: React.FC<TieResolutionModalProps> = ({
       setSelectedOption(normalizedOption);
       setShowResult(true);
 
-      // Broadcast game state update (optional)
-      await realtimeService.broadcastGameState(gameId);
+      // Broadcasting disabled
     } catch (err) {
       console.error("Failed to resolve tie:", err);
       toast({
