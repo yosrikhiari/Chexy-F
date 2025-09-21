@@ -151,8 +151,8 @@ export const calculateRPGValidMoves = (
   
   // Check for custom RPG piece types and names first
   const pieceName = 'name' in piece ? piece.name.toLowerCase() : '';
-  if (pieceType === 'dreamer' || pieceType === 'preacher' || pieceType === 'serpent' || pieceType === 'shadow' || pieceType === 'fire_mage' || pieceType === 'ice_knight' || pieceType === 'shadow_assassin' ||
-      pieceName.includes('obsidian') || pieceName.includes('guard') || pieceName.includes('mage') || pieceName.includes('knight') || pieceName.includes('assassin') || pieceName.includes('dreamer') || pieceName.includes('preacher') || pieceName.includes('serpent') || pieceName.includes('shadow') || pieceName.includes('fire') || pieceName.includes('ice')) {
+  if (pieceType === 'dreamer' || pieceType === 'preacher' || pieceType === 'serpent' || pieceType === 'shadow' || pieceType === 'fire_mage' || pieceType === 'ice_knight' || pieceType === 'shadow_assassin' || pieceType === 'joker' || pieceType === 'forger' || pieceType === 'necromancer' || pieceType === 'berserker' || pieceType === 'alchemist' || pieceType === 'time_mage' || pieceType === 'summoner' || pieceType === 'illusionist' || pieceType === 'goblin' || pieceType === 'orc' || pieceType === 'lich' || pieceType === 'dragon' || pieceType === 'troll' || pieceType === 'vampire' || pieceType === 'demon' || pieceType === 'angel' || pieceType === 'phoenix' || pieceType === 'griffin' || pieceType === 'wyvern' || pieceType === 'elemental' || pieceType === 'warlock' || pieceType === 'paladin' || pieceType === 'ranger' || pieceType === 'bard' ||
+      pieceName.includes('obsidian') || pieceName.includes('guard') || pieceName.includes('mage') || pieceName.includes('knight') || pieceName.includes('assassin') || pieceName.includes('dreamer') || pieceName.includes('preacher') || pieceName.includes('serpent') || pieceName.includes('shadow') || pieceName.includes('fire') || pieceName.includes('ice') || pieceName.includes('joker') || pieceName.includes('forger') || pieceName.includes('necromancer') || pieceName.includes('berserker') || pieceName.includes('alchemist') || pieceName.includes('time') || pieceName.includes('summoner') || pieceName.includes('illusionist') || pieceName.includes('goblin') || pieceName.includes('orc') || pieceName.includes('lich') || pieceName.includes('dragon') || pieceName.includes('troll') || pieceName.includes('vampire') || pieceName.includes('demon') || pieceName.includes('angel') || pieceName.includes('phoenix') || pieceName.includes('griffin') || pieceName.includes('wyvern') || pieceName.includes('elemental') || pieceName.includes('warlock') || pieceName.includes('paladin') || pieceName.includes('ranger') || pieceName.includes('bard')) {
     return calculateCustomRPGMoves(pos, board, currentPlayer, boardSize, piece);
   }
   
@@ -905,6 +905,1140 @@ const calculateCustomRPGMoves = (
     }
   }
   
+  // Joker - Can mimic any piece's movement pattern randomly
+  else if (pieceType === 'joker' || pieceName.includes('joker')) {
+    console.log('RPG: Joker movement - can mimic any piece randomly');
+    
+    // Randomly choose a piece type to mimic
+    const mimicTypes = ['pawn', 'knight', 'rook', 'bishop', 'queen', 'king'];
+    const randomType = mimicTypes[Math.floor(Math.random() * mimicTypes.length)];
+    
+    // Temporarily change piece type for movement calculation
+    const originalType = piece.type;
+    (piece as any).type = randomType;
+    
+    // Get moves based on mimicked piece
+    const mimicMoves = calculateStandardChessMoves(pos, board, currentPlayer, boardSize, piece);
+    
+    // Restore original type
+    (piece as any).type = originalType;
+    
+    // Add some random moves for unpredictability
+    for (let rowOffset = -2; rowOffset <= 2; rowOffset++) {
+      for (let colOffset = -2; colOffset <= 2; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        if (Math.random() < 0.1) { // 10% chance for random move
+          const randomMove = {
+            row: pos.row + rowOffset,
+            col: pos.col + colOffset
+          };
+          if (isValidPosition(randomMove, boardSize)) {
+            const targetPiece = board[randomMove.row][randomMove.col];
+            if (!targetPiece || targetPiece.color !== piece.color) {
+              mimicMoves.push(randomMove);
+            }
+          }
+        }
+      }
+    }
+    
+    moves = mimicMoves;
+  }
+
+  // Forger - Can create temporary pieces and move like a rook
+  else if (pieceType === 'forger' || pieceName.includes('forger')) {
+    console.log('RPG: Forger movement - rook-like with creation ability');
+    
+    // Standard rook movement
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Forging ability - can "create" pieces on empty squares (move to empty squares and create temporary pieces)
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const forgePos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(forgePos, boardSize)) {
+          const targetPiece = board[forgePos.row][forgePos.col];
+          if (!targetPiece) {
+            moves.push(forgePos); // Can move to empty squares to "forge" pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Necromancer - Can move like a bishop and resurrect captured pieces
+  else if (pieceType === 'necromancer' || pieceName.includes('necromancer')) {
+    console.log('RPG: Necromancer movement - bishop-like with resurrection ability');
+    
+    // Standard bishop movement
+    const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Resurrection ability - can move to squares where pieces were captured
+    for (let row = 0; row < boardSize; row++) {
+      for (let col = 0; col < boardSize; col++) {
+        if (row === pos.row && col === pos.col) continue;
+        
+        const targetPiece = board[row][col];
+        if (!targetPiece) {
+          // Check if this square is adjacent to enemy pieces (potential resurrection sites)
+          let hasAdjacentEnemy = false;
+          for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+            for (let colOffset = -1; colOffset <= 1; colOffset++) {
+              if (rowOffset === 0 && colOffset === 0) continue;
+              const checkRow = row + rowOffset;
+              const checkCol = col + colOffset;
+              if (isValidPosition({ row: checkRow, col: checkCol }, boardSize)) {
+                const adjacentPiece = board[checkRow][checkCol];
+                if (adjacentPiece && adjacentPiece.color !== piece.color) {
+                  hasAdjacentEnemy = true;
+                  break;
+                }
+              }
+            }
+            if (hasAdjacentEnemy) break;
+          }
+          if (hasAdjacentEnemy) {
+            moves.push({ row, col });
+          }
+        }
+      }
+    }
+  }
+
+  // Berserker - Can move like a knight but gets stronger when damaged
+  else if (pieceType === 'berserker' || pieceName.includes('berserker')) {
+    console.log('RPG: Berserker movement - knight-like with rage ability');
+    
+    // Standard knight movement
+    const knightMoves = [
+      [-2, -1], [-2, 1],
+      [-1, -2], [-1, 2],
+      [1, -2], [1, 2],
+      [2, -1], [2, 1]
+    ];
+    
+    for (const [rowOffset, colOffset] of knightMoves) {
+      const move = {
+        row: pos.row + rowOffset,
+        col: pos.col + colOffset
+      };
+      
+      if (isValidPosition(move, boardSize)) {
+        const targetPiece = board[move.row][move.col];
+        if (!targetPiece || targetPiece.color !== piece.color) {
+          moves.push(move);
+        }
+      }
+    }
+    
+    // Rage ability - if damaged, can move to adjacent squares to attack
+    const currentHp = 'pluscurrentHp' in piece ? piece.pluscurrentHp : ('hp' in piece ? piece.hp : 100);
+    const maxHp = 'plusmaxHp' in piece ? piece.plusmaxHp : ('maxHp' in piece ? piece.maxHp : 100);
+    const isDamaged = currentHp < maxHp;
+    
+    if (isDamaged) {
+      for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+        for (let colOffset = -1; colOffset <= 1; colOffset++) {
+          if (rowOffset === 0 && colOffset === 0) continue;
+          
+          const rageMove = {
+            row: pos.row + rowOffset,
+            col: pos.col + colOffset
+          };
+          
+          if (isValidPosition(rageMove, boardSize)) {
+            const targetPiece = board[rageMove.row][rageMove.col];
+            if (targetPiece && targetPiece.color !== piece.color) {
+              moves.push(rageMove); // Can attack adjacent enemies when damaged
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Alchemist - Can move like a queen but can transform pieces
+  else if (pieceType === 'alchemist' || pieceName.includes('alchemist')) {
+    console.log('RPG: Alchemist movement - queen-like with transformation ability');
+    
+    // Standard queen movement (rook + bishop)
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Transformation ability - can move to squares adjacent to friendly pieces to "transform" them
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const transformPos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(transformPos, boardSize)) {
+          const targetPiece = board[transformPos.row][transformPos.col];
+          if (targetPiece && targetPiece.color === piece.color) {
+            moves.push(transformPos); // Can move to transform friendly pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Time Mage - Can move like a king but can rewind time (undo moves)
+  else if (pieceType === 'time_mage' || pieceName.includes('time') || pieceName.includes('time_mage')) {
+    console.log('RPG: Time Mage movement - king-like with time manipulation');
+    
+    // Standard king movement
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const move = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(move, boardSize)) {
+          const targetPiece = board[move.row][move.col];
+          if (!targetPiece || targetPiece.color !== piece.color) {
+            moves.push(move);
+          }
+        }
+      }
+    }
+    
+    // Time manipulation - can move to any square that was previously occupied (time rewind)
+    for (let row = 0; row < boardSize; row++) {
+      for (let col = 0; col < boardSize; col++) {
+        if (row === pos.row && col === pos.col) continue;
+        
+        const targetPiece = board[row][col];
+        if (!targetPiece) {
+          // Can move to empty squares (representing time manipulation)
+          moves.push({ row, col });
+        }
+      }
+    }
+  }
+
+  // Summoner - Can move like a pawn but can summon creatures
+  else if (pieceType === 'summoner' || pieceName.includes('summoner')) {
+    console.log('RPG: Summoner movement - pawn-like with summoning ability');
+    
+    const direction = piece.color === "white" ? -1 : 1;
+    const startRow = piece.color === "white" ? boardSize - 2 : 1;
+    const isInitialPosition = pos.row === startRow;
+    
+    // Standard pawn movement
+    const singleMove = { row: pos.row + direction, col: pos.col };
+    if (isValidPosition(singleMove, boardSize) && !board[singleMove.row][singleMove.col]) {
+      moves.push(singleMove);
+      
+      if (isInitialPosition && !piece.hasMoved) {
+        const doubleMove = { row: pos.row + 2 * direction, col: pos.col };
+        if (isValidPosition(doubleMove, boardSize) && !board[doubleMove.row][doubleMove.col]) {
+          moves.push(doubleMove);
+        }
+      }
+    }
+    
+    // Diagonal captures
+    for (const offsetCol of [-1, 1]) {
+      const capturePos = {
+        row: pos.row + direction,
+        col: pos.col + offsetCol
+      };
+      
+      if (isValidPosition(capturePos, boardSize)) {
+        const targetPiece = board[capturePos.row][capturePos.col];
+        if (targetPiece && targetPiece.color !== piece.color) {
+          moves.push(capturePos);
+        }
+      }
+    }
+    
+    // Summoning ability - can move to empty squares to summon creatures
+    for (let rowOffset = -2; rowOffset <= 2; rowOffset++) {
+      for (let colOffset = -2; colOffset <= 2; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const summonPos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(summonPos, boardSize)) {
+          const targetPiece = board[summonPos.row][summonPos.col];
+          if (!targetPiece) {
+            moves.push(summonPos); // Can move to empty squares to summon
+          }
+        }
+      }
+    }
+  }
+
+  // Illusionist - Can move like a bishop but can create illusions
+  else if (pieceType === 'illusionist' || pieceName.includes('illusionist')) {
+    console.log('RPG: Illusionist movement - bishop-like with illusion ability');
+    
+    // Standard bishop movement
+    const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Illusion ability - can move to squares that mirror enemy piece positions
+    for (let row = 0; row < boardSize; row++) {
+      for (let col = 0; col < boardSize; col++) {
+        if (row === pos.row && col === pos.col) continue;
+        
+        const targetPiece = board[row][col];
+        if (targetPiece && targetPiece.color !== piece.color) {
+          // Create mirror position
+          const mirrorRow = boardSize - 1 - row;
+          const mirrorCol = boardSize - 1 - col;
+          
+          if (isValidPosition({ row: mirrorRow, col: mirrorCol }, boardSize)) {
+            const mirrorPiece = board[mirrorRow][mirrorCol];
+            if (!mirrorPiece) {
+              moves.push({ row: mirrorRow, col: mirrorCol }); // Can move to mirror positions
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Goblin - Fast, weak, can move like a pawn but in any direction
+  else if (pieceType === 'goblin' || pieceName.includes('goblin')) {
+    console.log('RPG: Goblin movement - fast and weak, can move in any direction');
+    
+    // Can move 1 square in any direction (like a king but weaker)
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const move = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(move, boardSize)) {
+          const targetPiece = board[move.row][move.col];
+          if (!targetPiece || targetPiece.color !== piece.color) {
+            moves.push(move);
+          }
+        }
+      }
+    }
+    
+    // Goblin speed - can move 2 squares forward if no obstacles
+    const direction = piece.color === "white" ? -1 : 1;
+    const doubleMove = { row: pos.row + 2 * direction, col: pos.col };
+    if (isValidPosition(doubleMove, boardSize) && !board[doubleMove.row][doubleMove.col]) {
+      const singleMove = { row: pos.row + direction, col: pos.col };
+      if (isValidPosition(singleMove, boardSize) && !board[singleMove.row][singleMove.col]) {
+        moves.push(doubleMove);
+      }
+    }
+  }
+
+  // Orc - Strong, can move like a rook but with limited range
+  else if (pieceType === 'orc' || pieceName.includes('orc')) {
+    console.log('RPG: Orc movement - strong and direct, limited range rook movement');
+    
+    // Limited rook movement (max 3 squares)
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    for (const [rowDir, colDir] of directions) {
+      for (let distance = 1; distance <= 3; distance++) {
+        const move = {
+          row: pos.row + rowDir * distance,
+          col: pos.col + colDir * distance
+        };
+        
+        if (isValidPosition(move, boardSize)) {
+          const targetPiece = board[move.row][move.col];
+          if (!targetPiece) {
+            moves.push({ ...move });
+          } else {
+            if (targetPiece.color !== piece.color) {
+              moves.push({ ...move }); // Can capture
+            }
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  // Lich - Undead mage, can move like a bishop and teleport
+  else if (pieceType === 'lich' || pieceName.includes('lich')) {
+    console.log('RPG: Lich movement - undead mage with teleportation');
+    
+    // Standard bishop movement
+    const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Teleportation ability - can move to any empty square
+    for (let row = 0; row < boardSize; row++) {
+      for (let col = 0; col < boardSize; col++) {
+        if (row === pos.row && col === pos.col) continue;
+        
+        const targetPiece = board[row][col];
+        if (!targetPiece) {
+          moves.push({ row, col }); // Can teleport to empty squares
+        }
+      }
+    }
+  }
+
+  // Dragon - Powerful, can move like a queen and fly over pieces
+  else if (pieceType === 'dragon' || pieceName.includes('dragon')) {
+    console.log('RPG: Dragon movement - powerful queen-like with flight');
+    
+    // Standard queen movement (rook + bishop)
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Dragon flight - can move to any square within 2 squares (flying over pieces)
+    for (let rowOffset = -2; rowOffset <= 2; rowOffset++) {
+      for (let colOffset = -2; colOffset <= 2; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const flyMove = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(flyMove, boardSize)) {
+          const targetPiece = board[flyMove.row][flyMove.col];
+          if (!targetPiece || targetPiece.color !== piece.color) {
+            moves.push(flyMove); // Can fly over pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Troll - Slow but strong, can move like a king and regenerate
+  else if (pieceType === 'troll' || pieceName.includes('troll')) {
+    console.log('RPG: Troll movement - slow but strong with regeneration');
+    
+    // Standard king movement
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const move = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(move, boardSize)) {
+          const targetPiece = board[move.row][move.col];
+          if (!targetPiece || targetPiece.color !== piece.color) {
+            moves.push(move);
+          }
+        }
+      }
+    }
+    
+    // Troll regeneration - can move to squares adjacent to friendly pieces to heal them
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const healPos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(healPos, boardSize)) {
+          const targetPiece = board[healPos.row][healPos.col];
+          if (targetPiece && targetPiece.color === piece.color) {
+            moves.push(healPos); // Can move to heal friendly pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Vampire - Can move like a knight and drain life
+  else if (pieceType === 'vampire' || pieceName.includes('vampire')) {
+    console.log('RPG: Vampire movement - knight-like with life drain');
+    
+    // Standard knight movement
+    const knightMoves = [
+      [-2, -1], [-2, 1],
+      [-1, -2], [-1, 2],
+      [1, -2], [1, 2],
+      [2, -1], [2, 1]
+    ];
+    
+    for (const [rowOffset, colOffset] of knightMoves) {
+      const move = {
+        row: pos.row + rowOffset,
+        col: pos.col + colOffset
+      };
+      
+      if (isValidPosition(move, boardSize)) {
+        const targetPiece = board[move.row][move.col];
+        if (!targetPiece || targetPiece.color !== piece.color) {
+          moves.push(move);
+        }
+      }
+    }
+    
+    // Life drain - can move to squares adjacent to enemy pieces to drain them
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const drainPos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(drainPos, boardSize)) {
+          const targetPiece = board[drainPos.row][drainPos.col];
+          if (targetPiece && targetPiece.color !== piece.color) {
+            moves.push(drainPos); // Can move to drain enemy pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Demon - Can move like a rook and summon fire
+  else if (pieceType === 'demon' || pieceName.includes('demon')) {
+    console.log('RPG: Demon movement - rook-like with fire summoning');
+    
+    // Standard rook movement
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Fire summoning - can move to squares to create fire walls
+    for (let rowOffset = -2; rowOffset <= 2; rowOffset++) {
+      for (let colOffset = -2; colOffset <= 2; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const firePos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(firePos, boardSize)) {
+          const targetPiece = board[firePos.row][firePos.col];
+          if (!targetPiece) {
+            moves.push(firePos); // Can move to create fire
+          }
+        }
+      }
+    }
+  }
+
+  // Angel - Can move like a bishop and heal allies
+  else if (pieceType === 'angel' || pieceName.includes('angel')) {
+    console.log('RPG: Angel movement - bishop-like with healing');
+    
+    // Standard bishop movement
+    const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Healing ability - can move to squares adjacent to friendly pieces to heal them
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const healPos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(healPos, boardSize)) {
+          const targetPiece = board[healPos.row][healPos.col];
+          if (targetPiece && targetPiece.color === piece.color) {
+            moves.push(healPos); // Can move to heal friendly pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Phoenix - Can move like a queen and resurrect
+  else if (pieceType === 'phoenix' || pieceName.includes('phoenix')) {
+    console.log('RPG: Phoenix movement - queen-like with resurrection');
+    
+    // Standard queen movement (rook + bishop)
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Phoenix resurrection - can move to any square to resurrect fallen pieces
+    for (let row = 0; row < boardSize; row++) {
+      for (let col = 0; col < boardSize; col++) {
+        if (row === pos.row && col === pos.col) continue;
+        
+        const targetPiece = board[row][col];
+        if (!targetPiece) {
+          moves.push({ row, col }); // Can move to resurrect
+        }
+      }
+    }
+  }
+
+  // Griffin - Can move like a knight and fly
+  else if (pieceType === 'griffin' || pieceName.includes('griffin')) {
+    console.log('RPG: Griffin movement - knight-like with flight');
+    
+    // Standard knight movement
+    const knightMoves = [
+      [-2, -1], [-2, 1],
+      [-1, -2], [-1, 2],
+      [1, -2], [1, 2],
+      [2, -1], [2, 1]
+    ];
+    
+    for (const [rowOffset, colOffset] of knightMoves) {
+      const move = {
+        row: pos.row + rowOffset,
+        col: pos.col + colOffset
+      };
+      
+      if (isValidPosition(move, boardSize)) {
+        const targetPiece = board[move.row][move.col];
+        if (!targetPiece || targetPiece.color !== piece.color) {
+          moves.push(move);
+        }
+      }
+    }
+    
+    // Griffin flight - can move to any square within 3 squares (flying over pieces)
+    for (let rowOffset = -3; rowOffset <= 3; rowOffset++) {
+      for (let colOffset = -3; colOffset <= 3; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const flyMove = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(flyMove, boardSize)) {
+          const targetPiece = board[flyMove.row][flyMove.col];
+          if (!targetPiece || targetPiece.color !== piece.color) {
+            moves.push(flyMove); // Can fly over pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Wyvern - Can move like a bishop and poison
+  else if (pieceType === 'wyvern' || pieceName.includes('wyvern')) {
+    console.log('RPG: Wyvern movement - bishop-like with poison');
+    
+    // Standard bishop movement
+    const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Poison ability - can move to squares adjacent to enemy pieces to poison them
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const poisonPos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(poisonPos, boardSize)) {
+          const targetPiece = board[poisonPos.row][poisonPos.col];
+          if (targetPiece && targetPiece.color !== piece.color) {
+            moves.push(poisonPos); // Can move to poison enemy pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Elemental - Can move like a queen and control elements
+  else if (pieceType === 'elemental' || pieceName.includes('elemental')) {
+    console.log('RPG: Elemental movement - queen-like with element control');
+    
+    // Standard queen movement (rook + bishop)
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Element control - can move to any square to manipulate elements
+    for (let row = 0; row < boardSize; row++) {
+      for (let col = 0; col < boardSize; col++) {
+        if (row === pos.row && col === pos.col) continue;
+        
+        const targetPiece = board[row][col];
+        if (!targetPiece) {
+          moves.push({ row, col }); // Can move to control elements
+        }
+      }
+    }
+  }
+
+  // Warlock - Can move like a rook and cast curses
+  else if (pieceType === 'warlock' || pieceName.includes('warlock')) {
+    console.log('RPG: Warlock movement - rook-like with curses');
+    
+    // Standard rook movement
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    for (const [rowDir, colDir] of directions) {
+      let currPos = {
+        row: pos.row + rowDir,
+        col: pos.col + colDir
+      };
+      
+      while (isValidPosition(currPos, boardSize)) {
+        const targetPiece = board[currPos.row][currPos.col];
+        
+        if (!targetPiece) {
+          moves.push({ ...currPos });
+        } else {
+          if (targetPiece.color !== piece.color) {
+            moves.push({ ...currPos }); // Can capture
+          }
+          break;
+        }
+        
+        currPos = {
+          row: currPos.row + rowDir,
+          col: currPos.col + colDir
+        };
+      }
+    }
+    
+    // Curse casting - can move to squares to cast curses
+    for (let rowOffset = -2; rowOffset <= 2; rowOffset++) {
+      for (let colOffset = -2; colOffset <= 2; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const cursePos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(cursePos, boardSize)) {
+          const targetPiece = board[cursePos.row][cursePos.col];
+          if (!targetPiece) {
+            moves.push(cursePos); // Can move to cast curses
+          }
+        }
+      }
+    }
+  }
+
+  // Paladin - Can move like a knight and protect allies
+  else if (pieceType === 'paladin' || pieceName.includes('paladin')) {
+    console.log('RPG: Paladin movement - knight-like with protection');
+    
+    // Standard knight movement
+    const knightMoves = [
+      [-2, -1], [-2, 1],
+      [-1, -2], [-1, 2],
+      [1, -2], [1, 2],
+      [2, -1], [2, 1]
+    ];
+    
+    for (const [rowOffset, colOffset] of knightMoves) {
+      const move = {
+        row: pos.row + rowOffset,
+        col: pos.col + colOffset
+      };
+      
+      if (isValidPosition(move, boardSize)) {
+        const targetPiece = board[move.row][move.col];
+        if (!targetPiece || targetPiece.color !== piece.color) {
+          moves.push(move);
+        }
+      }
+    }
+    
+    // Protection ability - can move to squares adjacent to friendly pieces to protect them
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const protectPos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(protectPos, boardSize)) {
+          const targetPiece = board[protectPos.row][protectPos.col];
+          if (targetPiece && targetPiece.color === piece.color) {
+            moves.push(protectPos); // Can move to protect friendly pieces
+          }
+        }
+      }
+    }
+  }
+
+  // Ranger - Can move like a pawn and shoot arrows
+  else if (pieceType === 'ranger' || pieceName.includes('ranger')) {
+    console.log('RPG: Ranger movement - pawn-like with archery');
+    
+    const direction = piece.color === "white" ? -1 : 1;
+    const startRow = piece.color === "white" ? boardSize - 2 : 1;
+    const isInitialPosition = pos.row === startRow;
+    
+    // Standard pawn movement
+    const singleMove = { row: pos.row + direction, col: pos.col };
+    if (isValidPosition(singleMove, boardSize) && !board[singleMove.row][singleMove.col]) {
+      moves.push(singleMove);
+      
+      if (isInitialPosition && !piece.hasMoved) {
+        const doubleMove = { row: pos.row + 2 * direction, col: pos.col };
+        if (isValidPosition(doubleMove, boardSize) && !board[doubleMove.row][doubleMove.col]) {
+          moves.push(doubleMove);
+        }
+      }
+    }
+    
+    // Diagonal captures
+    for (const offsetCol of [-1, 1]) {
+      const capturePos = {
+        row: pos.row + direction,
+        col: pos.col + offsetCol
+      };
+      
+      if (isValidPosition(capturePos, boardSize)) {
+        const targetPiece = board[capturePos.row][capturePos.col];
+        if (targetPiece && targetPiece.color !== piece.color) {
+          moves.push(capturePos);
+        }
+      }
+    }
+    
+    // Archery ability - can move to squares to shoot arrows
+    for (let rowOffset = -3; rowOffset <= 3; rowOffset++) {
+      for (let colOffset = -3; colOffset <= 3; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const arrowPos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(arrowPos, boardSize)) {
+          const targetPiece = board[arrowPos.row][arrowPos.col];
+          if (!targetPiece) {
+            moves.push(arrowPos); // Can move to shoot arrows
+          }
+        }
+      }
+    }
+  }
+
+  // Bard - Can move like a king and inspire allies
+  else if (pieceType === 'bard' || pieceName.includes('bard')) {
+    console.log('RPG: Bard movement - king-like with inspiration');
+    
+    // Standard king movement
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const move = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(move, boardSize)) {
+          const targetPiece = board[move.row][move.col];
+          if (!targetPiece || targetPiece.color !== piece.color) {
+            moves.push(move);
+          }
+        }
+      }
+    }
+    
+    // Inspiration ability - can move to squares adjacent to friendly pieces to inspire them
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        
+        const inspirePos = {
+          row: pos.row + rowOffset,
+          col: pos.col + colOffset
+        };
+        
+        if (isValidPosition(inspirePos, boardSize)) {
+          const targetPiece = board[inspirePos.row][inspirePos.col];
+          if (targetPiece && targetPiece.color === piece.color) {
+            moves.push(inspirePos); // Can move to inspire friendly pieces
+          }
+        }
+      }
+    }
+  }
+
   // Default fallback - if no custom pattern matches, use standard movement
   else {
     console.log('RPG: No custom pattern found, using standard movement');
