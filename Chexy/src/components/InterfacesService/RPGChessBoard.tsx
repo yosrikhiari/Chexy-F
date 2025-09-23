@@ -71,6 +71,10 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     piece: EnhancedRPGPiece;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [difficulty, setDifficulty] = useState<number>(() => {
+    const wins = Number(localStorage.getItem('rpgWins') || '0');
+    return Math.min(10, 1 + wins);
+  });
   const [playerId, setPlayerId] = useState<string | null>(JwtService.getKeycloakId());
 
   useEffect(() => {
@@ -100,6 +104,8 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     };
     init();
   }, [gameState.gameid, gameSessionId, playerId]);
+
+  
 
   const initializeBoard = async (rpgGameState: RPGGameState) => {
     const size = rpgGameState.boardSize;
@@ -526,10 +532,10 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         // For RPG mode, use the calculated moves directly without backend validation
         setValidMoves(moves);
       } else {
-        console.log('Cannot select piece:', { 
-          hasPiece: !!clickedPiece, 
-          pieceColor: clickedPiece?.color, 
-          currentPlayer 
+        console.log('Cannot select piece:', {
+          hasPiece: !!clickedPiece,
+          pieceColor: clickedPiece?.color,
+          currentPlayer
         });
       }
       return;
@@ -680,6 +686,11 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         setWinner(currentPlayer);
         onBattleComplete(currentPlayer === "white");
         await rpgGameService.endRPGGame(gameState.gameid, currentPlayer === "white");
+        if (currentPlayer === 'white') {
+          const wins = Number(localStorage.getItem('rpgWins') || '0') + 1;
+          localStorage.setItem('rpgWins', String(wins));
+          setDifficulty(Math.min(10, 1 + wins));
+        }
         // broadcasting disabled
         return;
       }
@@ -700,9 +711,14 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
 
       setCurrentPlayer(opponentColor);
 
-      if (opponentColor === "black") {
+      if (opponentColor === 'black') {
+        console.log('[RPG] Triggering AI move for RPGBOTID after player move');
         setTimeout(() => {
-          makeAIMove(currentBoard);
+          try {
+            makeAIMove(currentBoard, 'black');
+          } catch (e) {
+            console.error('[RPG] Failed to invoke makeAIMove:', e);
+          }
         }, 500);
       }
     } catch (err) {
@@ -711,33 +727,94 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     }
   };
 
-  const makeAIMove = async (currentBoard: (EnhancedRPGPiece | null)[][]) => {
+  const makeAIMove = async (currentBoard: (EnhancedRPGPiece | null)[][], movingColor: PieceColor = 'black') => {
     if (!playerId) return;
     try {
-      const enemyPieces = currentBoard
+      const isEnemyPiece = (p: EnhancedRPGPiece | null) => !!p && (p.id === 'RPGBOTID' || p.color === 'black');
+      const enemyByIdCount = currentBoard.flat().filter((p) => p && (p as any).id === 'RPGBOTID').length;
+      const enemyBlackCount = currentBoard.flat().filter((p) => p && (p as any).color === 'black').length;
+      console.log('[RPG] Enemy counts', { enemyByIdCount, enemyBlackCount });
+      console.log('[RPG] makeAIMove start', { movingColor, difficulty, boardSize: gameState.boardSize });
+      const movingPieces = currentBoard
         .flat()
-        .filter((p): p is EnhancedRPGPiece => p !== null && p.color === "black");
-      const playerPieces = currentBoard
+        .filter((p): p is EnhancedRPGPiece => isEnemyPiece(p));
+      const opponentPieces = currentBoard
         .flat()
-        .filter((p): p is EnhancedRPGPiece => p !== null && p.color === "white");
+        .filter((p): p is EnhancedRPGPiece => p !== null && !isEnemyPiece(p));
+      console.log('[RPG] Pieces snapshot', {
+        enemyCount: movingPieces.length,
+        playerCount: opponentPieces.length,
+      });
       const strategy = await AIService.getAIStrategy(gameState.currentRound, gameState.playerArmy.length);
+      console.log('[RPG] Using AI strategy', strategy);
 
       const aiMove = await AIService.calculateAIMove(
         currentBoard,
-        enemyPieces,
-        playerPieces,
-        strategy, // Pass strategy directly
+        movingPieces,
+        opponentPieces,
+        strategy,
         gameState.boardSize,
         gameState.currentRound,
         gameSessionId,
         "SINGLE_PLAYER_RPG",
-        playerId
+        playerId,
+        difficulty
       );
 
-      // Rest of the function remains unchanged...
+      if (aiMove) {
+        const { from, to } = aiMove;
+        console.log('[RPG] AI suggested move', { from, to });
+        const inBounds = (p: BoardPosition) => p.row >= 0 && p.row < gameState.boardSize && p.col >= 0 && p.col < gameState.boardSize;
+        const fromPiece = inBounds(from) ? currentBoard[from.row][from.col] : null;
+        if (fromPiece && isEnemyPiece(fromPiece)) {
+          console.log(`RPG AI Move: ${from.row},${from.col} -> ${to.row},${to.col}`);
+          await makeMove(from, to);
+        } else {
+          console.warn('[RPG] AI move invalid or piece missing; selecting fallback RPGBOTID/black move', {
+            inBounds: inBounds(from),
+            fromPiece,
+          });
+          const possibleMoves: { from: BoardPosition; to: BoardPosition }[] = [];
+          for (let row = 0; row < gameState.boardSize; row++) {
+            for (let col = 0; col < gameState.boardSize; col++) {
+              const piece = currentBoard[row][col];
+              if (isEnemyPiece(piece)) {
+                const pieceColor = piece.color as PieceColor;
+                const moves = calculateRPGValidMoves({ row, col }, currentBoard, pieceColor, gameState.boardSize, gameStateInfo.enPassantTarget);
+                moves.forEach((m) => possibleMoves.push({ from: { row, col }, to: m }));
+              }
+            }
+          }
+          console.log('[RPG] Fallback move candidates', possibleMoves.length);
+          if (possibleMoves.length === 0) {
+            // Secondary fallback: strictly black color
+            for (let row = 0; row < gameState.boardSize; row++) {
+              for (let col = 0; col < gameState.boardSize; col++) {
+                const piece = currentBoard[row][col];
+                if (piece && piece.color === 'black') {
+                  const moves = calculateRPGValidMoves({ row, col }, currentBoard, 'black', gameState.boardSize, gameStateInfo.enPassantTarget);
+                  moves.forEach((m) => possibleMoves.push({ from: { row, col }, to: m }));
+                }
+              }
+            }
+            console.log('[RPG] Secondary fallback candidates', possibleMoves.length);
+          }
+          if (possibleMoves.length > 0) {
+            const randomMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+            console.log('[RPG] Executing fallback move', randomMove);
+            await makeMove(randomMove.from, randomMove.to);
+          }
+        }
+      } else {
+        console.log("No AI move available - game over");
+        setGameOver(true);
+        setWinner("white");
+        onBattleComplete(true);
+        await rpgGameService.endRPGGame(gameState.gameid, true);
+      }
     } catch (err) {
       setError(`Failed to execute AI move: ${(err as Error).message}`);
-      console.error(err);
+      console.error('[RPG] makeAIMove error', err);
     }
   };
 
@@ -844,11 +921,14 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
           <p className="text-xs text-muted-foreground">
             Board Size: {gameState.boardSize}x{gameState.boardSize}
           </p>
+          <p className="text-xs text-muted-foreground">Difficulty: {difficulty}</p>
         </div>
-        <Button variant="outline" onClick={resetBoard}>
-          <RotateCcw className="h-4 w-4 mr-2" />
-          Reset
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={resetBoard}>
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Reset
+          </Button>
+        </div>
       </div>
 
       <Card>

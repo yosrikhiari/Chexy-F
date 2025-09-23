@@ -131,8 +131,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
         winnerId = session.whitePlayer?.userId || "";
         winnerName = session.whitePlayer?.username || whitePlayerName;
       } else {
-        // blackPlayer is an array, get the first player
-        const blackPlayer = session.blackPlayer && session.blackPlayer.length > 0 ? session.blackPlayer[0] : null;
+        const blackPlayer = session.blackPlayer;
         winnerId = blackPlayer?.userId || "BOT";
         winnerName = blackPlayer?.username || blackPlayerName;
       }
@@ -260,8 +259,7 @@ const ChessTimer: React.FC<ChessTimerProps> = ({
 
         setGameMode(session.gameMode);
         setWhitePlayerName(session.whitePlayer?.username || 'White');
-        // blackPlayer is an array, get the first player's username
-        const blackPlayer = session.blackPlayer && session.blackPlayer.length > 0 ? session.blackPlayer[0] : null;
+        const blackPlayer = session.blackPlayer;
         setBlackPlayerName(blackPlayer?.username || 'Bot');
 
         // Initialize timers from session if not already set

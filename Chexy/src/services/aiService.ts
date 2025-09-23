@@ -20,7 +20,7 @@ export class AIService {
     activeCapacityModifiers: CapacityModifier[] = []
   ): Promise<EnhancedRPGPiece[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/enemy-army`, {
+      const response = await fetch(`${this.baseUrl}/api/enemy-army`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ round, boardSize, activeModifiers, activeCapacityModifiers })
@@ -36,7 +36,7 @@ export class AIService {
   // Other methods remain unchanged
   static async getAIStrategy(round: number, playerArmySize: number): Promise<AIStrategy> {
     try {
-      const response = await fetch(`${this.baseUrl}/ai-strategy`, {
+      const response = await fetch(`${this.baseUrl}/api/ai-strategy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ round, playerArmySize })
@@ -58,32 +58,86 @@ export class AIService {
     round: number,
     gameId: string,
     gameMode: string,
-    playerId?: string
-  ): Promise<{ from: BoardPosition; to: BoardPosition } | null> {
+    playerId?: string,
+    difficulty?: number
+  ):  Promise<{ from: BoardPosition; to: BoardPosition } | null>{
     try {
-      const response = await fetch(`${this.baseUrl}/ai-move`, {
+      // Convert board to the format expected by Python backend
+      const boardData = board.map(row =>
+        row.map(piece => piece ? {
+          id: piece.id,
+          type: piece.type,
+          color: piece.color,
+          name: piece.name,
+          hp: piece.pluscurrentHp || piece.hp,
+          maxHp: piece.plusmaxHp || piece.maxHp,
+          attack: piece.plusattack || piece.attack,
+          defense: piece.plusdefense || piece.defense,
+          specialAbility: piece.specialAbility,
+          rarity: piece.rarity,
+          hasMoved: piece.hasMoved
+        } : null)
+      );
+
+      const response = await fetch(`${this.baseUrl}/api/ai-move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          board,
-          enemyPieces,
-          playerPieces,
+          board: boardData,
+          enemyPieces: enemyPieces.map(p => ({
+            id: p.id,
+            type: p.type,
+            color: p.color,
+            name: p.name,
+            hp: p.pluscurrentHp || p.hp,
+            maxHp: p.plusmaxHp || p.maxHp,
+            attack: p.plusattack || p.attack,
+            defense: p.plusdefense || p.defense,
+            specialAbility: p.specialAbility,
+            rarity: p.rarity
+          })),
+          playerPieces: playerPieces.map(p => ({
+            id: p.id,
+            type: p.type,
+            color: p.color,
+            name: p.name,
+            hp: p.pluscurrentHp || p.hp,
+            maxHp: p.plusmaxHp || p.maxHp,
+            attack: p.plusattack || p.attack,
+            defense: p.plusdefense || p.defense,
+            specialAbility: p.specialAbility,
+            rarity: p.rarity
+          })),
           strategy,
           boardSize,
           round,
           gameId,
           gameMode,
-          playerId
+          playerId,
+          difficulty
         })
       });
+
+      if (!response.ok) {
+        throw new Error(`AI service returned ${response.status}`);
+      }
+
       const data = await response.json();
-      return data.move ? {
-        from: { row: data.from.row, col: data.from.col },
-        to: { row: data.to.row, col: data.to.col }
-      } : null;
+
+      if (data && data.move) {
+        console.log(`RPG AI Move: ${data.pieceName} (${data.pieceType}) - ${data.reasoning}`);
+        console.log(`Confidence: ${data.confidence}, Difficulty: ${data.difficulty}`);
+
+        return {
+          from: { row: data.move.from.row, col: data.move.from.col },
+          to: { row: data.move.to.row, col: data.move.to.col }
+        };
+      }
+
+      return null;
     } catch (error) {
-      console.error('Error calculating AI move:', error);
-      throw new Error('Failed to calculate AI move');
+      console.error('Error calculating RPG AI move:', error);
+      throw new Error('Failed to calculate RPG AI move');
     }
   }
 
@@ -185,7 +239,7 @@ export class AIService {
       const fen = this.convertBoardToFEN(session.board, color === 'white' ? 'w' : 'b');
 
       // Call the AI service with botPoints
-      const response = await fetch(`${AIService.baseUrl}/classic/ai-move`, {
+      const response = await fetch(`${AIService.baseUrl}/api/classic/ai-move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,7 +266,7 @@ export class AIService {
       const isCheck = await chessGameService.isCheck(gameId, color);
       if (isCheck) {
         console.log("[Bot] Checkmate detected");
-        const blackP = Array.isArray(session.blackPlayer) ? session.blackPlayer[0] : (session as any).blackPlayer;
+        const blackP = session.blackPlayer;
         await gameSessionService.endGame(gameId, color === "white" ? blackP?.userId : session.whitePlayer.userId);
       } else {
         console.log("[Bot] Stalemate detected");
@@ -293,7 +347,7 @@ export class AIService {
   async updateAndDetectOpening(gameId: string, moves: { from: BoardPosition; to: BoardPosition }[]): Promise<ChessOpening | null> {
     try {
       console.log("API call with moves:", moves); // Debug log
-      const response = await fetch(`${AIService.baseUrl}/detect-opening`, {
+      const response = await fetch(`${AIService.baseUrl}/api/detect-opening`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ moves, gameId }),
@@ -311,6 +365,8 @@ export class AIService {
       return null;
     }
   }
+
+
 }
 
 

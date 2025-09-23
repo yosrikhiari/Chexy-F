@@ -109,9 +109,7 @@ const SpectatePage: React.FC = () => {
     // Set up player stats with actual user points
     if (sessionToUse) {
       const whitePlayer = sessionToUse.whitePlayer;
-      const blackPlayer = Array.isArray(sessionToUse.blackPlayer)
-        ? sessionToUse.blackPlayer[0]
-        : sessionToUse.blackPlayer;
+      const blackPlayer = sessionToUse.blackPlayer;
 
       try {
         // Fetch actual user points for both players

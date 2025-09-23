@@ -9,7 +9,8 @@ import {GameMode} from '@/Interfaces/enums/GameMode.ts';
 export interface GameSession {
   gameId: string;
   whitePlayer: PlayerSessionInfo;
-  blackPlayer: PlayerSessionInfo[];
+  blackPlayer: PlayerSessionInfo;
+  otherPlayers?: PlayerSessionInfo[];
   gameMode?: GameMode;
   isRankedMatch: boolean;
   isPrivate: boolean;

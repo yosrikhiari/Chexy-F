@@ -50,8 +50,7 @@ const PlayerInfo: React.FC<PlayerInfoProps> = ({
         // Fetch game session data if gameId is provided
         if (gameId) {
           const gameSession: GameSession = await gameSessionService.getGameSession(gameId);
-          const player = color === "white" ? gameSession.whitePlayer : 
-            (Array.isArray(gameSession.blackPlayer) ? gameSession.blackPlayer[0] : gameSession.blackPlayer);
+          const player = color === "white" ? gameSession.whitePlayer : gameSession.blackPlayer;
 
           if (player && !Array.isArray(player)) {
             // Set display name with fallback chain
