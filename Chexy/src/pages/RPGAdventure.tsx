@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Sword, Shield, Heart, Zap, ShoppingCart, Coins, Crown, Star, Sparkles } from "lucide-react";
 import { EnhancedGameState, DynamicBoardModifier } from "@/Interfaces/types/enhancedRpgChess";
+import { RPGPiece, RPGModifier, RPGBoardModifier, CapacityModifier } from "@/Interfaces/types/rpgChess";
 import { ShopItem } from "@/Interfaces/shopItems";
 import { STARTER_PIECES, ROUND_OBJECTIVES } from "@/utils/rpgChessConstants";
 import RPGPieceCard from "@/components/InterfacesService/RPGPieceCard";
@@ -28,6 +29,82 @@ const RPGAdventure = () => {
   const [availableRewards, setAvailableRewards] = useState<DynamicBoardModifier[]>([]);
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
   const [session, setSession] = useState<any>(null);
+
+  const getPieceKey = (p: any) => `${(p.name||'').toLowerCase()}|${(p.type||'').toLowerCase()}`;
+
+  const levelUpPieceStats = (p: any, newLevel: number) => {
+    const name = (p.name||'').toLowerCase();
+    const type = (p.type||'').toLowerCase();
+    const nature: 'tank' | 'assassin' | 'caster' = name.includes('guard') || type === 'rook' ? 'tank' : (name.includes('rider') || type === 'knight') ? 'assassin' : 'caster';
+    const baseHp = p.plusmaxHp ?? p.maxHp ?? 10;
+    const baseAtk = p.plusattack ?? p.attack ?? 5;
+    const baseDef = p.plusdefense ?? p.defense ?? 5;
+    let hp = baseHp;
+    let atk = baseAtk;
+    let def = baseDef;
+    // Incremental growth per level gained (relative to level 1)
+    const gains = Math.max(0, newLevel - (p.pluslevel ?? 1));
+    for (let i = 0; i < gains; i++) {
+      if (nature === 'tank') { hp += 2; def += 1; }
+      else if (nature === 'assassin') { atk += 2; }
+      else { atk += 1; def += 1; }
+    }
+    return { plusmaxHp: hp, plusattack: atk, plusdefense: def, pluscurrentHp: Math.min(p.pluscurrentHp ?? hp, hp) };
+  };
+
+  const applyLeveling = () => {
+    setGameState((prev) => {
+      if (!prev) return prev as any;
+      const pieces = [...prev.playerArmy];
+      const buckets: Record<string, number[]> = {};
+      // map piece key to indices
+      pieces.forEach((p, idx) => {
+        const key = getPieceKey(p);
+        if (!buckets[key]) buckets[key] = [];
+        buckets[key].push(idx);
+      });
+      const toRemove = new Set<number>();
+      // consume duplicates to level up: need currentLevel pieces to reach next
+      Object.values(buckets).forEach((indices) => {
+        // work on a queue of indices sorted by current level (lowest first)
+        indices.sort((a,b) => (pieces[a].pluslevel ?? 1) - (pieces[b].pluslevel ?? 1));
+        while (indices.length > 0) {
+          const firstIdx = indices.shift()!;
+          const piece = pieces[firstIdx];
+          const currentLevel = piece.pluslevel ?? 1;
+          const need = currentLevel; // need N copies at this level to upgrade to level+1
+          const group = [firstIdx];
+          // find (need-1) more pieces with the same level
+          for (let i = indices.length - 1; i >= 0 && group.length < need; i--) {
+            const idx = indices[i];
+            if ((pieces[idx].pluslevel ?? 1) === currentLevel) {
+              group.push(idx);
+              indices.splice(i,1);
+            }
+          }
+          if (group.length === need) {
+            // perform upgrade
+            const newLevel = currentLevel + 1;
+            const updatedStats = levelUpPieceStats(piece as any, newLevel);
+            pieces[firstIdx] = {
+              ...piece,
+              pluslevel: newLevel,
+              plusexperience: 0,
+              ...updatedStats,
+              // unlock ultimate at level 5
+              specialAbility: newLevel >= 5 ? (piece.specialAbility || 'Ultimate Unleashed') : piece.specialAbility,
+            } as any;
+            // mark others for removal
+            group.slice(1).forEach(i => toRemove.add(i));
+            // reinsert upgraded piece index at correct position for potential further upgrades
+            indices.unshift(firstIdx);
+          }
+        }
+      });
+      const newArmy = pieces.filter((_, idx) => !toRemove.has(idx));
+      return { ...prev, playerArmy: newArmy } as any;
+    });
+  };
 
   // Initialize game state with backend
   useEffect(() => {
@@ -81,10 +158,7 @@ const RPGAdventure = () => {
   const openShop = async () => {
     try {
       // Assume a backend method exists to fetch shop items; mock for now
-      const items = await rpgGameService.getRPGGame(gameState.gameid).then((state) => {
-        // Placeholder: Fetch shop items from backend or generate locally if service unavailable
-        return generateShopItems(state.coins);
-      });
+      const items = generateShopItems(gameState.coins);
       setShopItems(items);
       setGamePhase("shop");
     } catch (error) {
@@ -95,13 +169,52 @@ const RPGAdventure = () => {
   const handlePurchase = async (item: ShopItem) => {
     if (gameState.coins < item.cost) return;
 
-    try {
-      const updatedState = await rpgGameService.purchaseShopItem(gameState.gameid, item.id, userInfo.id);
-      setGameState(updatedState as EnhancedGameState);
-      setShopItems((prev) => prev.filter((shopItem) => shopItem.id !== item.id));
-    } catch (error) {
-      console.error("Purchase failed:", error);
-    }
+    // Temporarily disable backend purchase to avoid 400 spam; apply locally
+    setGameState((prev) => {
+      if (!prev) return prev as any;
+      const next: EnhancedGameState = { ...prev } as any;
+      next.coins = Math.max(0, (prev.coins || 0) - item.cost);
+      if (item.type === "piece") {
+        const base = item.item as any;
+        // Normalize purchased piece to EnhancedRPG fields so UI shows correct stats
+        const normalized = {
+          ...base,
+          pluscurrentHp: base.pluscurrentHp ?? base.hp,
+          plusmaxHp: base.plusmaxHp ?? base.maxHp,
+          plusattack: base.plusattack ?? base.attack,
+          plusdefense: base.plusdefense ?? base.defense,
+          pluslevel: base.pluslevel ?? 1,
+          plusexperience: base.plusexperience ?? 0,
+        } as any;
+        next.playerArmy = [...prev.playerArmy, normalized];
+      } else if (item.type === "modifier") {
+        next.activeModifiers = [...(prev.activeModifiers || []), { ...(item.item as any), isActive: true }];
+        // Apply known modifier effects immediately
+        const modName = ((item.item as any).name || '').toLowerCase();
+        if (modName.includes('tome of power')) {
+          // +2 attack to all allies
+          next.playerArmy = prev.playerArmy.map((p: any) => ({
+            ...p,
+            plusattack: ((p.plusattack ?? p.attack ?? 0) + 2)
+          }));
+        }
+      } else if (item.type === "board_modifier") {
+        next.activeBoardModifiers = [...(prev.activeBoardModifiers || []), { ...(item.item as any), isActive: true }];
+        const bmodName = ((item.item as any).name || '').toLowerCase();
+        if (bmodName.includes('ward stone')) {
+          // Simple effect: increase portal pairs availability indicator
+          next.teleportPortals = (prev.teleportPortals || 0) + 1;
+        }
+      } else if (item.type === "capacity_modifier") {
+        next.activeCapacityModifiers = [...(prev.activeCapacityModifiers || []), item.item as any];
+        // Recompute capacity when bonuses change
+        next.armyCapacity = calculateArmyCapacity(prev.boardSize, next.activeCapacityModifiers || []);
+      }
+      return next;
+    });
+    setShopItems((prev) => prev.filter((shopItem) => shopItem.id !== item.id));
+    // auto-apply leveling after purchases
+    applyLeveling();
   };
 
   const startBattle = async () => {
@@ -171,8 +284,7 @@ const RPGAdventure = () => {
       setGameState(updatedState);
       setGamePhase("preparation");
       setAvailableRewards([]);
-      // Sync with backend (add a service call if available)
-      await rpgGameService.addBoardEffect(gameState.gameid, reward, userInfo.id);
+      // Skip backend sync to avoid 400s; can re-enable when API supports it
     } catch (error) {
       console.error("Failed to select reward:", error);
     }
@@ -355,7 +467,7 @@ const RPGAdventure = () => {
               🧙 Adventurer: <span className="font-bold text-yellow-300">{userInfo.name}</span>
             </p>
             <p className="text-xs text-indigo-300">⭐ Score: {gameState.score}</p>
-            <p className="text-xs text-indigo-300">🎯 Difficulty: {gameState.difficulty.toFixed(1)}</p>
+            <p className="text-xs text-indigo-300">🎯 Difficulty: {Number(gameState.difficulty ?? 1).toFixed(1)}</p>
           </div>
         </div>
 
@@ -629,8 +741,149 @@ const RPGAdventure = () => {
 
 export default RPGAdventure;
 
-// Placeholder for generateShopItems (should be defined in utils or fetched from backend)
+// Client-side shop generator MVP
 const generateShopItems = (coins: number): ShopItem[] => {
-  // Mock implementation; replace with actual backend call or logic
-  return [];
+  const items: ShopItem[] = [];
+
+  // Pieces
+  const shadowSeer: RPGPiece = {
+    id: `shop-piece-seer-${Date.now()}`,
+    type: "bishop" as any,
+    color: "white" as any,
+    name: "Shadow Seer",
+    description: "A seer with board-wide vision. Reduced damage but high mobility.",
+    specialAbility: "Blink",
+    hp: 10,
+    maxHp: 10,
+    attack: 4,
+    defense: 4,
+    rarity: "epic" as any,
+    position: undefined,
+    hasMoved: false,
+    isJoker: false,
+  } as any;
+
+  const obsidianGuard: RPGPiece = {
+    id: `shop-piece-guard-${Date.now()}`,
+    type: "rook" as any,
+    color: "white" as any,
+    name: "Obsidian Guard",
+    description: "Immovable sentinel. Strong defense and rook-like control.",
+    specialAbility: "Guard",
+    hp: 14,
+    maxHp: 14,
+    attack: 5,
+    defense: 7,
+    rarity: "rare" as any,
+    position: undefined,
+    hasMoved: false,
+    isJoker: false,
+  } as any;
+
+  const darkRider: RPGPiece = {
+    id: `shop-piece-rider-${Date.now()}`,
+    type: "knight" as any,
+    color: "white" as any,
+    name: "Dark Rider",
+    description: "Swift striker. Knight jumps and agile attacks.",
+    specialAbility: "Lunge",
+    hp: 11,
+    maxHp: 11,
+    attack: 6,
+    defense: 4,
+    rarity: "rare" as any,
+    position: undefined,
+    hasMoved: false,
+    isJoker: false,
+  } as any;
+
+  // Modifiers
+  const powerTome: RPGModifier = {
+    id: `shop-mod-power-${Date.now()}`,
+    name: "Tome of Power",
+    description: "+2 attack to all allies",
+    effect: "+2 ATTACK",
+    isPermanent: true,
+    rarity: "epic" as any,
+  } as any;
+
+  const wardStone: RPGBoardModifier = {
+    id: `shop-bmod-ward-${Date.now()}`,
+    name: "Ward Stone",
+    description: "Create protective wards on the board",
+    effect: "+2 defensive tiles",
+    boardSizeModifier: 0,
+    rarity: "rare" as any,
+  } as any;
+
+  const commandBanner: CapacityModifier = {
+    id: `shop-cap-banner-${Date.now()}`,
+    name: "Command Banner",
+    description: "+1 total army capacity",
+    type: "total_capacity" as any,
+    capacityBonus: 1,
+    rarity: "common" as any,
+  } as any;
+
+  const catalog: ShopItem[] = [
+    {
+      id: shadowSeer.id,
+      name: shadowSeer.name,
+      description: shadowSeer.description,
+      cost: 35,
+      type: "piece",
+      rarity: "epic",
+      item: shadowSeer,
+    },
+    {
+      id: obsidianGuard.id,
+      name: obsidianGuard.name,
+      description: obsidianGuard.description,
+      cost: 28,
+      type: "piece",
+      rarity: "rare",
+      item: obsidianGuard,
+    },
+    {
+      id: darkRider.id,
+      name: darkRider.name,
+      description: darkRider.description,
+      cost: 25,
+      type: "piece",
+      rarity: "rare",
+      item: darkRider,
+    },
+    {
+      id: powerTome.id,
+      name: powerTome.name,
+      description: powerTome.description,
+      cost: 30,
+      type: "modifier",
+      rarity: "epic",
+      item: powerTome,
+    },
+    {
+      id: wardStone.id,
+      name: wardStone.name,
+      description: wardStone.description,
+      cost: 18,
+      type: "board_modifier",
+      rarity: "rare",
+      item: wardStone,
+    },
+    {
+      id: commandBanner.id,
+      name: commandBanner.name,
+      description: commandBanner.description,
+      cost: 12,
+      type: "capacity_modifier",
+      rarity: "common",
+      item: commandBanner,
+    },
+  ];
+
+  // Show up to 6 items, filter based on affordability to ensure at least 3 options
+  const affordable = catalog.filter((i) => i.cost <= coins);
+  if (affordable.length >= 3) return affordable.slice(0, 6);
+  return catalog.slice(0, 6);
 };

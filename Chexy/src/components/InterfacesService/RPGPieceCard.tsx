@@ -35,6 +35,11 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
   // Fetch updated piece data and validate game session
   useEffect(() => {
     const fetchPieceData = async () => {
+      // For locally purchased/shop pieces or enhanced RPG context, trust local state and skip server overrides
+      const isShopItem = (piece?.id || '').toString().startsWith('shop-');
+      if (isShopItem || gameMode === 'ENHANCED_RPG') {
+        return;
+      }
       if (!gameId || !playerId || !authService.isLoggedIn()) {
         if (!authService.isLoggedIn()) {
           toast.error("Please log in to continue");
@@ -52,8 +57,16 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
         ].find((p) => p.id === piece.id);
 
         if (updatedPiece) {
-          setCurrentPiece(updatedPiece);
-          onPieceUpdate?.(updatedPiece);
+          // Merge server piece but prefer any enhanced fields from currentPiece to avoid losing local boosts
+          const merged: any = {
+            ...updatedPiece,
+            pluscurrentHp: (currentPiece as any).pluscurrentHp ?? (updatedPiece as any).pluscurrentHp ?? updatedPiece.hp,
+            plusmaxHp: (currentPiece as any).plusmaxHp ?? (updatedPiece as any).plusmaxHp ?? updatedPiece.maxHp,
+            plusattack: (currentPiece as any).plusattack ?? (updatedPiece as any).plusattack ?? updatedPiece.attack,
+            plusdefense: (currentPiece as any).plusdefense ?? (updatedPiece as any).plusdefense ?? updatedPiece.defense,
+          };
+          setCurrentPiece(merged);
+          onPieceUpdate?.(merged);
         }
       } catch (error) {
         const message = `Failed to fetch piece data: ${(error as Error).message}`;
@@ -78,7 +91,11 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
     }
   };
 
-  const hpPercentage = (currentPiece.hp / currentPiece.maxHp) * 100;
+  const effectiveHp = ('pluscurrentHp' in currentPiece ? (currentPiece as any).pluscurrentHp : currentPiece.hp) || 0;
+  const effectiveMaxHp = ('plusmaxHp' in currentPiece ? (currentPiece as any).plusmaxHp : currentPiece.maxHp) || 1;
+  const effectiveAttack = ('plusattack' in currentPiece ? (currentPiece as any).plusattack : currentPiece.attack) || 0;
+  const effectiveDefense = ('plusdefense' in currentPiece ? (currentPiece as any).plusdefense : currentPiece.defense) || 0;
+  const hpPercentage = Math.max(0, Math.min(100, (effectiveHp / effectiveMaxHp) * 100));
 
   const handleCardClick = async () => {
     if (!onClick || !gameId || !playerId || !authService.isLoggedIn()) {
@@ -196,7 +213,7 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
               <Heart className="h-3 w-3 text-red-500" />
               <span>HP</span>
             </div>
-            <span>{currentPiece.hp}/{currentPiece.maxHp}</span>
+            <span>{effectiveHp}/{effectiveMaxHp}</span>
           </div>
           <Progress value={hpPercentage} className="h-2" />
         </div>
@@ -205,11 +222,11 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="flex items-center gap-1">
             <Sword className="h-3 w-3 text-red-600" />
-            <span>ATK: {currentPiece.attack}</span>
+            <span>ATK: {effectiveAttack}</span>
           </div>
           <div className="flex items-center gap-1">
             <Shield className="h-3 w-3 text-blue-600" />
-            <span>DEF: {currentPiece.defense}</span>
+            <span>DEF: {effectiveDefense}</span>
           </div>
           {isEnhancedPiece(currentPiece) && (
             <>

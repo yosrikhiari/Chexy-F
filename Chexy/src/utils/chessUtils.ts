@@ -900,6 +900,34 @@ const calculateCustomRPGMoves = (
         }
       }
     } else {
+      // Shadow Seer: free diagonal mobility (bishop) + blink to any empty square within 2 tiles
+      if (pieceName.includes('seer')) {
+        const moves: BoardPosition[] = [];
+        // Bishop moves
+        const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+        for (const [rowDir, colDir] of directions) {
+          let currPos = { row: pos.row + rowDir, col: pos.col + colDir };
+          while (isValidPosition(currPos, boardSize)) {
+            const targetPiece = board[currPos.row][currPos.col];
+            if (!targetPiece) {
+              moves.push({ ...currPos });
+            } else {
+              if (targetPiece.color !== piece.color) moves.push({ ...currPos });
+              break;
+            }
+            currPos = { row: currPos.row + rowDir, col: currPos.col + colDir };
+          }
+        }
+        // Blink within 2 tiles to empty squares
+        for (let dr = -2; dr <= 2; dr++) {
+          for (let dc = -2; dc <= 2; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const t = { row: pos.row + dr, col: pos.col + dc };
+            if (isValidPosition(t, boardSize) && !board[t.row][t.col]) moves.push(t);
+          }
+        }
+        return moves;
+      }
       // For other shadow pieces, use their base movement pattern
       return calculateStandardChessMoves(pos, board, currentPlayer, boardSize, piece);
     }

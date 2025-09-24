@@ -396,9 +396,16 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         // Compute damage: attack - defense, minimum 1
         const attackerBaseAttack = (movingPiece.plusattack ?? movingPiece.attack ?? 5);
         const attackerName = (movingPiece.name || movingPiece.type || '').toLowerCase();
-        const seerDamageMultiplier = attackerName.includes('seer') ? 0.6 : 1.0;
-        const attackerAttack = Math.max(1, Math.floor(attackerBaseAttack * seerDamageMultiplier));
-        const defenderDefense = (targetPiece.plusdefense ?? targetPiece.defense ?? 5);
+        const attackerAbility = (movingPiece.specialAbility || '').toLowerCase();
+        const defenderAbility = (targetPiece.specialAbility || '').toLowerCase();
+
+        // Ability modifiers
+        const seerDamageMultiplier = attackerName.includes('seer') ? 0.6 : 1.0; // Seer balanced damage
+        const lungeBonus = attackerAbility.includes('lunge') ? 1 : 0; // Dark Rider: +1 dmg on attack
+        const guardReduction = defenderAbility.includes('guard') ? 1 : 0; // Obsidian Guard: -1 dmg taken
+
+        const attackerAttack = Math.max(1, Math.floor(attackerBaseAttack * seerDamageMultiplier) + lungeBonus);
+        const defenderDefense = (targetPiece.plusdefense ?? targetPiece.defense ?? 5) + guardReduction;
         const rawDamage = attackerAttack - defenderDefense;
         const damage = Math.max(1, rawDamage);
 

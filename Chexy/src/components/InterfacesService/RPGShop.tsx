@@ -8,8 +8,7 @@ import { RPGShopProps } from "@/Interfaces/RPGShopProps.ts";
 import { ShopItem } from "@/Interfaces/shopItems.ts";
 
 import { toast } from "@/components/ui/use-toast.tsx";
-import {JwtService} from "@/services/JwtService.ts";
-import {rpgGameService} from "@/services/RPGGameService.ts";
+// Purchase execution is delegated to parent via onPurchase
 
 const RPGShop: React.FC<RPGShopProps> = ({
                                            shopItems,
@@ -60,30 +59,12 @@ const RPGShop: React.FC<RPGShopProps> = ({
         return;
       }
 
-      // Check if the user is logged in
-      if (!JwtService.getToken() || JwtService.isTokenExpired(JwtService.getToken()!)) {
-        toast({
-          variant: "destructive",
-          title: "Authentication Error",
-          description: "Please log in to purchase the item.",
-        });
-        return;
-      }
-
       try {
-        // Call the backend API to purchase the item
-        const updatedGameState = await rpgGameService.purchaseShopItem(gameId, item.id, playerId);
-
-        // Call the onPurchase callback with the item
-        onPurchase(item);
-
+        await onPurchase(item);
         toast({
           title: "Success",
           description: `Successfully purchased ${item.name}!`,
         });
-
-        // Optionally handle the updated game state (e.g., update local coins or inventory)
-        console.log("Purchase successful", updatedGameState);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Failed to purchase item.";
         toast({
