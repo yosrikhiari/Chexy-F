@@ -46,6 +46,11 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
     const wins = Number(localStorage.getItem('rpgWins') || '0');
     return Math.min(10, 1 + wins);
   });
+  const [teleportAnim, setTeleportAnim] = useState<{
+    active: boolean;
+    from: BoardPosition | null;
+    to: BoardPosition | null;
+  }>({ active: false, from: null, to: null });
 
   // Drag and viewport state for large boards
   const [isDragging, setIsDragging] = useState(false);
@@ -386,48 +391,61 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
 
       const playerId = JwtService.getKeycloakId() || gameSession?.whitePlayer.userId || "player1";
 
-      // Handle combat
+      // Handle RPG combat (teleport attack animation + damage application)
       if (targetPiece && targetPiece.color !== movingPiece.color) {
-        try {
-          const combatResult: CombatResult = await enhancedRPGService.resolveCombat(movingPiece, targetPiece, gameState.gameid, playerId);
-          if (combatResult.defenderDefeated) {
-            newBoard[to.row][to.col] = null;
-            newBoard[from.row][from.col] = {
-              ...movingPiece,
-              plusexperience: (movingPiece.plusexperience || 0) + 10,
-              position: to,
-            };
-            toast({ title: "Combat Victory", description: `${targetPiece.name} was defeated!` });
-          } else {
-            newBoard[to.row][to.col] = {
-              ...targetPiece,
-              pluscurrentHp: targetPiece.pluscurrentHp - combatResult.damage,
-            };
-            toast({
-              title: "Combat",
-              description: `${targetPiece.name} survived with ${targetPiece.pluscurrentHp - combatResult.damage} HP!`,
-            });
-          }
+        // Compute damage: attack - defense, minimum 1
+        const attackerBaseAttack = (movingPiece.plusattack ?? movingPiece.attack ?? 5);
+        const attackerName = (movingPiece.name || movingPiece.type || '').toLowerCase();
+        const seerDamageMultiplier = attackerName.includes('seer') ? 0.6 : 1.0;
+        const attackerAttack = Math.max(1, Math.floor(attackerBaseAttack * seerDamageMultiplier));
+        const defenderDefense = (targetPiece.plusdefense ?? targetPiece.defense ?? 5);
+        const rawDamage = attackerAttack - defenderDefense;
+        const damage = Math.max(1, rawDamage);
 
-          if (combatResult.attackerCounterDamage && movingPiece.pluscurrentHp <= combatResult.attackerCounterDamage) {
-            newBoard[from.row][from.col] = null;
-            setBoard(newBoard);
-            const ended = await checkGameOver(newBoard);
-            if (!ended) {
-              if (isAI) {
-                setCurrentPlayer("white");
-              } else {
-                setCurrentPlayer("black");
-                setTimeout(() => makeAIMove(newBoard), 600);
-              }
-            }
-            return;
-          }
-        } catch (combatError) {
-          console.error("Combat error:", combatError);
-          toast({ title: "Combat Error", description: "Failed to resolve combat.", variant: "destructive" });
-          return;
+        // Teleport animation: temporarily move attacker to defender square for 1s then return
+        const animBoard = newBoard.map((row) => [...row]);
+        // Place attacker at target, clear original (temporarily hide defender)
+        animBoard[to.row][to.col] = { ...movingPiece, position: to } as EnhancedRPGPiece;
+        animBoard[from.row][from.col] = null;
+        setTeleportAnim({ active: true, from, to });
+        setBoard(animBoard);
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // Apply damage to defender and return attacker to original square
+        const postBoard = animBoard.map((row) => [...row]);
+        const newHp = Math.max(0, (targetPiece.pluscurrentHp ?? targetPiece.hp ?? 10) - damage);
+        if (newHp <= 0) {
+          // Defender defeated
+          postBoard[to.row][to.col] = null;
+          toast({ title: "Combat Victory", description: `${targetPiece.name} was defeated!` });
+        } else {
+          postBoard[to.row][to.col] = {
+            ...targetPiece,
+            pluscurrentHp: newHp,
+          } as EnhancedRPGPiece;
+          toast({ title: "Combat", description: `${targetPiece.name} took ${damage} damage (HP ${newHp}).` });
         }
+        // Return attacker to original square
+        postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
+        setTeleportAnim({ active: false, from: null, to: null });
+        setBoard(postBoard);
+
+        // Optional: grant small XP on hit/kill
+        // Skipping for now, can be added if desired
+
+        // Proceed to turn handling below
+        // Note: we do not continue with normal move placement after attack
+        const ended = await checkGameOver(postBoard);
+        if (!ended) {
+          if (isAI) {
+            setCurrentPlayer("white");
+          } else {
+            setCurrentPlayer("black");
+            setTimeout(() => makeAIMove(postBoard), 600);
+          }
+        }
+        return;
       }
 
       // Handle teleport portal
@@ -521,6 +539,31 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         const inBounds = (p: BoardPosition) => p.row >= 0 && p.row < gameState.boardSize && p.col >= 0 && p.col < gameState.boardSize;
         const fromPiece = inBounds(from) ? currentBoard[from.row][from.col] : null;
         if (fromPiece && isEnemyPiece(fromPiece)) {
+          const targetAtTo = inBounds(to) ? currentBoard[to.row][to.col] : null;
+          // Prefer capture moves to trigger damage. If suggested move isn't a capture, try to find any capture.
+          if (!(targetAtTo && !isEnemyPiece(targetAtTo))) {
+            const captureCandidates: { from: BoardPosition; to: BoardPosition }[] = [];
+            for (let row = 0; row < gameState.boardSize; row++) {
+              for (let col = 0; col < gameState.boardSize; col++) {
+                const piece = currentBoard[row][col];
+                if (isEnemyPiece(piece)) {
+                  const moves = calculateRPGValidMoves({ row, col }, currentBoard, 'black', gameState.boardSize);
+                  for (const m of moves) {
+                    const target = currentBoard[m.row][m.col];
+                    if (target && !isEnemyPiece(target)) {
+                      captureCandidates.push({ from: { row, col }, to: m });
+                    }
+                  }
+                }
+              }
+            }
+            if (captureCandidates.length > 0) {
+              const chosen = captureCandidates[Math.floor(Math.random() * captureCandidates.length)];
+              console.log('[EnhancedRPG] AI overriding to capture move', chosen);
+              await makeEnhancedMove(chosen.from, chosen.to, true, currentBoard);
+              return;
+            }
+          }
           console.log(`AI moving from [${from.row}, ${from.col}] to [${to.row}, ${to.col}]`);
           await makeEnhancedMove(from, to, true, currentBoard);
         } else {
