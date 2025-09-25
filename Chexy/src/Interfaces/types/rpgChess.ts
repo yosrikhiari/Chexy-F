@@ -1,4 +1,5 @@
 import {PieceType, PieceColor, BoardPosition} from "./chess.ts";
+import {EnhancedRPGPiece} from '@/Interfaces/types/enhancedRpgChess.ts';
 
 export interface RPGPiece {
   id: string;
@@ -15,6 +16,14 @@ export interface RPGPiece {
   isJoker: boolean;
   position: BoardPosition;
   hasMoved: boolean;
+
+  // Optional enhanced properties for compatibility
+  pluscurrentHp?: number;
+  plusmaxHp?: number;
+  plusattack?: number;
+  plusdefense?: number;
+  pluslevel?: number;
+  plusexperience?: number;
 }
 
 
@@ -115,6 +124,7 @@ export interface RPGGameState {
   coins: number;
   isGameOver: boolean;
   currentObjective: string;
+  difficulty?: number;
 }
 
 export interface PlayerStats {
@@ -126,3 +136,42 @@ export interface PlayerStats {
   unlockedPieces: string[];
   unlockedModifiers: string[];
 }
+
+
+export const isEnhancedRPGPiece = (piece: any): piece is EnhancedRPGPiece => {
+  return piece && typeof piece === 'object' &&
+    'pluslevel' in piece &&
+    'plusexperience' in piece;
+};
+
+export const isRPGPiece = (piece: any): piece is RPGPiece => {
+  return piece && typeof piece === 'object' &&
+    'hp' in piece &&
+    'attack' in piece &&
+    'defense' in piece;
+};
+
+// Utility function to safely convert RPGPiece to EnhancedRPGPiece
+export const toEnhancedRPGPiece = (piece: RPGPiece): EnhancedRPGPiece => {
+  return {
+    ...piece,
+    pluscurrentHp: piece.pluscurrentHp ?? piece.hp,
+    plusmaxHp: piece.plusmaxHp ?? piece.maxHp,
+    plusattack: piece.plusattack ?? piece.attack,
+    plusdefense: piece.plusdefense ?? piece.defense,
+    pluslevel: piece.pluslevel ?? 1,
+    plusexperience: piece.plusexperience ?? 0,
+  } as EnhancedRPGPiece;
+};
+
+// Utility function to safely get enhanced stats from any piece
+export const getEnhancedStats = (piece: RPGPiece) => {
+  return {
+    currentHp: piece.pluscurrentHp ?? piece.hp,
+    maxHp: piece.plusmaxHp ?? piece.maxHp,
+    attack: piece.plusattack ?? piece.attack,
+    defense: piece.plusdefense ?? piece.defense,
+    level: piece.pluslevel ?? 1,
+    experience: piece.plusexperience ?? 0,
+  };
+};

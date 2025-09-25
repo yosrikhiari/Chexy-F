@@ -1,27 +1,36 @@
 import React, { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Sword, Shield, Heart, Zap, ShoppingCart, Coins, Crown, Star, Sparkles } from "lucide-react";
-import { EnhancedGameState, DynamicBoardModifier } from "@/Interfaces/types/enhancedRpgChess";
-import { RPGPiece, RPGModifier, RPGBoardModifier, CapacityModifier } from "@/Interfaces/types/rpgChess";
+import {EnhancedGameState, DynamicBoardModifier, EnhancedRPGPiece} from "@/Interfaces/types/enhancedRpgChess";
+import {
+  RPGPiece,
+  RPGModifier,
+  RPGBoardModifier,
+  CapacityModifier,
+  getEnhancedStats,
+  BoardEffect,
+  ArmyCapacity,
+  RPGGameState,
+  toEnhancedRPGPiece, isEnhancedRPGPiece
+} from "@/Interfaces/types/rpgChess";
 import { ShopItem } from "@/Interfaces/shopItems";
-import { STARTER_PIECES, ROUND_OBJECTIVES } from "@/utils/rpgChessConstants";
+import { ROUND_OBJECTIVES } from "@/utils/rpgChessConstants";
 import RPGPieceCard from "@/components/InterfacesService/RPGPieceCard";
 import RPGModifierCard from "@/components/InterfacesService/RPGModifierCard";
 import RPGBoardModifierCard from "@/components/InterfacesService/RPGBoardModifierCard";
 import EnhancedRPGChessBoard from "@/components/InterfacesService/EnhancedRPGChessBoard";
 import RPGShop from "@/components/InterfacesService/RPGShop";
-import { calculateArmyCapacity, canAddPieceToArmy, getArmyStats } from "@/utils/armyCapacityUtils";
+import { calculateArmyCapacity, getArmyStats } from "@/utils/armyCapacityUtils";
 import { generateDynamicBoardModifiers, calculateProgressiveBoardSize } from "@/utils/dynamicBoardEffects";
 import { rpgGameService } from "@/services/RPGGameService";
 import { gameSessionService } from "@/services/GameSessionService";
-import { GameMode } from "@/Interfaces/enums/GameMode";
 import { AIService } from "@/services/aiService";
+import {AIStrategy} from "@/Interfaces/enums/AIStrategy.ts";
 
 const RPGAdventure = () => {
   const navigate = useNavigate();
-  const location = useLocation() as any;
   const userInfo = JSON.parse(localStorage.getItem("user") || '{"name": "Guest", "id": "guest"}');
 
   const [gameState, setGameState] = useState<EnhancedGameState | null>(null);
@@ -30,107 +39,209 @@ const RPGAdventure = () => {
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
   const [session, setSession] = useState<any>(null);
 
-  const getPieceKey = (p: any) => `${(p.name||'').toLowerCase()}|${(p.type||'').toLowerCase()}`;
+  const getPieceKey = (p: EnhancedRPGPiece) => `${(p.name||'').toLowerCase()}|${(p.type||'').toLowerCase()}`;
 
-  const levelUpPieceStats = (p: any, newLevel: number) => {
+  const levelUpPieceStats = (p: EnhancedRPGPiece, newLevel: number) => {
     const name = (p.name||'').toLowerCase();
     const type = (p.type||'').toLowerCase();
-    const nature: 'tank' | 'assassin' | 'caster' = name.includes('guard') || type === 'rook' ? 'tank' : (name.includes('rider') || type === 'knight') ? 'assassin' : 'caster';
-    const baseHp = p.plusmaxHp ?? p.maxHp ?? 10;
-    const baseAtk = p.plusattack ?? p.attack ?? 5;
-    const baseDef = p.plusdefense ?? p.defense ?? 5;
+    const nature: 'tank' | 'assassin' | 'caster' =
+      name.includes('guard') || type === 'rook' ? 'tank' :
+        (name.includes('rider') || type === 'knight') ? 'assassin' : 'caster';
+
+    const stats = getEnhancedStats(p);
+    const baseHp = stats.maxHp;
+    const baseAtk = stats.attack;
+    const baseDef = stats.defense;
+
     let hp = baseHp;
     let atk = baseAtk;
     let def = baseDef;
-    // Incremental growth per level gained (relative to level 1)
-    const gains = Math.max(0, newLevel - (p.pluslevel ?? 1));
+
+    const gains = Math.max(0, newLevel - stats.level);
     for (let i = 0; i < gains; i++) {
-      if (nature === 'tank') { hp += 2; def += 1; }
-      else if (nature === 'assassin') { atk += 2; }
-      else { atk += 1; def += 1; }
+      if (nature === 'tank') {
+        hp += 2;
+        def += 1;
+      } else if (nature === 'assassin') {
+        atk += 2;
+      } else {
+        atk += 1;
+        def += 1;
+      }
     }
-    return { plusmaxHp: hp, plusattack: atk, plusdefense: def, pluscurrentHp: Math.min(p.pluscurrentHp ?? hp, hp) };
+
+    return {
+      plusmaxHp: hp,
+      plusattack: atk,
+      plusdefense: def,
+      pluscurrentHp: Math.min(stats.currentHp, hp)
+    };
   };
 
-  const applyLeveling = () => {
-    setGameState((prev) => {
-      if (!prev) return prev as any;
-      const pieces = [...prev.playerArmy];
-      const buckets: Record<string, number[]> = {};
-      // map piece key to indices
-      pieces.forEach((p, idx) => {
-        const key = getPieceKey(p);
-        if (!buckets[key]) buckets[key] = [];
-        buckets[key].push(idx);
-      });
-      const toRemove = new Set<number>();
-      // consume duplicates to level up: need currentLevel pieces to reach next
-      Object.values(buckets).forEach((indices) => {
-        // work on a queue of indices sorted by current level (lowest first)
-        indices.sort((a,b) => (pieces[a].pluslevel ?? 1) - (pieces[b].pluslevel ?? 1));
-        while (indices.length > 0) {
-          const firstIdx = indices.shift()!;
-          const piece = pieces[firstIdx];
-          const currentLevel = piece.pluslevel ?? 1;
-          const need = currentLevel; // need N copies at this level to upgrade to level+1
-          const group = [firstIdx];
-          // find (need-1) more pieces with the same level
-          for (let i = indices.length - 1; i >= 0 && group.length < need; i--) {
-            const idx = indices[i];
-            if ((pieces[idx].pluslevel ?? 1) === currentLevel) {
-              group.push(idx);
-              indices.splice(i,1);
-            }
-          }
-          if (group.length === need) {
-            // perform upgrade
-            const newLevel = currentLevel + 1;
-            const updatedStats = levelUpPieceStats(piece as any, newLevel);
-            pieces[firstIdx] = {
-              ...piece,
-              pluslevel: newLevel,
-              plusexperience: 0,
-              ...updatedStats,
-              // unlock ultimate at level 5
-              specialAbility: newLevel >= 5 ? (piece.specialAbility || 'Ultimate Unleashed') : piece.specialAbility,
-            } as any;
-            // mark others for removal
-            group.slice(1).forEach(i => toRemove.add(i));
-            // reinsert upgraded piece index at correct position for potential further upgrades
-            indices.unshift(firstIdx);
+  const applyLeveling = (playerArmy: EnhancedRPGPiece[]): EnhancedRPGPiece[] => {
+    const pieces = [...playerArmy];
+    const buckets: Record<string, number[]> = {};
+
+    pieces.forEach((p, idx) => {
+      const key = getPieceKey(p);
+      if (!buckets[key]) buckets[key] = [];
+      buckets[key].push(idx);
+    });
+
+    const toRemove = new Set<number>();
+
+    Object.values(buckets).forEach((indices) => {
+      indices.sort((a, b) => getEnhancedStats(pieces[a]).level - getEnhancedStats(pieces[b]).level);
+
+      while (indices.length > 0) {
+        const firstIdx = indices.shift()!;
+        const piece = pieces[firstIdx];
+        const stats = getEnhancedStats(piece);
+        const currentLevel = stats.level;
+        const need = currentLevel;
+        const group = [firstIdx];
+
+        for (let i = indices.length - 1; i >= 0 && group.length < need; i--) {
+          const idx = indices[i];
+          if (getEnhancedStats(pieces[idx]).level === currentLevel) {
+            group.push(idx);
+            indices.splice(i, 1);
           }
         }
-      });
-      const newArmy = pieces.filter((_, idx) => !toRemove.has(idx));
-      return { ...prev, playerArmy: newArmy } as any;
+
+        if (group.length === need) {
+          const newLevel = currentLevel + 1;
+          const updatedStats = levelUpPieceStats(piece, newLevel);
+
+          pieces[firstIdx] = {
+            ...piece,
+            pluslevel: newLevel,
+            plusexperience: 0,
+            ...updatedStats,
+            specialAbility: newLevel >= 5 ?
+              (piece.specialAbility || 'Ultimate Unleashed') :
+              piece.specialAbility,
+          };
+
+          group.slice(1).forEach(i => toRemove.add(i));
+          indices.unshift(firstIdx);
+        }
+      }
     });
+
+    return pieces.filter((_, idx) => !toRemove.has(idx));
   };
 
-  // Initialize game state with backend
+  // Helper functions for local storage
+  const saveGameStateToLocalStorage = (state: EnhancedGameState) => {
+    try {
+      const stateToSave = {
+        playerArmy: state.playerArmy,
+        coins: state.coins,
+        activeModifiers: state.activeModifiers,
+        activeBoardModifiers: state.activeBoardModifiers,
+        activeCapacityModifiers: state.activeCapacityModifiers,
+        currentRound: state.currentRound,
+        score: state.score,
+        lives: state.lives,
+      };
+      localStorage.setItem(`rpgGameState_${state.gameid}`, JSON.stringify(stateToSave));
+    } catch (error) {
+      console.warn("Failed to save game state to localStorage:", error);
+    }
+  };
+
+  const loadGameStateFromLocalStorage = (gameId: string) => {
+    try {
+      const saved = localStorage.getItem(`rpgGameState_${gameId}`);
+      return saved ? JSON.parse(saved) : null;
+    } catch (error) {
+      console.warn("Failed to load game state from localStorage:", error);
+      return null;
+    }
+  };
+
+  // FIXED: Single useEffect for game initialization
   useEffect(() => {
     const initializeGame = async () => {
       try {
         console.log("Initializing RPG game...");
-        // Always create a new session for now to avoid 404 issues
-        const sessionObj = await gameSessionService.createGameSession(
-          userInfo.id,
-          'SINGLE_PLAYER_RPG',
-          true
-        );
-        console.log("Created session:", sessionObj);
+
+        const existingGameId = localStorage.getItem('currentRPGGameId');
+        const existingSessionId = localStorage.getItem('currentRPGSessionId');
+
+        let sessionObj: any;
+        let rpgGameState: RPGGameState;
+        let savedLocalState = null;
+
+        if (existingGameId && existingSessionId) {
+          try {
+            console.log("Attempting to resume existing game:", existingGameId);
+            rpgGameState = await rpgGameService.getRPGGame(existingGameId);
+            sessionObj = await gameSessionService.getGameSession(existingSessionId);
+
+            // Load saved local state
+            savedLocalState = loadGameStateFromLocalStorage(existingGameId);
+
+            console.log("Successfully resumed existing game", { savedLocalState });
+          } catch (error) {
+            console.log("Failed to resume existing game, creating new one:", error);
+          }
+        }
+
+        if (!sessionObj || !rpgGameState!) {
+          console.log("Creating new game session and RPG state...");
+          sessionObj = await gameSessionService.createGameSession(
+            userInfo.id,
+            'SINGLE_PLAYER_RPG',
+            true
+          );
+          console.log("Created session:", sessionObj);
+
+          rpgGameState = await rpgGameService.createRPGGame(userInfo.id, sessionObj.gameId, false);
+          console.log("Created RPG game state:", rpgGameState);
+
+          localStorage.setItem('currentRPGGameId', rpgGameState.gameId!);
+          localStorage.setItem('currentRPGSessionId', sessionObj.gameId);
+        }
+
         setSession(sessionObj);
-        
-        const rpgGameState = await rpgGameService.createRPGGame(userInfo.id, sessionObj.gameId, false);
-        console.log("Created RPG game state:", rpgGameState);
-        
+
+        let enhancedPlayerArmy = rpgGameState.playerArmy.map(toEnhancedRPGPiece);
+        let enhancedEnemyArmy = (rpgGameState.enemyArmy || []).map(toEnhancedRPGPiece);
+
+        let finalCoins = rpgGameState.coins || 100;
+        let activeModifiers = rpgGameState.activeModifiers || [];
+        let activeBoardModifiers = rpgGameState.activeBoardModifiers || [];
+        let activeCapacityModifiers = rpgGameState.activeCapacityModifiers || [];
+
+        // Restore from local storage if available
+        if (savedLocalState) {
+          enhancedPlayerArmy = savedLocalState.playerArmy || enhancedPlayerArmy;
+          finalCoins = Math.max(savedLocalState.coins || 100, finalCoins);
+          activeModifiers = savedLocalState.activeModifiers || activeModifiers;
+          activeBoardModifiers = savedLocalState.activeBoardModifiers || activeBoardModifiers;
+          activeCapacityModifiers = savedLocalState.activeCapacityModifiers || activeCapacityModifiers;
+          console.log("Restored saved state:", {
+            pieces: enhancedPlayerArmy.length,
+            coins: finalCoins,
+            modifiers: activeModifiers.length
+          });
+        }
+
         const enhancedState: EnhancedGameState = {
           ...rpgGameState,
-          gameid: rpgGameState.gameId, // Use the exact gameId from RPG state
+          gameid: rpgGameState.gameId!,
           gameSessionId: sessionObj.gameId,
-          difficulty: 1,
-          enemyArmy: [],
-          aiStrategy: "defensive",
-          teleportPortals: 1,
+          playerArmy: enhancedPlayerArmy,
+          enemyArmy: enhancedEnemyArmy,
+          coins: finalCoins,
+          activeModifiers,
+          activeBoardModifiers,
+          activeCapacityModifiers,
+          difficulty: rpgGameState.difficulty || 1,
+          aiStrategy: "defensive" as AIStrategy,
+          teleportPortals: Math.max(1, Math.floor((rpgGameState.boardSize - 6) / 2)),
           dragOffset: { x: 0, y: 0 },
           viewportSize: { width: 800, height: 600 },
           roundProgression: {
@@ -139,16 +250,25 @@ const RPGAdventure = () => {
             difficultyMultiplier: 1.2,
           },
         };
+
         console.log("Setting enhanced state:", enhancedState);
         setGameState(enhancedState);
+
       } catch (error) {
         console.error("Failed to initialize game:", error);
-        // Show error to user
-        alert("Failed to initialize game: " + error.message);
+        alert("Failed to initialize game: " + (error as Error).message);
       }
     };
+
     initializeGame();
-  }, []);
+  }, []); // Empty dependency array - runs only once on mount
+
+  // FIXED: Single useEffect for saving state changes
+  useEffect(() => {
+    if (gameState) {
+      saveGameStateToLocalStorage(gameState);
+    }
+  }, [gameState]); // Only depends on gameState
 
   // Loading state
   if (!gameState) {
@@ -157,7 +277,6 @@ const RPGAdventure = () => {
 
   const openShop = async () => {
     try {
-      // Assume a backend method exists to fetch shop items; mock for now
       const items = generateShopItems(gameState.coins);
       setShopItems(items);
       setGamePhase("shop");
@@ -169,31 +288,19 @@ const RPGAdventure = () => {
   const handlePurchase = async (item: ShopItem) => {
     if (gameState.coins < item.cost) return;
 
-    // Temporarily disable backend purchase to avoid 400 spam; apply locally
     setGameState((prev) => {
-      if (!prev) return prev as any;
-      const next: EnhancedGameState = { ...prev } as any;
+      if (!prev) return prev;
+      const next: EnhancedGameState = { ...prev };
       next.coins = Math.max(0, (prev.coins || 0) - item.cost);
       if (item.type === "piece") {
-        const base = item.item as any;
-        // Normalize purchased piece to EnhancedRPG fields so UI shows correct stats
-        const normalized = {
-          ...base,
-          pluscurrentHp: base.pluscurrentHp ?? base.hp,
-          plusmaxHp: base.plusmaxHp ?? base.maxHp,
-          plusattack: base.plusattack ?? base.attack,
-          plusdefense: base.plusdefense ?? base.defense,
-          pluslevel: base.pluslevel ?? 1,
-          plusexperience: base.plusexperience ?? 0,
-        } as any;
+        const base = item.item as RPGPiece;
+        const normalized = toEnhancedRPGPiece(base);
         next.playerArmy = [...prev.playerArmy, normalized];
       } else if (item.type === "modifier") {
         next.activeModifiers = [...(prev.activeModifiers || []), { ...(item.item as any), isActive: true }];
-        // Apply known modifier effects immediately
         const modName = ((item.item as any).name || '').toLowerCase();
         if (modName.includes('tome of power')) {
-          // +2 attack to all allies
-          next.playerArmy = prev.playerArmy.map((p: any) => ({
+          next.playerArmy = prev.playerArmy.map((p: EnhancedRPGPiece) => ({
             ...p,
             plusattack: ((p.plusattack ?? p.attack ?? 0) + 2)
           }));
@@ -202,19 +309,42 @@ const RPGAdventure = () => {
         next.activeBoardModifiers = [...(prev.activeBoardModifiers || []), { ...(item.item as any), isActive: true }];
         const bmodName = ((item.item as any).name || '').toLowerCase();
         if (bmodName.includes('ward stone')) {
-          // Simple effect: increase portal pairs availability indicator
           next.teleportPortals = (prev.teleportPortals || 0) + 1;
         }
       } else if (item.type === "capacity_modifier") {
         next.activeCapacityModifiers = [...(prev.activeCapacityModifiers || []), item.item as any];
-        // Recompute capacity when bonuses change
         next.armyCapacity = calculateArmyCapacity(prev.boardSize, next.activeCapacityModifiers || []);
       }
+
+      next.playerArmy = next.playerArmy.map(piece => {
+        if (isEnhancedRPGPiece(piece)) {
+          return piece;
+        } else {
+          return toEnhancedRPGPiece(piece);
+        }
+      });
+
       return next;
     });
     setShopItems((prev) => prev.filter((shopItem) => shopItem.id !== item.id));
-    // auto-apply leveling after purchases
-    applyLeveling();
+
+    setTimeout(() => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        const enhancedArmy = prev.playerArmy.map(piece => {
+          if (isEnhancedRPGPiece(piece)) {
+            return piece;
+          } else {
+            return toEnhancedRPGPiece(piece);
+          }
+        });
+
+        return {
+          ...prev,
+          playerArmy: applyLeveling(enhancedArmy)
+        };
+      });
+    }, 100);
   };
 
   const startBattle = async () => {
@@ -225,16 +355,20 @@ const RPGAdventure = () => {
         gameState.roundProgression.baseBoardSize,
         gameState.currentRound
       );
-      const enemyArmy = await AIService.generateEnemyArmy(
+
+      const enemyArmyRPG = await AIService.generateEnemyArmy(
         gameState.currentRound,
         newBoardSize,
         gameState.activeModifiers || [],
         gameState.activeCapacityModifiers || []
       );
-      const updatedState = {
+
+      const enhancedEnemyArmy = enemyArmyRPG.map(toEnhancedRPGPiece);
+
+      const updatedState: EnhancedGameState = {
         ...gameState,
         boardSize: newBoardSize,
-        enemyArmy,
+        enemyArmy: enhancedEnemyArmy,
         difficulty: Math.min(10, gameState.difficulty + 0.3),
         teleportPortals: Math.floor((newBoardSize - 6) / 2),
       };
@@ -245,36 +379,157 @@ const RPGAdventure = () => {
     }
   };
 
+
   const completeBattle = async (victory: boolean) => {
     try {
       if (victory) {
-        const updatedState = await rpgGameService.progressToNextRound(gameState.gameid);
+        console.log("Victory! Progressing to next round...");
+
+        // Preserve current enhanced state before backend call
+        const currentEnhancedPlayerArmy = [...gameState.playerArmy];
+        const currentCoins = gameState.coins;
+        const currentActiveModifiers = [...(gameState.activeModifiers || [])];
+        const currentActiveBoardModifiers = [...(gameState.activeBoardModifiers || [])];
+        const currentActiveCapacityModifiers = [...(gameState.activeCapacityModifiers || [])];
+
+        // FIX 1: Handle backend progression with better error handling
+        let updatedState;
+        try {
+          updatedState = await rpgGameService.progressToNextRound(gameState.gameid);
+          console.log("Updated game state after progression:", updatedState);
+        } catch (error) {
+          console.warn("Backend progression failed, continuing with local state:", error);
+          // Create a local progression state
+          updatedState = {
+            ...gameState,
+            currentRound: gameState.currentRound + 1,
+            score: gameState.score + 100,
+            boardSize: gameState.boardSize
+          };
+        }
+
+        // Preserve enhanced pieces and accumulated resources
+        const enhancedPlayerArmy = currentEnhancedPlayerArmy.map(piece => {
+          return {
+            ...piece,
+            pluscurrentHp: piece.plusmaxHp // Restore full HP after victory
+          };
+        });
+
+        // Accumulate coins instead of resetting
+        const accumulatedCoins = Math.max(currentCoins, updatedState.coins || 100);
+
+        // Award bonus coins for victory
+        const victoryBonus = gameState.currentRound * 10;
+        const finalCoins = accumulatedCoins + victoryBonus;
+
         const isBossRound = updatedState.currentRound % 5 === 0;
+
         if (isBossRound) {
-          const rewards = await generateDynamicBoardModifiers(updatedState.gameid, userInfo.id, updatedState.boardSize, updatedState.currentRound);
-          const shuffledRewards = rewards.sort(() => Math.random() - 0.5).slice(0, 3);
-          setAvailableRewards(shuffledRewards);
-          setGamePhase("draft");
+          console.log("Boss round completed, showing rewards...");
+
+          // FIX 2: Handle board modifier generation with better error handling
+          try {
+            const rewards = await generateDynamicBoardModifiers(
+              updatedState.gameid! || updatedState.gameId! || gameState.gameid,
+              userInfo.id,
+              updatedState.boardSize,
+              updatedState.currentRound
+            );
+            const shuffledRewards = rewards.sort(() => Math.random() - 0.5).slice(0, 3);
+            setAvailableRewards(shuffledRewards);
+            setGamePhase("draft");
+          } catch (error) {
+            console.error("Failed to generate board modifiers, skipping rewards:", error);
+            // Skip reward phase if it fails
+            setGamePhase("preparation");
+          }
         } else {
+          console.log("Normal round completed, returning to preparation...");
           setGamePhase("preparation");
         }
-        setGameState(updatedState as EnhancedGameState);
+
+        // Merge backend state with preserved enhancements
+        const enhancedState: EnhancedGameState = {
+          ...gameState,
+          ...updatedState,
+          playerArmy: enhancedPlayerArmy,
+          enemyArmy: [],
+          coins: finalCoins,
+          activeModifiers: currentActiveModifiers,
+          activeBoardModifiers: currentActiveBoardModifiers,
+          activeCapacityModifiers: currentActiveCapacityModifiers,
+          gameid: updatedState.gameId || updatedState.gameid || gameState.gameid,
+          gameSessionId: gameState.gameSessionId,
+        };
+
+        console.log("Setting enhanced state with preserved data:", enhancedState);
+        setGameState(enhancedState);
+
+        // FIX 3: Sync preserved state back to backend with better error handling
+        try {
+          // Only try to sync coins if the amount is reasonable
+          if (victoryBonus > 0 && victoryBonus <= 1000) {
+            await rpgGameService.updateCoins(gameState.gameid, victoryBonus, userInfo.id);
+          }
+
+          // Only sync a subset of pieces to avoid overwhelming the backend
+          const piecesToSync = enhancedPlayerArmy.slice(0, 10); // Limit to 10 pieces
+          for (const piece of piecesToSync) {
+            try {
+              await rpgGameService.addPieceToArmy(gameState.gameid, piece, userInfo.id);
+            } catch (error) {
+              console.log("Piece already in army or sync failed:", piece.name, error.message);
+              // Continue with other pieces even if one fails
+            }
+          }
+        } catch (error) {
+          console.warn("Failed to sync state to backend, but continuing with local state:", error);
+          // Don't throw error here - allow game to continue with local state
+        }
+
       } else {
-        const updatedState = await rpgGameService.endRPGGame(gameState.gameid, false);
-        setGameState(updatedState as EnhancedGameState);
+        console.log("Defeat! Ending game...");
+
+        try {
+          const updatedState = await rpgGameService.endRPGGame(gameState.gameid, false);
+
+          const enhancedPlayerArmy = updatedState.playerArmy.map(toEnhancedRPGPiece);
+          const enhancedEnemyArmy = (updatedState.enemyArmy || []).map(toEnhancedRPGPiece);
+
+          const enhancedState: EnhancedGameState = {
+            ...gameState,
+            ...updatedState,
+            playerArmy: enhancedPlayerArmy,
+            enemyArmy: enhancedEnemyArmy,
+            gameid: updatedState.gameId || updatedState.gameid || gameState.gameid,
+            gameSessionId: gameState.gameSessionId,
+          };
+
+          setGameState(enhancedState);
+        } catch (error) {
+          console.error("Failed to end game on backend, setting local game over state:", error);
+          // Set local game over state
+          setGameState(prev => prev ? { ...prev, isGameOver: true } : prev);
+        }
+
         setGamePhase("preparation");
       }
     } catch (error) {
       console.error("Failed to complete battle:", error);
+      // Don't let the error break the game flow
+      setGamePhase("preparation");
+
+      // Show user-friendly error message
+      alert("Battle completed but there were some sync issues. Your progress has been saved locally.");
     }
   };
 
   const selectReward = async (reward: DynamicBoardModifier) => {
     try {
-      // Assume a backend method to apply reward; mock for now
       const newBoardSize = Math.max(6, Math.min(16, gameState.boardSize + reward.sizeModifier));
       const newCapacity = calculateArmyCapacity(newBoardSize, gameState.activeCapacityModifiers || []);
-      const updatedState = {
+      const updatedState: EnhancedGameState = {
         ...gameState,
         activeBoardModifiers: [...(gameState.activeBoardModifiers || []), { ...reward, isActive: true }],
         boardSize: newBoardSize,
@@ -284,7 +539,6 @@ const RPGAdventure = () => {
       setGameState(updatedState);
       setGamePhase("preparation");
       setAvailableRewards([]);
-      // Skip backend sync to avoid 400s; can re-enable when API supports it
     } catch (error) {
       console.error("Failed to select reward:", error);
     }
@@ -292,15 +546,12 @@ const RPGAdventure = () => {
 
   const removePiece = async (pieceId: string) => {
     try {
-      // Assume a backend method to remove piece; mock for now
-      const updatedState = await rpgGameService.addPieceToArmy(
-        gameState.gameid,
-        gameState.playerArmy.find((p) => p.id === pieceId),
-        userInfo.id
-      ); // Note: This should be a remove method, adjust when available
-      setGameState({
-        ...gameState,
-        playerArmy: gameState.playerArmy.filter((piece) => piece.id !== pieceId),
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          playerArmy: prev.playerArmy.filter((piece) => piece.id !== pieceId),
+        };
       });
     } catch (error) {
       console.error("Failed to remove piece:", error);
@@ -309,19 +560,30 @@ const RPGAdventure = () => {
 
   const resetGame = async () => {
     try {
+      localStorage.removeItem('currentRPGGameId');
+      localStorage.removeItem('currentRPGSessionId');
+
       const session = await gameSessionService.createGameSession(
         userInfo.id,
         'SINGLE_PLAYER_RPG',
         true
       );
       const newGameState = await rpgGameService.createRPGGame(userInfo.id, session.gameId, false);
+
+      localStorage.setItem('currentRPGGameId', newGameState.gameId!);
+      localStorage.setItem('currentRPGSessionId', session.gameId);
+
+      const enhancedPlayerArmy = newGameState.playerArmy.map(toEnhancedRPGPiece);
+      const enhancedEnemyArmy = (newGameState.enemyArmy || []).map(toEnhancedRPGPiece);
+
       const enhancedState: EnhancedGameState = {
         ...newGameState,
         gameid: newGameState.gameId || session.gameId,
         gameSessionId: session.gameId,
+        playerArmy: enhancedPlayerArmy,
+        enemyArmy: enhancedEnemyArmy,
         difficulty: 1,
-        enemyArmy: [],
-        aiStrategy: "defensive",
+        aiStrategy: "defensive" as AIStrategy,
         teleportPortals: 1,
         dragOffset: { x: 0, y: 0 },
         viewportSize: { width: 800, height: 600 },
@@ -333,6 +595,7 @@ const RPGAdventure = () => {
       };
       setGameState(enhancedState);
       setGamePhase("preparation");
+      setSession(session);
     } catch (error) {
       console.error("Failed to reset game:", error);
     }
@@ -502,7 +765,6 @@ const RPGAdventure = () => {
             </CardContent>
           </Card>
         )}
-
         {/* Game Status */}
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
           <Card className="bg-white/5 backdrop-blur border border-white/10 shadow-lg">

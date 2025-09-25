@@ -186,15 +186,17 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
 
   return (
     <Card
-      className={`cursor-pointer hover:shadow-lg transition-all ${
+      className={`cursor-pointer hover:shadow-lg transition-all h-80 flex flex-col ${
         currentPiece.isJoker ? "ring-2 ring-yellow-400 ring-opacity-50" : ""
       } ${onClick ? "hover:border-primary/50" : ""}`}
       onClick={handleCardClick}
     >
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-2 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <ChessPiece piece={{ type: currentPiece.type, color: currentPiece.color }} />
+            <div className="w-8 h-8 flex-shrink-0">
+              <ChessPiece piece={{ type: currentPiece.type, color: currentPiece.color }} />
+            </div>
             {currentPiece.isJoker && <Zap className="h-4 w-4 text-yellow-500" />}
           </div>
           <Badge className={getRarityColor(currentPiece.rarity)}>
@@ -205,41 +207,43 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
         <CardDescription className="text-xs">{currentPiece.description}</CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-2">
-        {/* HP Bar */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1">
-              <Heart className="h-3 w-3 text-red-500" />
-              <span>HP</span>
+      <CardContent className="flex-1 flex flex-col justify-between">
+        <div className="space-y-2">
+          {/* HP Bar */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1">
+                <Heart className="h-3 w-3 text-red-500" />
+                <span>HP</span>
+              </div>
+              <span>{effectiveHp}/{effectiveMaxHp}</span>
             </div>
-            <span>{effectiveHp}/{effectiveMaxHp}</span>
+            <Progress value={hpPercentage} className="h-2" />
           </div>
-          <Progress value={hpPercentage} className="h-2" />
-        </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="flex items-center gap-1">
-            <Sword className="h-3 w-3 text-red-600" />
-            <span>ATK: {effectiveAttack}</span>
+          {/* Stats */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="flex items-center gap-1">
+              <Sword className="h-3 w-3 text-red-600" />
+              <span>ATK: {effectiveAttack}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Shield className="h-3 w-3 text-blue-600" />
+              <span>DEF: {effectiveDefense}</span>
+            </div>
+            {isEnhancedPiece(currentPiece) && (
+              <>
+                <div className="flex items-center gap-1">
+                  <Star className="h-3 w-3 text-yellow-600" />
+                  <span>Level: {currentPiece.pluslevel}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Zap className="h-3 w-3 text-purple-600" />
+                  <span>EXP: {currentPiece.plusexperience}</span>
+                </div>
+              </>
+            )}
           </div>
-          <div className="flex items-center gap-1">
-            <Shield className="h-3 w-3 text-blue-600" />
-            <span>DEF: {effectiveDefense}</span>
-          </div>
-          {isEnhancedPiece(currentPiece) && (
-            <>
-              <div className="flex items-center gap-1">
-                <Star className="h-3 w-3 text-yellow-600" />
-                <span>Level: {currentPiece.pluslevel}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Zap className="h-3 w-3 text-purple-600" />
-                <span>EXP: {currentPiece.plusexperience}</span>
-              </div>
-            </>
-          )}
         </div>
 
         {/* Special Ability */}
