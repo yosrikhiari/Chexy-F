@@ -100,12 +100,41 @@ export class RPGGameService {
   }
 
   async updateCoins(gameId: string, coinsToAdd: number, playerId: string): Promise<RPGGameState> {
-    const response = await fetch(`${this.baseUrl}/rpg-game/coins/${gameId}?coinsToAdd=${coinsToAdd}&playerId=${playerId}`, {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
-    });
-    if (!response.ok) throw new Error("Failed to update coins");
-    return this.normalize(await response.json());
+    try {
+      const response = await fetch(`${this.baseUrl}/rpg-game/coins/${gameId}?coinsToAdd=${coinsToAdd}&playerId=${playerId}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+      });
+
+      if (!response.ok) {
+        // Try to get detailed error message from response
+        let errorMessage = "Failed to update coins";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+          console.error("Coin update error:", errorData);
+        } catch (parseError) {
+          console.error("Could not parse error response:", parseError);
+        }
+
+        // For 400 errors, provide more context
+        if (response.status === 400) {
+          console.error("Bad request details:", {
+            gameId,
+            coinsToAdd,
+            playerId,
+            status: response.status
+          });
+        }
+
+        throw new Error(`${errorMessage} (Status: ${response.status})`);
+      }
+
+      return this.normalize(await response.json());
+    } catch (error) {
+      console.error("UpdateCoins failed:", error);
+      throw error;
+    }
   }
 
   async endRPGGame(gameId: string, victory: boolean): Promise<RPGGameState> {
