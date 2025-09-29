@@ -11,6 +11,7 @@ export const calculateTeleportPortals = (boardSize: number): number => {
   if (boardSize <= 12) return 3;
   return Math.floor(boardSize / 4);
 };
+
 export const generateTeleportPortals = async (
   gameId: string,
   playerId: string,
@@ -21,7 +22,6 @@ export const generateTeleportPortals = async (
   const usedPositions = new Set<string>();
 
   for (let i = 0; i < count * 2; i++) {
-    // Generate unique position
     let position: BoardPosition;
     let positionKey: string;
 
@@ -40,35 +40,34 @@ export const generateTeleportPortals = async (
     const portal: TeleportPortal = {
       id: portalId,
       position,
-      to: position, // Will be updated after pairing
+      to: position,
       linkedPortal: linkedPortalId,
       isActive: true,
     };
     portals.push(portal);
   }
 
-  // Pair portals by updating 'to' field
   for (let i = 0; i < portals.length; i += 2) {
     portals[i].to = portals[i + 1].position;
     portals[i + 1].to = portals[i].position;
   }
 
-  // Persist portals as BoardEffects to the backend
   for (const portal of portals) {
     const payload = {
+      id: portal.id,
       name: `Teleport Portal ${portal.id}`,
       description: `Teleports pieces to ${portal.to.row},${portal.to.col}`,
-      type: 'PORTAL',
-      positions: [{ row: portal.position.row, col: portal.position.col }],
-      effect: { to: { row: portal.to.row, col: portal.to.col } },
+      type: 'teleport',
+      positions: [[portal.position.row, portal.position.col]],
+      effect: { type: 'teleport', to: portal.to },
       isActive: portal.isActive,
-    } as any;
+    } as BoardEffect;
 
     try {
       await rpgGameService.addBoardEffect(gameId, payload, playerId);
     } catch (error) {
-      console.error(`Failed to add portal ${portal.id}:`, error);
-      throw new Error(`Failed to persist portal ${portal.id}`);
+      console.warn(`Failed to add portal ${portal.id} to backend:`, error);
+      // Continue anyway - portals will work locally
     }
   }
 
@@ -76,10 +75,14 @@ export const generateTeleportPortals = async (
 };
 
 export const generateDynamicBoardModifiers = async (
-  gameId: string, playerId: string, currentBoardSize: number, currentRound: number, p0: any[]): Promise<DynamicBoardModifier[]> => {
+  gameId: string,
+  playerId: string,
+  currentBoardSize: number,
+  currentRound: number,
+  activeModifiers: any[]
+): Promise<DynamicBoardModifier[]> => {
   const modifiers: DynamicBoardModifier[] = [];
 
-  // Size increase modifiers
   modifiers.push({
     id: 'expand_small',
     name: 'Minor Expansion',
@@ -110,7 +113,6 @@ export const generateDynamicBoardModifiers = async (
     isActive: false,
   });
 
-  // Size decrease modifiers
   if (currentBoardSize > 10) {
     modifiers.push({
       id: 'shrink_small',
@@ -137,7 +139,6 @@ export const generateDynamicBoardModifiers = async (
     }
   }
 
-  // Special effects based on round progression
   if (currentRound >= 3) {
     const portalCount = calculateTeleportPortals(currentBoardSize + 2);
     modifiers.push({
@@ -163,41 +164,15 @@ export const generateDynamicBoardModifiers = async (
     });
   }
 
-  // Filter based on constraints
   const validModifiers = modifiers.filter(modifier => {
     if (modifier.minBoardSize && currentBoardSize <= modifier.minBoardSize) return false;
     if (modifier.maxBoardSize && currentBoardSize >= modifier.maxBoardSize) return false;
     return true;
   });
 
-  // Persist modifiers to backend
-  for (const modifier of validModifiers) {
-    try {
-      if (modifier.effect === 'add_teleport_tiles') {
-        const portalCount = calculateTeleportPortals(currentBoardSize + 2);
-        await generateTeleportPortals(gameId, playerId, currentBoardSize, portalCount);
-      } else if (modifier.effect === 'add_trap_tiles') {
-        const trapEffect = {
-          name: modifier.name,
-          description: modifier.description,
-          type: 'TRAP',
-          isActive: modifier.isActive,
-          positions: [] as any[], // Backend can populate positions
-          effect: null
-        };
-        await rpgGameService.addBoardEffect(gameId, trapEffect as any, playerId);
-      } else {
-        // Size modifiers go to EnhancedRPGService
-        await enhancedRPGService.applyBoardEffect(gameId, modifier, playerId);
-      }
-    } catch (error) {
-      console.error(`Failed to apply modifier ${modifier.id}:`, error);
-      throw new Error(`Failed to persist modifier ${modifier.id}`);
-    }
-  }
-
   return validModifiers;
 };
+
 
 
 export const calculateProgressiveBoardSize = async (
@@ -209,24 +184,19 @@ export const calculateProgressiveBoardSize = async (
   const bossRounds = Math.floor((round - 1) / 5);
   const newBoardSize = Math.min(16, baseSize + bossRounds);
 
-  // Fetch current game state to validate
-  try {
-    const gameState = await rpgGameService.getRPGGame(gameId);
-    if (gameState.boardSize !== baseSize) {
-      console.warn("Base board size mismatch. Using backend value:", gameState.boardSize);
-      baseSize = gameState.boardSize;
-    }
-  } catch (error) {
-    console.error("Failed to fetch game state:", error);
-    throw new Error("Unable to validate board size");
-  }
+  console.log('Calculating board size:', {
+    baseSize,
+    round,
+    bossRounds,
+    newBoardSize
+  });
 
-  // If board size changes, persist it
+  // Only persist if size actually changes
   if (newBoardSize !== baseSize) {
     const modifier: DynamicBoardModifier = {
       id: `size_update_round_${round}`,
       name: "Progressive Expansion",
-      description: `Adjusts board size to ${newBoardSize}x${newBoardSize} for round ${round}`,
+      description: `Board expanded to ${newBoardSize}x${newBoardSize}`,
       effect: 'increase_size',
       rarity: 'common',
       sizeModifier: newBoardSize - baseSize,
@@ -234,10 +204,13 @@ export const calculateProgressiveBoardSize = async (
     };
 
     try {
+      console.log('Attempting to apply board size modifier:', modifier);
       await enhancedRPGService.applyBoardEffect(gameId, modifier, playerId);
+      console.log('Successfully applied board size modifier');
     } catch (error) {
-      console.error("Failed to update board size:", error);
-      throw new Error("Failed to persist board size change");
+      console.warn('Failed to persist board size change to backend:', error);
+      // Don't throw - continue with local state
+      // The parent component will handle the new board size
     }
   }
 
@@ -250,27 +223,26 @@ export const shouldExposeEnemyQueen = async (
   playerId: string,
   round: number
 ): Promise<boolean> => {
-  try {
-    const gameState = await rpgGameService.getRPGGame(gameId);
-    const isBossRound = gameState.currentRound % 5 === 0; // Example logic for boss round
-    const shouldExpose = isBossRound && round >= 4;
+  const isBossRound = round % 5 === 0;
+  const shouldExpose = isBossRound && round >= 4;
 
-    if (shouldExpose) {
-      const effect = {
-        id: `queen_expose_round_${round}`,
-        name: "Expose Enemy Queen",
-        description: "Exposes the enemy queen for this round",
-        effect: "expose_queen",
-        rarity: "epic",
-        isActive: true,
-      };
+  if (shouldExpose) {
+    const payload: BoardEffect = {
+      id: `queen_expose_round_${round}`,
+      name: "Expose Enemy Queen",
+      description: "Reveals the enemy queen's position for this round",
+      type: 'expose_queen',
+      positions: [],
+      effect: { type: 'expose_queen' },
+      isActive: true,
+    };
 
-      await enhancedRPGService.applyBoardEffect(gameId, effect, playerId);
+    try {
+      await rpgGameService.addBoardEffect(gameId, payload, playerId);
+    } catch (error) {
+      console.warn("Failed to persist queen exposure:", error);
     }
-
-    return shouldExpose;
-  } catch (error) {
-    console.error("Failed to check queen exposure:", error);
-    throw new Error("Unable to determine queen exposure");
   }
-};
+
+  return shouldExpose;
+}

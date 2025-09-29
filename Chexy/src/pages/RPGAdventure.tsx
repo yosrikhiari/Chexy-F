@@ -380,6 +380,8 @@ const RPGAdventure = () => {
   };
 
 
+
+
   const completeBattle = async (victory: boolean) => {
     try {
       if (victory) {
@@ -443,14 +445,13 @@ const RPGAdventure = () => {
         // If boss round, generate rewards and go to draft phase
         if (wasBossRound) {
           console.log("Boss defeated! Generating board modifier rewards...");
-          const rewards = generateDynamicBoardModifiers(
-            gameState.gameid,
-            userInfo.id,
+          // Generate rewards locally without backend persistence
+          const rewards = generateBossRewards(
             gameState.boardSize,
             gameState.currentRound,
             gameState.activeBoardModifiers || []
           );
-          setAvailableRewards(await rewards);
+          setAvailableRewards(rewards);
           setGamePhase("draft");
         } else {
           // Normal round - return to preparation
@@ -1110,4 +1111,77 @@ const generateShopItems = (coins: number): ShopItem[] => {
   const affordable = catalog.filter((i) => i.cost <= coins);
   if (affordable.length >= 3) return affordable.slice(0, 6);
   return catalog.slice(0, 6);
+};
+
+// Generate boss rewards (board modifiers)
+const generateBossRewards = (
+  boardSize: number,
+  currentRound: number,
+  activeBoardModifiers: any[]
+): DynamicBoardModifier[] => {
+  const rewards: DynamicBoardModifier[] = [];
+
+  // Define possible reward pool
+  const rewardPool = [
+    {
+      name: "Expanding Battlefield",
+      description: "Increases board size, allowing more strategic depth",
+      sizeModifier: 2,
+      rarity: "epic" as const,
+      effect: "increase_size" as const,
+    },
+    {
+      name: "Tactical Compression",
+      description: "Reduces board size for intense close combat",
+      sizeModifier: -1,
+      rarity: "rare" as const,
+      effect: "decrease_size" as const,
+    },
+    {
+      name: "Portal Network",
+      description: "Adds mystical teleportation tiles across the battlefield",
+      sizeModifier: 1,
+      rarity: "epic" as const,
+      effect: "add_teleport_tiles" as const,
+    },
+    {
+      name: "Treacherous Terrain",
+      description: "Creates dangerous pit traps on the battlefield",
+      sizeModifier: 0,
+      rarity: "rare" as const,
+      effect: "add_trap_tiles" as const,
+    },
+    {
+      name: "Slippery Ground",
+      description: "Ice patches make movement unpredictable",
+      sizeModifier: 0,
+      rarity: "common" as const,
+      effect: "add_boost_tiles" as const,
+    },
+    {
+      name: "Grand Arena",
+      description: "Massively expands the battlefield",
+      sizeModifier: 3,
+      rarity: "legendary" as const,
+      effect: "increase_size" as const,
+    },
+  ];
+
+  // Filter out rewards that would make board too small or too large
+  const validRewards = rewardPool.filter((reward) => {
+    const newSize = boardSize + reward.sizeModifier;
+    return newSize >= 6 && newSize <= 16;
+  });
+
+  // Select 3 random rewards
+  const shuffled = [...validRewards].sort(() => Math.random() - 0.5);
+  for (let i = 0; i < Math.min(3, shuffled.length); i++) {
+    rewards.push({
+      ...shuffled[i],
+      id: `boss-reward-${currentRound}-${i}-${Date.now()}`,
+      isActive: false,
+    });
+  }
+
+  return rewards;
 };

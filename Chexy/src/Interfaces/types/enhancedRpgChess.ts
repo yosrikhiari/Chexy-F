@@ -23,12 +23,19 @@ export interface DynamicBoardModifier {
   id: string;
   name: string;
   description: string;
-  effect: 'increase_size' | 'decrease_size' | 'add_teleport_tiles' | 'add_boost_tiles' | 'add_trap_tiles';
-  rarity: 'common' | 'rare' | 'epic' | 'legendary';
-  sizeModifier: number; // Dynamic based on rarity
-  minBoardSize?: number; // Minimum board size requirement
-  maxBoardSize?: number; // Maximum board size requirement
+  effect:
+    | "increase_size"
+    | "decrease_size"
+    | "add_teleport_tiles"
+    | "add_boost_tiles"
+    | "add_trap_tiles"
+    | "expose_queen";  // Add this
+  rarity: "common" | "rare" | "epic" | "legendary";
+  sizeModifier: number;
   isActive: boolean;
+  minBoardSize?: number;
+  maxBoardSize?: number;
+  specialTiles?: number;
 }
 
 export interface EnhancedGameState extends RPGGameState {

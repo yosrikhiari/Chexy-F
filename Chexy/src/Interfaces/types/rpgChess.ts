@@ -43,7 +43,7 @@ export interface BoardEffect {
   id: string;
   name: string;
   description: string;
-  type: 'teleport' | 'boost' | 'trap' | 'portal' | 'size_modifier' | 'pit' | 'slippery';
+  type: 'teleport' | 'boost' | 'trap' | 'portal' | 'size_modifier' | 'pit' | 'slippery' | 'expose_queen';  // Add 'expose_queen' here
   positions?: [number, number][];
   effect: any;
   isActive: boolean;
