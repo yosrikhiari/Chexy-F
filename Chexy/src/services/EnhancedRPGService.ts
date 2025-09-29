@@ -39,6 +39,31 @@ export class EnhancedRPGService {
     });
     if (!response.ok) throw new Error("Failed to handle boss encounter");
   }
+  async activateAbility(gameId: string, pieceId: string, ability: string, targetPieceId: string | null, playerId: string): Promise<any> {
+    const params = new URLSearchParams({
+      ability: ability,
+      playerId: playerId
+    });
+
+    if (targetPieceId) {
+      params.append('targetPieceId', targetPieceId);
+    }
+
+    const response = await fetch(`${this.baseUrl}/rpg-game/ability/${gameId}/${pieceId}?${params}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${JwtService.getToken()}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || "Failed to activate ability");
+    }
+
+    return await response.json();
+  }
 }
 
 export const enhancedRPGService = new EnhancedRPGService();

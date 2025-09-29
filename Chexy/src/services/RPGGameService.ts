@@ -137,6 +137,32 @@ export class RPGGameService {
     }
   }
 
+  async activateAbility(gameId: string, pieceId: string, abilityId: string, targetPieceId?: string, playerId?: string): Promise<RPGGameState> {
+    const params = new URLSearchParams({
+      ability: abilityId,
+      playerId: playerId || JwtService.getKeycloakId() || ''
+    });
+
+    if (targetPieceId) {
+      params.append('targetPieceId', targetPieceId);
+    }
+
+    const response = await fetch(`${this.baseUrl}/rpg-game/ability/${gameId}/${pieceId}?${params}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${JwtService.getToken()}`
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || "Failed to activate ability");
+    }
+
+    return this.normalize(await response.json());
+  }
+
   async endRPGGame(gameId: string, victory: boolean): Promise<RPGGameState> {
     const response = await fetch(`${this.baseUrl}/rpg-game/end/${gameId}?victory=${victory}`, {
       method: "POST",

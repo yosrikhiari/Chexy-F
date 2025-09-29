@@ -385,6 +385,9 @@ const RPGAdventure = () => {
       if (victory) {
         console.log("Victory! Progressing to next round...");
 
+        // Check if this was a boss round
+        const wasBossRound = gameState.currentRound % 5 === 0;
+
         // Preserve current state
         const currentEnhancedPlayerArmy = [...gameState.playerArmy];
         const currentCoins = gameState.coins;
@@ -425,18 +428,57 @@ const RPGAdventure = () => {
           }
         }
 
-        // Continue with rest of the method...
+        // Update game state first
         const enhancedState: EnhancedGameState = {
           ...gameState,
           ...updatedState,
           coins: finalCoins,
-          // ... rest of state
+          playerArmy: currentEnhancedPlayerArmy,
+          currentRound: updatedState.currentRound,
+          score: updatedState.score,
         };
 
         setGameState(enhancedState);
 
+        // If boss round, generate rewards and go to draft phase
+        if (wasBossRound) {
+          console.log("Boss defeated! Generating board modifier rewards...");
+          const rewards = generateDynamicBoardModifiers(
+            gameState.gameid,
+            userInfo.id,
+            gameState.boardSize,
+            gameState.currentRound,
+            gameState.activeBoardModifiers || []
+          );
+          setAvailableRewards(await rewards);
+          setGamePhase("draft");
+        } else {
+          // Normal round - return to preparation
+          setGamePhase("preparation");
+        }
+
       } else {
-        // Handle defeat...
+        // Handle defeat
+        console.log("Defeat! Losing a life...");
+        const newLives = Math.max(0, gameState.lives - 1);
+
+        if (newLives <= 0) {
+          // Game over
+          const finalState: EnhancedGameState = {
+            ...gameState,
+            lives: 0,
+            isGameOver: true,
+          };
+          setGameState(finalState);
+        } else {
+          // Continue with fewer lives
+          const updatedState: EnhancedGameState = {
+            ...gameState,
+            lives: newLives,
+          };
+          setGameState(updatedState);
+          setGamePhase("preparation");
+        }
       }
     } catch (error) {
       console.error("Failed to complete battle:", error);

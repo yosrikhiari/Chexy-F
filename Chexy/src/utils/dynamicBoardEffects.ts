@@ -76,11 +76,7 @@ export const generateTeleportPortals = async (
 };
 
 export const generateDynamicBoardModifiers = async (
-  gameId: string,
-  playerId: string,
-  currentBoardSize: number,
-  currentRound: number
-): Promise<DynamicBoardModifier[]> => {
+  gameId: string, playerId: string, currentBoardSize: number, currentRound: number, p0: any[]): Promise<DynamicBoardModifier[]> => {
   const modifiers: DynamicBoardModifier[] = [];
 
   // Size increase modifiers

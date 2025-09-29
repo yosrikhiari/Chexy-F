@@ -143,38 +143,256 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
     setIsActivatingAbility(true);
     try {
       if (gameMode === "ENHANCED_RPG" && "pluslevel" in currentPiece) {
-        // Use enhancedRPGService for ENHANCED_RPG mode
-        const combatResult = await enhancedRPGService.resolveCombat(
-          currentPiece as EnhancedRPGPiece,
-          currentPiece as EnhancedRPGPiece, // Self-targeted ability; adjust as needed
+        // For enhanced RPG mode, use the proper ability activation endpoint
+        let abilityId: string;
+        const abilityName = currentPiece.specialAbility.toLowerCase();
+
+        // Enhanced mapping to match backend AbilityId enum values
+        switch (abilityName) {
+          case 'heal':
+          case 'healing':
+            abilityId = 'HEAL_2';
+            break;
+          case 'shadow step':
+          case 'shadowstep':
+          case 'teleport':
+            abilityId = 'SHADOW_STEP';
+            break;
+          case 'charge':
+            abilityId = 'CHARGE';
+            break;
+          case 'guard':
+          case 'shield':
+            abilityId = 'SHIELD';
+            break;
+          case 'blink':
+            abilityId = 'BLINK';
+            break;
+          case 'lunge':
+            abilityId = 'LUNGE';
+            break;
+          case 'smite':
+            abilityId = 'SMITE';
+            break;
+          case 'rally':
+            abilityId = 'RALLY';
+            break;
+          case 'fortress':
+            abilityId = 'FORTRESS';
+            break;
+          case 'barrage':
+            abilityId = 'BARRAGE';
+            break;
+          case 'execute':
+            abilityId = 'EXECUTE';
+            break;
+          case 'intimidate':
+            abilityId = 'INTIMIDATE';
+            break;
+          case 'inspire':
+            abilityId = 'INSPIRE';
+            break;
+          case 'sacrifice':
+            abilityId = 'SACRIFICE';
+            break;
+          case 'divine intervention':
+          case 'divineintervention':
+            abilityId = 'DIVINE_INTERVENTION';
+            break;
+          case 'resurrection':
+            abilityId = 'RESURRECTION';
+            break;
+          case 'time warp':
+          case 'timewarp':
+            abilityId = 'TIME_WARP';
+            break;
+          case 'meteor':
+            abilityId = 'METEOR';
+            break;
+          case 'lightning':
+            abilityId = 'LIGHTNING';
+            break;
+          case 'earthquake':
+            abilityId = 'EARTHQUAKE';
+            break;
+          case 'blizzard':
+            abilityId = 'BLIZZARD';
+            break;
+          case 'inferno':
+            abilityId = 'INFERNO';
+            break;
+          case 'dark magic':
+          case 'darkmagic':
+            abilityId = 'DARK_MAGIC';
+            break;
+          case 'shadow strike':
+          case 'shadowstrike':
+            abilityId = 'SHADOW_STRIKE';
+            break;
+          default:
+            // Try to convert the ability name to match enum pattern
+            abilityId = currentPiece.specialAbility.toUpperCase().replace(/\s+/g, '_');
+            break;
+        }
+
+        // Use the enhanced RPG service ability activation endpoint
+        const updatedState = await enhancedRPGService.activateAbility(
           gameId,
+          currentPiece.id,
+          abilityId,
+          null, // targetPieceId - could be enhanced to allow targeting
           playerId
         );
-        setCurrentPiece(combatResult.attacker);
-        onPieceUpdate?.(combatResult.attacker);
-        // broadcasting disabled
-        toast.success(`${currentPiece.specialAbility} activated!`);
-      } else {
-        // Use rpgGameService for other modes
-        const modifier: RPGModifier = {
-          id: `ability-${currentPiece.id}-${Date.now()}`,
-          name: currentPiece.specialAbility,
-          description: `Activated ${currentPiece.specialAbility} for ${currentPiece.name}`,
-          effect: currentPiece.specialAbility.toLowerCase().replace(/\s/g, "_"),
-          rarity: currentPiece.rarity as "common" | "rare" | "epic" | "legendary",
-          isActive: true,
-        };
 
-        const updatedState = await rpgGameService.addModifier(gameId, modifier, playerId);
-        setCurrentPiece(updatedState.playerArmy.find((p) => p.id === currentPiece.id) || currentPiece);
-        onPieceUpdate?.(updatedState.playerArmy.find((p) => p.id === currentPiece.id) || currentPiece);
-        // broadcasting disabled
+        // Update the piece from the returned game state
+        const updatedPiece = updatedState.playerArmy?.find((p: any) => p.id === currentPiece.id) || currentPiece;
+        setCurrentPiece(updatedPiece);
+        onPieceUpdate?.(updatedPiece);
         toast.success(`${currentPiece.specialAbility} activated!`);
+
+      } else {
+        // For regular RPG mode, try the ability activation endpoint first
+        try {
+          // Use the same enhanced mapping for regular RPG mode
+          let abilityId: string;
+          const abilityName = currentPiece.specialAbility.toLowerCase();
+
+          switch (abilityName) {
+            case 'heal':
+            case 'healing':
+              abilityId = 'HEAL_2';
+              break;
+            case 'shadow step':
+            case 'shadowstep':
+            case 'teleport':
+              abilityId = 'SHADOW_STEP';
+              break;
+            case 'charge':
+              abilityId = 'CHARGE';
+              break;
+            case 'guard':
+            case 'shield':
+              abilityId = 'SHIELD';
+              break;
+            case 'blink':
+              abilityId = 'BLINK';
+              break;
+            case 'lunge':
+              abilityId = 'LUNGE';
+              break;
+            case 'smite':
+              abilityId = 'SMITE';
+              break;
+            case 'rally':
+              abilityId = 'RALLY';
+              break;
+            case 'fortress':
+              abilityId = 'FORTRESS';
+              break;
+            case 'barrage':
+              abilityId = 'BARRAGE';
+              break;
+            case 'execute':
+              abilityId = 'EXECUTE';
+              break;
+            case 'intimidate':
+              abilityId = 'INTIMIDATE';
+              break;
+            case 'inspire':
+              abilityId = 'INSPIRE';
+              break;
+            case 'sacrifice':
+              abilityId = 'SACRIFICE';
+              break;
+            case 'divine intervention':
+            case 'divineintervention':
+              abilityId = 'DIVINE_INTERVENTION';
+              break;
+            case 'resurrection':
+              abilityId = 'RESURRECTION';
+              break;
+            case 'time warp':
+            case 'timewarp':
+              abilityId = 'TIME_WARP';
+              break;
+            case 'meteor':
+              abilityId = 'METEOR';
+              break;
+            case 'lightning':
+              abilityId = 'LIGHTNING';
+              break;
+            case 'earthquake':
+              abilityId = 'EARTHQUAKE';
+              break;
+            case 'blizzard':
+              abilityId = 'BLIZZARD';
+              break;
+            case 'inferno':
+              abilityId = 'INFERNO';
+              break;
+            case 'dark magic':
+            case 'darkmagic':
+              abilityId = 'DARK_MAGIC';
+              break;
+            case 'shadow strike':
+            case 'shadowstrike':
+              abilityId = 'SHADOW_STRIKE';
+              break;
+            default:
+              abilityId = currentPiece.specialAbility.toUpperCase().replace(/\s+/g, '_');
+              break;
+          }
+
+          const updatedState = await enhancedRPGService.activateAbility(
+            gameId,
+            currentPiece.id,
+            abilityId,
+            null,
+            playerId
+          );
+
+          const updatedPiece = updatedState.playerArmy?.find((p: any) => p.id === currentPiece.id) || currentPiece;
+          setCurrentPiece(updatedPiece);
+          onPieceUpdate?.(updatedPiece);
+          toast.success(`${currentPiece.specialAbility} activated!`);
+
+        } catch (abilityError) {
+          // Fallback: if ability activation fails, try the modifier approach
+          console.warn("Ability activation failed, trying modifier approach:", abilityError);
+
+          const modifier = {
+            id: `ability-${currentPiece.id}-${Date.now()}`,
+            name: currentPiece.specialAbility,
+            description: `Activated ${currentPiece.specialAbility} for ${currentPiece.name}`,
+            effect: currentPiece.specialAbility.toLowerCase().replace(/\s+/g, "_"),
+            rarity: currentPiece.rarity as "common" | "rare" | "epic" | "legendary",
+            isActive: true,
+            isPermanent: false,
+            duration: 1,
+            stackable: false
+          };
+
+          const updatedState = await rpgGameService.addModifier(gameId, modifier, playerId);
+          const updatedPiece = updatedState.playerArmy?.find((p: any) => p.id === currentPiece.id) || currentPiece;
+          setCurrentPiece(updatedPiece);
+          onPieceUpdate?.(updatedPiece);
+          toast.success(`${currentPiece.specialAbility} activated!`);
+        }
       }
     } catch (error) {
       const message = `Failed to activate ability: ${(error as Error).message}`;
       toast.error(message);
       onError?.(message);
+
+      // Enhanced error logging
+      console.error("Special ability activation failed:", {
+        gameId,
+        playerId,
+        pieceId: currentPiece.id,
+        ability: currentPiece.specialAbility,
+        gameMode,
+        error: error
+      });
     } finally {
       setIsActivatingAbility(false);
     }
