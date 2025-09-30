@@ -17,6 +17,7 @@ import { tieResolutionService } from "@/services/TieResolutionService.ts";
 import { AIService } from "@/services/aiService.ts";
 import {gameSessionService, GameSessionService} from "@/services/GameSessionService.ts";
 import { EnhancedRPGPiece } from "@/Interfaces/types/enhancedRpgChess.ts";
+import {toast} from "sonner";
 
 // Updated props interface to include gameSessionId
 interface RPGChessBoardProps {
@@ -105,7 +106,7 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
     init();
   }, [gameState.gameid, gameSessionId, playerId]);
 
-  
+
 
   const initializeBoard = async (rpgGameState: RPGGameState) => {
     const size = rpgGameState.boardSize;
@@ -123,12 +124,13 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
           color: "white",
           hasMoved: false,
           position: { row, col },
-          pluscurrentHp: piece.hp, // Default EnhancedRPGPiece properties
+          pluscurrentHp: piece.hp,
           plusmaxHp: piece.maxHp,
           plusattack: piece.attack,
           plusdefense: piece.defense,
-          pluslevel: 1,
+          pluslevel: 1,  // Force level 1
           plusexperience: 0,
+          killCount: 0,  // Reset kill count
         };
       }
     });
@@ -577,11 +579,15 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
       return;
     }
     try {
-      // For RPG mode, skip backend validation and execute move directly
-      const move = { from, to };
-
       const newBoard = board.map((row) => [...row]);
       const piece = newBoard[from.row][from.col];
+      if (!piece) return;
+
+      // Check if this is a capture
+      const capturedPiece = newBoard[to.row][to.col];
+      const isCapture = capturedPiece !== null;
+      const move = { from, to };
+
       if (!piece) return;
 
       const isEnPassant = isEnPassantMove(from, to, newBoard, gameStateInfo.enPassantTarget);
@@ -601,7 +607,6 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
       const finalDestination = await applySquareEffect(piece, [to.row, to.col]);
       if (finalDestination === null) {
         newBoard[from.row][from.col] = null;
-        console.log("Piece removed by pit trap!");
       } else {
         newBoard[finalDestination[0]][finalDestination[1]] = {
           ...piece,
@@ -609,7 +614,32 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
           position: { row: finalDestination[0], col: finalDestination[1] },
         };
         newBoard[from.row][from.col] = null;
+
+        // ADD THIS: Award XP and handle leveling after capture
+        if (isCapture && 'pluslevel' in piece) {
+          try {
+            const updatedGameState = await rpgGameService.trackKill(
+              gameState.gameid,
+              piece.id,
+              playerId
+            );
+
+            // Update the piece from the backend response
+            const updatedPiece = updatedGameState.playerArmy.find(p => p.id === piece.id);
+            if (updatedPiece && finalDestination) {
+              newBoard[finalDestination[0]][finalDestination[1]] = updatedPiece as EnhancedRPGPiece;
+
+              // Show level-up toast if leveled
+              if (updatedPiece.pluslevel > piece.pluslevel) {
+                toast.success(`${updatedPiece.name} leveled up to Level ${updatedPiece.pluslevel}!`);
+              }
+            }
+          } catch (err) {
+            console.error("Failed to track kill:", err);
+          }
+        }
       }
+
 
       // For RPG mode, we handle moves locally without backend validation
       // No need to call gameService.executeMove for RPG games

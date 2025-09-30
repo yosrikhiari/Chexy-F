@@ -136,7 +136,14 @@ export class RPGGameService {
       throw error;
     }
   }
-
+  async trackKill(gameId: string, killerPieceId: string, playerId: string): Promise<RPGGameState> {
+    const response = await fetch(`${this.baseUrl}/rpg-game/kill/${gameId}/${killerPieceId}?playerId=${playerId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${JwtService.getToken()}` },
+    });
+    if (!response.ok) throw new Error("Failed to track kill");
+    return this.normalize(await response.json());
+  }
   async activateAbility(gameId: string, pieceId: string, abilityId: string, targetPieceId?: string, playerId?: string): Promise<RPGGameState> {
     const params = new URLSearchParams({
       ability: abilityId,

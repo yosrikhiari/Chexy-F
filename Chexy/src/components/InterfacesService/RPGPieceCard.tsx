@@ -455,9 +455,14 @@ const RPGPieceCard: React.FC<RPGPieceCardProps> = ({
                   <Star className="h-3 w-3 text-yellow-600" />
                   <span>Level: {currentPiece.pluslevel}</span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Zap className="h-3 w-3 text-purple-600" />
-                  <span>EXP: {currentPiece.plusexperience}</span>
+                <div className="col-span-2">
+                  <div className="text-xs text-muted-foreground mb-1">
+                    Kills: {(currentPiece as any).killCount || 0}/{currentPiece.pluslevel}
+                  </div>
+                  <Progress
+                    value={((currentPiece as any).killCount || 0) / currentPiece.pluslevel * 100}
+                    className="h-1"
+                  />
                 </div>
               </>
             )}

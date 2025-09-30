@@ -9,6 +9,7 @@ export interface EnhancedRPGPiece extends RPGPiece {
   plusdefense: number;
   pluslevel: number;
   plusexperience: number;
+  killCount?: number; // Add this field
 }
 
 export interface EnemyArmyConfig {
