@@ -107,7 +107,41 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
   }, [gameState.gameid, gameSessionId, playerId]);
 
 
+  useEffect(() => {
+    if (!playerId) {
+      setError("Please log in to play");
+      return;
+    }
+    const init = async () => {
+      try {
+        const fetchedGameState = await rpgGameService.getRPGGame(gameState.gameid);
+        setBoardEffects(fetchedGameState.boardEffects || []);
+        await initializeBoard(fetchedGameState);
+        setGameStateInfo((prev) => ({
+          ...prev,
+          gameSessionId,
+          userId1: playerId,
+          userId2: "AI",
+          currentTurn: "white",
+          moveCount: fetchedGameState.currentRound || 0,
+        }));
+        // broadcasting disabled
+      } catch (err) {
+        setError("Failed to load game state from server");
+        console.error(err);
+        await initializeBoard(gameState);
+      }
+    };
+    init();
+  }, [gameState.gameid, gameSessionId, playerId]);
 
+  // Handle board size changes
+  useEffect(() => {
+    if (board.length !== gameState.boardSize) {
+      console.log(`Board size changed from ${board.length} to ${gameState.boardSize}, reinitializing...`);
+      initializeBoard(gameState);
+    }
+  }, [gameState.boardSize]);
   const initializeBoard = async (rpgGameState: RPGGameState) => {
     const size = rpgGameState.boardSize;
     const newBoard: (EnhancedRPGPiece | null)[][] = Array(size)

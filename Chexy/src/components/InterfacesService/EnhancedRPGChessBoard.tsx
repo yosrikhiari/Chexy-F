@@ -810,17 +810,8 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            🏟️ Enhanced Battle Arena
-            {needsDragging && (
-              <Badge variant="secondary">
-                <Move className="h-3 w-3 mr-1" />
-                Drag to Navigate
-              </Badge>
-            )}
-          </CardTitle>
         </CardHeader>
-        <CardContent className="overflow-hidden">
+        <CardContent className="flex justify-center items-center p-8 min-h-[600px]">
           <div
             ref={boardRef}
             className={`relative ${needsDragging ? "cursor-grab active:cursor-grabbing" : ""}`}

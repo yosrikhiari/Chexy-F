@@ -99,7 +99,7 @@ const ChessSquare: React.FC<ChessSquareProps> = ({
   return (
     <div
       className={cn(
-        'w-12 h-12 sm:w-16 sm:h-16 md:w-20 md:h-20 flex items-center justify-center relative cursor-pointer',
+        'w-full h-full flex items-center justify-center relative cursor-pointer', // Changed from w-20 h-20
         specialEffect ? effectClass : isLight ? 'bg-chess-light' : 'bg-chess-dark',
         isSelected && 'ring-2 ring-yellow-500',
         isValidMove && !specialEffect && 'bg-yellow-400 bg-opacity-80',
