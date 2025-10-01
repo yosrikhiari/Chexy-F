@@ -284,10 +284,22 @@ const RPGAdventure = () => {
       console.error("Failed to open shop:", error);
     }
   };
-
   const handlePurchase = async (item: ShopItem) => {
     if (gameState.coins < item.cost) return;
 
+    try {
+      // CRITICAL: Persist coin deduction to backend FIRST
+      const negativeAmount = -Math.abs(item.cost);
+      await rpgGameService.updateCoins(gameState.gameid, negativeAmount, userInfo.id);
+
+      console.log(`Successfully deducted ${item.cost} coins from backend`);
+    } catch (error) {
+      console.error("Failed to update coins on backend:", error);
+      alert("Failed to complete purchase. Please try again.");
+      return; // Stop if backend update fails
+    }
+
+    // Now update local state
     setGameState((prev) => {
       if (!prev) return prev;
       const next: EnhancedGameState = { ...prev };
@@ -1055,7 +1067,7 @@ const generateShopItems = (coins: number): ShopItem[] => {
       id: shadowSeer.id,
       name: shadowSeer.name,
       description: shadowSeer.description,
-      cost: 35,
+      cost: 50, // INCREASED from 35
       type: "piece",
       rarity: "epic",
       item: shadowSeer,
@@ -1064,7 +1076,7 @@ const generateShopItems = (coins: number): ShopItem[] => {
       id: obsidianGuard.id,
       name: obsidianGuard.name,
       description: obsidianGuard.description,
-      cost: 28,
+      cost: 40, // INCREASED from 28
       type: "piece",
       rarity: "rare",
       item: obsidianGuard,
@@ -1073,7 +1085,7 @@ const generateShopItems = (coins: number): ShopItem[] => {
       id: darkRider.id,
       name: darkRider.name,
       description: darkRider.description,
-      cost: 25,
+      cost: 35, // INCREASED from 25
       type: "piece",
       rarity: "rare",
       item: darkRider,
@@ -1082,7 +1094,7 @@ const generateShopItems = (coins: number): ShopItem[] => {
       id: powerTome.id,
       name: powerTome.name,
       description: powerTome.description,
-      cost: 30,
+      cost: 45, // INCREASED from 30
       type: "modifier",
       rarity: "epic",
       item: powerTome,
@@ -1091,7 +1103,7 @@ const generateShopItems = (coins: number): ShopItem[] => {
       id: wardStone.id,
       name: wardStone.name,
       description: wardStone.description,
-      cost: 18,
+      cost: 25, // INCREASED from 18
       type: "board_modifier",
       rarity: "rare",
       item: wardStone,
@@ -1100,12 +1112,12 @@ const generateShopItems = (coins: number): ShopItem[] => {
       id: commandBanner.id,
       name: commandBanner.name,
       description: commandBanner.description,
-      cost: 12,
+      cost: 18, // INCREASED from 12
       type: "capacity_modifier",
       rarity: "common",
       item: commandBanner,
     },
-  ];
+    ];
 
   // Show up to 6 items, filter based on affordability to ensure at least 3 options
   const affordable = catalog.filter((i) => i.cost <= coins);
