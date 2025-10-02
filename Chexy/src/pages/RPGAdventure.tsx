@@ -288,77 +288,72 @@ const RPGAdventure = () => {
     if (gameState.coins < item.cost) return;
 
     try {
-      // CRITICAL: Persist coin deduction to backend FIRST
+      // Step 1: Deduct coins on backend
       const negativeAmount = -Math.abs(item.cost);
       await rpgGameService.updateCoins(gameState.gameid, negativeAmount, userInfo.id);
 
-      console.log(`Successfully deducted ${item.cost} coins from backend`);
-    } catch (error) {
-      console.error("Failed to update coins on backend:", error);
-      alert("Failed to complete purchase. Please try again.");
-      return; // Stop if backend update fails
-    }
+      // Step 2: Fetch confirmed state
+      const confirmedState = await rpgGameService.getRPGGame(gameState.gameid);
+      console.log(`Purchase confirmed. Coins: ${confirmedState.coins}`);
 
-    // Now update local state
-    setGameState((prev) => {
-      if (!prev) return prev;
-      const next: EnhancedGameState = { ...prev };
-      next.coins = Math.max(0, (prev.coins || 0) - item.cost);
-      if (item.type === "piece") {
-        const base = item.item as RPGPiece;
-        const normalized = toEnhancedRPGPiece(base);
-        next.playerArmy = [...prev.playerArmy, normalized];
-      } else if (item.type === "modifier") {
-        next.activeModifiers = [...(prev.activeModifiers || []), { ...(item.item as any), isActive: true }];
-        const modName = ((item.item as any).name || '').toLowerCase();
-        if (modName.includes('tome of power')) {
-          next.playerArmy = prev.playerArmy.map((p: EnhancedRPGPiece) => ({
-            ...p,
-            plusattack: ((p.plusattack ?? p.attack ?? 0) + 2)
-          }));
-        }
-      } else if (item.type === "board_modifier") {
-        next.activeBoardModifiers = [...(prev.activeBoardModifiers || []), { ...(item.item as any), isActive: true }];
-        const bmodName = ((item.item as any).name || '').toLowerCase();
-        if (bmodName.includes('ward stone')) {
-          next.teleportPortals = (prev.teleportPortals || 0) + 1;
-        }
-      } else if (item.type === "capacity_modifier") {
-        next.activeCapacityModifiers = [...(prev.activeCapacityModifiers || []), item.item as any];
-        next.armyCapacity = calculateArmyCapacity(prev.boardSize, next.activeCapacityModifiers || []);
-      }
-
-      next.playerArmy = next.playerArmy.map(piece => {
-        if (isEnhancedRPGPiece(piece)) {
-          return piece;
-        } else {
-          return toEnhancedRPGPiece(piece);
-        }
-      });
-
-      return next;
-    });
-    setShopItems((prev) => prev.filter((shopItem) => shopItem.id !== item.id));
-
-    setTimeout(() => {
-      setGameState(prev => {
+      // Step 3: Update local state with backend-confirmed coins
+      setGameState((prev) => {
         if (!prev) return prev;
-        const enhancedArmy = prev.playerArmy.map(piece => {
-          if (isEnhancedRPGPiece(piece)) {
-            return piece;
-          } else {
-            return toEnhancedRPGPiece(piece);
+        const next: EnhancedGameState = { ...prev };
+        next.coins = confirmedState.coins; // Use backend value
+
+        if (item.type === "piece") {
+          const base = item.item as RPGPiece;
+          const normalized = toEnhancedRPGPiece(base);
+          next.playerArmy = [...prev.playerArmy, normalized];
+        } else if (item.type === "modifier") {
+          next.activeModifiers = [...(prev.activeModifiers || []), { ...(item.item as any), isActive: true }];
+          const modName = ((item.item as any).name || '').toLowerCase();
+          if (modName.includes('tome of power')) {
+            next.playerArmy = prev.playerArmy.map((p: EnhancedRPGPiece) => ({
+              ...p,
+              plusattack: ((p.plusattack ?? p.attack ?? 0) + 2)
+            }));
           }
-        });
+        } else if (item.type === "board_modifier") {
+          next.activeBoardModifiers = [...(prev.activeBoardModifiers || []), { ...(item.item as any), isActive: true }];
+          const bmodName = ((item.item as any).name || '').toLowerCase();
+          if (bmodName.includes('ward stone')) {
+            next.teleportPortals = (prev.teleportPortals || 0) + 1;
+          }
+        } else if (item.type === "capacity_modifier") {
+          next.activeCapacityModifiers = [...(prev.activeCapacityModifiers || []), item.item as any];
+          next.armyCapacity = calculateArmyCapacity(prev.boardSize, next.activeCapacityModifiers || []);
+        }
 
-        return {
-          ...prev,
-          playerArmy: applyLeveling(enhancedArmy)
-        };
+        next.playerArmy = next.playerArmy.map(piece =>
+          isEnhancedRPGPiece(piece) ? piece : toEnhancedRPGPiece(piece)
+        );
+
+        return next;
       });
-    }, 100);
-  };
 
+      setShopItems((prev) => prev.filter((shopItem) => shopItem.id !== item.id));
+
+      // Apply leveling after state update
+      setTimeout(() => {
+        setGameState(prev => {
+          if (!prev) return prev;
+          const enhancedArmy = prev.playerArmy.map(piece =>
+            isEnhancedRPGPiece(piece) ? piece : toEnhancedRPGPiece(piece)
+          );
+          return {
+            ...prev,
+            playerArmy: applyLeveling(enhancedArmy)
+          };
+        });
+      }, 100);
+
+    } catch (error) {
+      console.error("Failed to complete purchase:", error);
+      alert("Purchase failed. Please try again.");
+    }
+  };
   const startBattle = async () => {
     try {
       const newBoardSize = await calculateProgressiveBoardSize(
@@ -399,54 +394,50 @@ const RPGAdventure = () => {
       if (victory) {
         console.log("Victory! Progressing to next round...");
 
-        // Check if this was a boss round
         const wasBossRound = gameState.currentRound % 5 === 0;
-
-        // Preserve current state
         const currentEnhancedPlayerArmy = [...gameState.playerArmy];
         const currentCoins = gameState.coins;
 
-        // Handle backend progression with better error handling
+        // Step 1: Progress round on backend (coins should persist)
         let updatedState;
         try {
           updatedState = await rpgGameService.progressToNextRound(gameState.gameid);
-          console.log("Updated game state after progression:", updatedState);
+          console.log("Backend progression complete:", updatedState);
         } catch (error) {
-          console.warn("Backend progression failed, continuing with local state:", error);
+          console.warn("Backend progression failed:", error);
           updatedState = {
             ...gameState,
             currentRound: gameState.currentRound + 1,
             score: gameState.score + 100,
-            boardSize: gameState.boardSize
+            boardSize: gameState.boardSize,
+            coins: currentCoins // Preserve locally if backend fails
           };
         }
 
-        // Award victory bonus with error handling
+        // Step 2: Calculate and award victory bonus
         const victoryBonus = gameState.currentRound * 10;
-        let finalCoins = Math.max(currentCoins, updatedState.coins || 100);
+        let finalCoins = updatedState.coins || currentCoins;
 
         if (victoryBonus > 0 && victoryBonus <= 1000) {
           try {
-            console.log("Attempting to update coins:", {
-              gameId: gameState.gameid,
-              bonus: victoryBonus,
-              playerId: userInfo.id
-            });
-
             await rpgGameService.updateCoins(gameState.gameid, victoryBonus, userInfo.id);
-            finalCoins += victoryBonus;
-            console.log("Successfully updated coins on backend");
+
+            // Step 3: Fetch confirmed state from backend
+            const confirmedState = await rpgGameService.getRPGGame(gameState.gameid);
+            finalCoins = confirmedState.coins;
+
+            console.log("Coins after victory bonus:", finalCoins);
           } catch (error) {
-            console.warn("Failed to sync coin bonus to backend, adding locally:", error);
-            finalCoins += victoryBonus; // Add locally even if backend fails
+            console.warn("Failed to sync victory bonus, adding locally:", error);
+            finalCoins += victoryBonus;
           }
         }
 
-        // Update game state first
+        // Step 4: Update local state with backend values
         const enhancedState: EnhancedGameState = {
           ...gameState,
           ...updatedState,
-          coins: finalCoins,
+          coins: finalCoins, // Use confirmed backend value
           playerArmy: currentEnhancedPlayerArmy,
           currentRound: updatedState.currentRound,
           score: updatedState.score,
@@ -454,10 +445,9 @@ const RPGAdventure = () => {
 
         setGameState(enhancedState);
 
-        // If boss round, generate rewards and go to draft phase
+        // Step 5: Handle boss rewards or return to preparation
         if (wasBossRound) {
-          console.log("Boss defeated! Generating board modifier rewards...");
-          // Generate rewards locally without backend persistence
+          console.log("Boss defeated! Generating rewards...");
           const rewards = generateBossRewards(
             gameState.boardSize,
             gameState.currentRound,
@@ -466,7 +456,6 @@ const RPGAdventure = () => {
           setAvailableRewards(rewards);
           setGamePhase("draft");
         } else {
-          // Normal round - return to preparation
           setGamePhase("preparation");
         }
 
@@ -476,7 +465,6 @@ const RPGAdventure = () => {
         const newLives = Math.max(0, gameState.lives - 1);
 
         if (newLives <= 0) {
-          // Game over
           const finalState: EnhancedGameState = {
             ...gameState,
             lives: 0,
@@ -484,7 +472,6 @@ const RPGAdventure = () => {
           };
           setGameState(finalState);
         } else {
-          // Continue with fewer lives
           const updatedState: EnhancedGameState = {
             ...gameState,
             lives: newLives,
@@ -496,7 +483,7 @@ const RPGAdventure = () => {
     } catch (error) {
       console.error("Failed to complete battle:", error);
       setGamePhase("preparation");
-      alert("Battle completed but there were some sync issues. Your progress has been saved locally.");
+      alert("Battle completed but sync issues occurred. Progress saved locally.");
     }
   };
 
