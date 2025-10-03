@@ -28,6 +28,7 @@ import { rpgGameService } from "@/services/RPGGameService";
 import { gameSessionService } from "@/services/GameSessionService";
 import { AIService } from "@/services/aiService";
 import {AIStrategy} from "@/Interfaces/enums/AIStrategy.ts";
+import {JwtService} from "@/services/JwtService.ts";
 
 const RPGAdventure = () => {
   const navigate = useNavigate();
@@ -387,7 +388,20 @@ const RPGAdventure = () => {
   };
 
 
+  const getValidatedPlayerId = (gameSession: any): string => {
+    // Try multiple sources in order of priority
+    const playerId =
+      JwtService.getKeycloakId() ||
+      gameSession?.whitePlayer?.userId ||
+      gameSession?.currentPlayerId ||
+      localStorage.getItem('userId');
 
+    if (!playerId) {
+      throw new Error('No valid player ID found. Please log in again.');
+    }
+
+    return playerId;
+  };
 
   const completeBattle = async (victory: boolean) => {
     try {

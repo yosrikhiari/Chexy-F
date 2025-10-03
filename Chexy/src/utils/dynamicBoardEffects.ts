@@ -2,8 +2,6 @@ import { BoardEffect } from "@/Interfaces/types/rpgChess";
 import { TeleportPortal, DynamicBoardModifier } from "@/Interfaces/types/enhancedRpgChess";
 import { BoardPosition } from "@/Interfaces/types/chess";
 import {rpgGameService} from '@/services/RPGGameService.ts';
-import {enhancedRPGService} from '@/services/EnhancedRPGService.ts';
-import {undefined} from 'zod';
 
 export const calculateTeleportPortals = (boardSize: number): number => {
   if (boardSize <= 8) return 1;
@@ -173,8 +171,6 @@ export const generateDynamicBoardModifiers = async (
   return validModifiers;
 };
 
-
-
 export const calculateProgressiveBoardSize = async (
   gameId: string,
   playerId: string,
@@ -190,23 +186,27 @@ export const calculateProgressiveBoardSize = async (
     bossRounds,
     newBoardSize
   });
-
   // Only persist if size actually changes
   if (newBoardSize !== baseSize) {
-    const modifier: DynamicBoardModifier = {
+    // Use rpgGameService.addBoardEffect instead of enhancedRPGService
+    // since the backend expects a simpler BoardEffect format
+    const boardEffect: BoardEffect = {
       id: `size_update_round_${round}`,
       name: "Progressive Expansion",
       description: `Board expanded to ${newBoardSize}x${newBoardSize}`,
-      effect: 'increase_size',
-      rarity: 'common',
-      sizeModifier: newBoardSize - baseSize,
+      type: 'size_modifier',
+      positions: [], // Backend should accept empty array for global effects
+      effect: {
+        type: 'increase_size',
+        sizeModifier: newBoardSize - baseSize
+      },
       isActive: true,
     };
 
     try {
-      console.log('Attempting to apply board size modifier:', modifier);
-      await enhancedRPGService.applyBoardEffect(gameId, modifier, playerId);
-      console.log('Successfully applied board size modifier');
+      console.log('Attempting to apply board size effect:', boardEffect);
+      await rpgGameService.addBoardEffect(gameId, boardEffect, playerId);
+      console.log('Successfully applied board size effect');
     } catch (error) {
       console.warn('Failed to persist board size change to backend:', error);
       // Don't throw - continue with local state
@@ -216,7 +216,6 @@ export const calculateProgressiveBoardSize = async (
 
   return newBoardSize;
 };
-
 
 export const shouldExposeEnemyQueen = async (
   gameId: string,

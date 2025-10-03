@@ -297,6 +297,21 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
     return false;
   };
 
+  const getValidatedPlayerId = (gameSession: any): string => {
+    // Try multiple sources in order of priority
+    const playerId =
+      JwtService.getKeycloakId() ||
+      gameSession?.whitePlayer?.userId ||
+      gameSession?.currentPlayerId ||
+      localStorage.getItem('userId');
+
+    if (!playerId) {
+      throw new Error('No valid player ID found. Please log in again.');
+    }
+
+    return playerId;
+  };
+
   /** Constrain the board offset for dragging */
   const constrainOffset = (offset: { x: number; y: number }) => {
     const boardWidth = gameState.boardSize * squareSize * zoomLevel;
@@ -389,10 +404,17 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
       const targetPiece = newBoard[to.row][to.col];
       let finalDestination = to;
 
-      const playerId = JwtService.getKeycloakId() || gameSession?.whitePlayer.userId || "player1";
+      const playerId = getValidatedPlayerId(gameSession);
 
       // Handle RPG combat (teleport attack animation + damage application)
+// Replace the combat handling section in makeEnhancedMove (around line 380-430)
+// Find this section and replace it:
+
+// Handle RPG combat (teleport attack animation + damage application)
       if (targetPiece && targetPiece.color !== movingPiece.color) {
+        // Determine if attacker is a player piece
+        const isAttackerPlayerPiece = movingPiece.color === 'white';
+
         // Compute damage: attack - defense, minimum 1
         const attackerBaseAttack = (movingPiece.plusattack ?? movingPiece.attack ?? 5);
         const attackerName = (movingPiece.name || movingPiece.type || '').toLowerCase();
@@ -400,18 +422,17 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         const defenderAbility = (targetPiece.specialAbility || '').toLowerCase();
 
         // Ability modifiers
-        const seerDamageMultiplier = attackerName.includes('seer') ? 0.6 : 1.0; // Seer balanced damage
-        const lungeBonus = attackerAbility.includes('lunge') ? 1 : 0; // Dark Rider: +1 dmg on attack
-        const guardReduction = defenderAbility.includes('guard') ? 1 : 0; // Obsidian Guard: -1 dmg taken
+        const seerDamageMultiplier = attackerName.includes('seer') ? 0.6 : 1.0;
+        const lungeBonus = attackerAbility.includes('lunge') ? 1 : 0;
+        const guardReduction = defenderAbility.includes('guard') ? 1 : 0;
 
         const attackerAttack = Math.max(1, Math.floor(attackerBaseAttack * seerDamageMultiplier) + lungeBonus);
         const defenderDefense = (targetPiece.plusdefense ?? targetPiece.defense ?? 5) + guardReduction;
         const rawDamage = attackerAttack - defenderDefense;
         const damage = Math.max(1, rawDamage);
 
-        // Teleport animation: temporarily move attacker to defender square for 1s then return
+        // Teleport animation: temporarily move attacker to defender square
         const animBoard = newBoard.map((row) => [...row]);
-        // Place attacker at target, clear original (temporarily hide defender)
         animBoard[to.row][to.col] = { ...movingPiece, position: to } as EnhancedRPGPiece;
         animBoard[from.row][from.col] = null;
         setTeleportAnim({ active: true, from, to });
@@ -422,27 +443,87 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         // Apply damage to defender and return attacker to original square
         const postBoard = animBoard.map((row) => [...row]);
         const newHp = Math.max(0, (targetPiece.pluscurrentHp ?? targetPiece.hp ?? 10) - damage);
+
         if (newHp <= 0) {
           // Defender defeated
           postBoard[to.row][to.col] = null;
-          toast({ title: "Combat Victory", description: `${targetPiece.name} was defeated!` });
+          toast({
+            title: "Combat Victory",
+            description: `${targetPiece.name} was defeated!`
+          });
+
+          // CRITICAL: Track kill ONLY if attacker is a player piece defeating an enemy
+          if (isAttackerPlayerPiece) {
+            try {
+              console.log(`Tracking kill for player piece: ${movingPiece.name} (ID: ${movingPiece.id})`);
+              await rpgGameService.trackKill(gameState.gameid, movingPiece.id, playerId);
+
+              // Refresh game state to get updated levels and stats
+              const updatedGameState = await rpgGameService.getRPGGame(gameState.gameid);
+
+              // Find the updated attacker piece and sync its stats
+              const updatedAttacker = updatedGameState.playerArmy.find(p => p.id === movingPiece.id);
+              if (updatedAttacker) {
+                // Update the attacker in the board with new stats from backend
+                const enhancedAttacker = {
+                  ...movingPiece,
+                  pluslevel: updatedAttacker.pluslevel || movingPiece.pluslevel,
+                  plusmaxHp: updatedAttacker.plusmaxHp || movingPiece.plusmaxHp,
+                  pluscurrentHp: updatedAttacker.pluscurrentHp || movingPiece.pluscurrentHp,
+                  plusattack: updatedAttacker.plusattack || movingPiece.plusattack,
+                  plusdefense: updatedAttacker.plusdefense || movingPiece.plusdefense,
+                  plusexperience: updatedAttacker.plusexperience || 0,
+                };
+
+                postBoard[from.row][from.col] = { ...enhancedAttacker, position: from } as EnhancedRPGPiece;
+
+                // Show level up notification if leveled
+                if (updatedAttacker.pluslevel > movingPiece.pluslevel) {
+                  toast({
+                    title: "âœ¨ Level Up!",
+                    description: `${movingPiece.name} reached Level ${updatedAttacker.pluslevel}!`,
+                    duration: 3000,
+                  });
+                }
+              } else {
+                // Fallback if updated piece not found
+                postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
+              }
+
+            } catch (error) {
+              console.error("Failed to track kill:", error);
+              // Continue anyway - don't block combat
+              postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
+              toast({
+                title: "Warning",
+                description: "Failed to track kill progress.",
+                variant: "destructive",
+              });
+            }
+          } else {
+            // Enemy piece killed player piece - no tracking
+            console.log(`Enemy piece ${movingPiece.name} defeated player piece - no tracking`);
+            postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
+          }
         } else {
+          // Defender survived
           postBoard[to.row][to.col] = {
             ...targetPiece,
             pluscurrentHp: newHp,
           } as EnhancedRPGPiece;
-          toast({ title: "Combat", description: `${targetPiece.name} took ${damage} damage (HP ${newHp}).` });
+          toast({
+            title: "Combat",
+            description: `${targetPiece.name} took ${damage} damage (HP ${newHp}).`
+          });
+
+          // Return attacker to original square
+          postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
         }
-        // Return attacker to original square
-        postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
+
         setTeleportAnim({ active: false, from: null, to: null });
         setBoard(postBoard);
 
-        // Optional: grant small XP on hit/kill
-        // Skipping for now, can be added if desired
-
-        // Proceed to turn handling below
-        // Note: we do not continue with normal move placement after attack
+        // Check game over and handle turns
         const ended = await checkGameOver(postBoard);
         if (!ended) {
           if (isAI) {
@@ -454,7 +535,6 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
         }
         return;
       }
-
       // Handle teleport portal
       const portal = teleportPortals.find((p) => p.position.row === to.row && p.position.col === to.col && p.isActive);
       if (portal && portal.to) {

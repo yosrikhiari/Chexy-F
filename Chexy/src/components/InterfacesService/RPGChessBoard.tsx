@@ -649,8 +649,8 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         };
         newBoard[from.row][from.col] = null;
 
-        // ADD THIS: Award XP and handle leveling after capture
-        if (isCapture && 'pluslevel' in piece) {
+        // Track kill and handle leveling
+        if (isCapture && capturedPiece && capturedPiece.color === 'black' && piece.color === 'white' && 'pluslevel' in piece) {
           try {
             const updatedGameState = await rpgGameService.trackKill(
               gameState.gameid,
@@ -658,18 +658,33 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
               playerId
             );
 
-            // Update the piece from the backend response
+            // Find the updated piece from backend response
             const updatedPiece = updatedGameState.playerArmy.find(p => p.id === piece.id);
             if (updatedPiece && finalDestination) {
-              newBoard[finalDestination[0]][finalDestination[1]] = updatedPiece as EnhancedRPGPiece;
+              // Update the piece on the board with leveled stats
+              newBoard[finalDestination[0]][finalDestination[1]] = {
+                ...updatedPiece,
+                position: { row: finalDestination[0], col: finalDestination[1] },
+                hasMoved: true
+              } as EnhancedRPGPiece;
 
-              // Show level-up toast if leveled
+              // Show level-up notification
               if (updatedPiece.pluslevel > piece.pluslevel) {
-                toast.success(`${updatedPiece.name} leveled up to Level ${updatedPiece.pluslevel}!`);
+                toast.success(
+                  `🎉 ${updatedPiece.name} leveled up to Level ${updatedPiece.pluslevel}!\n` +
+                  `HP: ${updatedPiece.plusmaxHp} | ATK: ${updatedPiece.plusattack} | DEF: ${updatedPiece.plusdefense}`
+                );
+              } else {
+                const killsNeeded = updatedPiece.pluslevel;
+                const currentKills = (updatedPiece as any).killCount || 0;
+                toast.info(
+                  `${updatedPiece.name} kill progress: ${currentKills}/${killsNeeded}`
+                );
               }
             }
           } catch (err) {
             console.error("Failed to track kill:", err);
+            toast.error("Failed to track kill progress");
           }
         }
       }
@@ -688,8 +703,6 @@ const RPGChessBoard: React.FC<RPGChessBoardProps> = ({
         moveCount: prev.moveCount + 1,
       }));
       setBoard(newBoard);
-      // broadcasting disabled
-
       if (needsPromotion && finalDestination) {
         setPromotionData({
           position: { row: finalDestination[0], col: finalDestination[1] },
