@@ -1118,7 +1118,7 @@ const generateShopItems = (coins: number): ShopItem[] => {
       rarity: "common",
       item: commandBanner,
     },
-    ];
+  ];
 
   // Show up to 6 items, filter based on affordability to ensure at least 3 options
   const affordable = catalog.filter((i) => i.cost <= coins);

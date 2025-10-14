@@ -150,6 +150,14 @@ export const RPG_MODIFIERS: RPGModifier[] = [
     effect: "king_immunity",
     rarity: "legendary",
     isActive: false
+  },
+  {
+    id: "gold_multiplier",
+    name: "Gold Multiplier",
+    description: "Increase gold gained each round by 10% per card owned.",
+    effect: "gold_multiplier",
+    rarity: "rare",
+    isActive: false
   }
 ];
 

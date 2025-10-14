@@ -406,13 +406,8 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
 
       const playerId = getValidatedPlayerId(gameSession);
 
-      // Handle RPG combat (teleport attack animation + damage application)
-// Replace the combat handling section in makeEnhancedMove (around line 380-430)
-// Find this section and replace it:
-
-// Handle RPG combat (teleport attack animation + damage application)
       if (targetPiece && targetPiece.color !== movingPiece.color) {
-        // Determine if attacker is a player piece
+        // Determine if attacker is a player piece (white color)
         const isAttackerPlayerPiece = movingPiece.color === 'white';
 
         // Compute damage: attack - defense, minimum 1
@@ -452,19 +447,28 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
             description: `${targetPiece.name} was defeated!`
           });
 
-          // CRITICAL: Track kill ONLY if attacker is a player piece defeating an enemy
-          if (isAttackerPlayerPiece) {
+          // CRITICAL FIX: Only track kills if:
+          // 1. Attacker is a PLAYER piece (white)
+          // 2. We have valid IDs and playerId
+          if (isAttackerPlayerPiece && movingPiece.id && playerId) {
             try {
-              console.log(`Tracking kill for player piece: ${movingPiece.name} (ID: ${movingPiece.id})`);
-              await rpgGameService.trackKill(gameState.gameid, movingPiece.id, playerId);
+              console.log(`[KILL TRACK] Attempting to track kill for PLAYER piece: ${movingPiece.name} (ID: ${movingPiece.id})`);
+              console.log(`[KILL TRACK] Game ID: ${gameState.gameid}, Player ID: ${playerId}`);
 
-              // Refresh game state to get updated levels and stats
-              const updatedGameState = await rpgGameService.getRPGGame(gameState.gameid);
+              // Call backend to track kill
+              const updatedGameState = await rpgGameService.trackKill(
+                gameState.gameid,
+                movingPiece.id,
+                playerId
+              );
 
-              // Find the updated attacker piece and sync its stats
+              console.log(`[KILL TRACK] Backend response received`, updatedGameState);
+
+              // Find the updated attacker piece from backend response
               const updatedAttacker = updatedGameState.playerArmy.find(p => p.id === movingPiece.id);
+
               if (updatedAttacker) {
-                // Update the attacker in the board with new stats from backend
+                // Sync stats from backend
                 const enhancedAttacker = {
                   ...movingPiece,
                   pluslevel: updatedAttacker.pluslevel || movingPiece.pluslevel,
@@ -473,27 +477,47 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
                   plusattack: updatedAttacker.plusattack || movingPiece.plusattack,
                   plusdefense: updatedAttacker.plusdefense || movingPiece.plusdefense,
                   plusexperience: updatedAttacker.plusexperience || 0,
+                  killCount: (updatedAttacker as any).killCount || 0,
                 };
 
+                // Update board with leveled piece
                 postBoard[from.row][from.col] = { ...enhancedAttacker, position: from } as EnhancedRPGPiece;
 
                 // Show level up notification if leveled
                 if (updatedAttacker.pluslevel > movingPiece.pluslevel) {
                   toast({
-                    title: "âœ¨ Level Up!",
+                    title: "✨ Level Up!",
                     description: `${movingPiece.name} reached Level ${updatedAttacker.pluslevel}!`,
                     duration: 3000,
                   });
+                  console.log(`[LEVEL UP] ${movingPiece.name} leveled to ${updatedAttacker.pluslevel}`);
+                } else {
+                  // Show kill progress
+                  const killsNeeded = updatedAttacker.pluslevel;
+                  const currentKills = (updatedAttacker as any).killCount || 0;
+                  console.log(`[KILL PROGRESS] ${movingPiece.name}: ${currentKills}/${killsNeeded} kills`);
                 }
               } else {
-                // Fallback if updated piece not found
+                // Fallback: piece not found in response (shouldn't happen)
+                console.warn('[KILL TRACK] Updated piece not found in backend response');
                 postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
               }
 
             } catch (error) {
-              console.error("Failed to track kill:", error);
+              console.error("[KILL TRACK] Failed to track kill:", error);
+
+              // More detailed error logging
+              if (error instanceof Error) {
+                console.error("[KILL TRACK] Error details:", {
+                  message: error.message,
+                  name: error.name,
+                  stack: error.stack
+                });
+              }
+
               // Continue anyway - don't block combat
               postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
+
               toast({
                 title: "Warning",
                 description: "Failed to track kill progress.",
@@ -502,7 +526,7 @@ const EnhancedRPGChessBoard: React.FC<EnhancedRPGChessBoardProps> = ({
             }
           } else {
             // Enemy piece killed player piece - no tracking
-            console.log(`Enemy piece ${movingPiece.name} defeated player piece - no tracking`);
+            console.log(`[KILL TRACK] Skipping - Enemy piece ${movingPiece.name} defeated player piece`);
             postBoard[from.row][from.col] = { ...movingPiece, position: from } as EnhancedRPGPiece;
           }
         } else {
